@@ -70,6 +70,51 @@ async function buscarProveedorPorTexto(db, texto) {
     .find((p) => (p.razonSocialLower || "").includes(t) || (p.cuit || "").includes(texto));
 }
 
+async function buscarClientePorTexto(db, texto) {
+  const snap = await db.collection("clientes").limit(200).get();
+  const t = texto.toLowerCase();
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .find((c) => (c.razonSocialLower || "").includes(t) || (c.cuit || "").includes(texto));
+}
+
+function resumenVenta(v) {
+  return {
+    id: v.id,
+    numeroVenta: v.numeroVenta,
+    fecha: v.fecha,
+    clienteNombre: v.clienteNombre,
+    total: v.total,
+    montoPendiente: v.montoPendiente,
+    vendedorNombre: v.vendedorNombre,
+    cantidadItems: (v.items || []).length,
+  };
+}
+
+function detalleVenta(v) {
+  return {
+    id: v.id,
+    numeroVenta: v.numeroVenta,
+    fecha: v.fecha,
+    clienteNombre: v.clienteNombre,
+    vendedorNombre: v.vendedorNombre,
+    items: (v.items || []).map((it) => ({
+      productoDescripcion: it.productoDescripcion,
+      cantidad: it.cantidad,
+      precioUnitario: it.precioUnitario,
+      subtotal: it.subtotal,
+    })),
+    subtotal: v.subtotal,
+    descuentoGlobal: v.descuentoGlobal,
+    total: v.total,
+    pagos: v.pagos,
+    montoPendiente: v.montoPendiente,
+    tipoEntrega: v.tipoEntrega,
+    domicilioEntrega: v.domicilioEntrega,
+    estadoEntrega: v.estadoEntrega,
+  };
+}
+
 const HERRAMIENTAS = [
   {
     name: "buscar_productos",
@@ -144,6 +189,87 @@ const HERRAMIENTAS = [
           description: "Solo facturas que vencen dentro de estos días desde hoy. Omitir para traer todas las pendientes.",
         },
       },
+    },
+  },
+  {
+    name: "buscar_ventas",
+    description:
+      "Busca ventas por rango de fechas y/o nombre de cliente, más recientes primero. Usar para '¿qué se vendió " +
+      "hoy/esta semana?', 'ventas de tal cliente', '¿cuál fue la última venta?'. Sin filtros trae las últimas ventas.",
+    input_schema: {
+      type: "object",
+      properties: {
+        desde: { type: "string", description: "Fecha desde, formato YYYY-MM-DD" },
+        hasta: { type: "string", description: "Fecha hasta, formato YYYY-MM-DD" },
+        clienteTexto: { type: "string", description: "Nombre o parte del nombre del cliente" },
+      },
+    },
+  },
+  {
+    name: "obtener_venta",
+    description: "Trae el detalle completo (ítems, pagos, entrega) de una venta puntual, por su ID de documento o por su número de venta.",
+    input_schema: {
+      type: "object",
+      properties: { numeroOId: { type: "string" } },
+      required: ["numeroOId"],
+    },
+  },
+  {
+    name: "datos_cliente",
+    description: "Busca un cliente por razón social o CUIT.",
+    input_schema: {
+      type: "object",
+      properties: { texto: { type: "string" } },
+      required: ["texto"],
+    },
+  },
+  {
+    name: "cuenta_corriente_cliente",
+    description:
+      "Trae la cuenta corriente de un cliente puntual: saldo a cobrar (ventas menos cobros). Usar para " +
+      "'¿cuánto nos debe este cliente?' o '¿cuánto le vendimos?'. Buscar por razón social o CUIT.",
+    input_schema: {
+      type: "object",
+      properties: { texto: { type: "string" } },
+      required: ["texto"],
+    },
+  },
+  {
+    name: "resumen_ventas",
+    description:
+      "Totales de ventas de un período: monto total, cantidad de ventas, ticket promedio y unidades vendidas. " +
+      "Usar para '¿cuánto vendimos este mes?' o para comparar dos períodos (llamar dos veces con rangos distintos).",
+    input_schema: {
+      type: "object",
+      properties: {
+        desde: { type: "string", description: "YYYY-MM-DD" },
+        hasta: { type: "string", description: "YYYY-MM-DD" },
+      },
+      required: ["desde", "hasta"],
+    },
+  },
+  {
+    name: "mejores_clientes",
+    description: "Ranking de clientes por facturación en un período. Usar para '¿quiénes son nuestros mejores clientes?'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        desde: { type: "string", description: "YYYY-MM-DD" },
+        hasta: { type: "string", description: "YYYY-MM-DD" },
+      },
+      required: ["desde", "hasta"],
+    },
+  },
+  {
+    name: "productos_mas_vendidos",
+    description: "Ranking de productos por unidades vendidas en un período. Usar para '¿qué se vendió más?'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        desde: { type: "string", description: "YYYY-MM-DD" },
+        hasta: { type: "string", description: "YYYY-MM-DD" },
+      },
+      required: ["desde", "hasta"],
     },
   },
 ];
@@ -254,6 +380,111 @@ async function ejecutarHerramienta(nombre, input, rol) {
 
       facturas.sort((a, b) => (a.fechaVencimiento || "9999").localeCompare(b.fechaVencimiento || "9999"));
       return facturas.slice(0, 50);
+    }
+
+    case "buscar_ventas": {
+      let ventasQ = db.collection("ventas");
+      if (input.desde) ventasQ = ventasQ.where("fecha", ">=", input.desde);
+      if (input.hasta) ventasQ = ventasQ.where("fecha", "<=", input.hasta);
+      const snap = await ventasQ.orderBy("fecha", "desc").limit(200).get();
+      let ventas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (input.clienteTexto) {
+        const t = input.clienteTexto.toLowerCase();
+        ventas = ventas.filter((v) => (v.clienteNombre || "").toLowerCase().includes(t));
+      }
+      return ventas.slice(0, 30).map(resumenVenta);
+    }
+
+    case "obtener_venta": {
+      let doc = await db.collection("ventas").doc(input.numeroOId).get();
+      if (!doc.exists) {
+        const snap = await db.collection("ventas").where("numeroVenta", "==", Number(input.numeroOId)).limit(1).get();
+        doc = snap.docs[0];
+      }
+      if (!doc || !doc.exists) return { error: "No se encontró la venta." };
+      return detalleVenta({ id: doc.id, ...doc.data() });
+    }
+
+    case "datos_cliente": {
+      const snap = await db.collection("clientes").limit(200).get();
+      const t = input.texto.toLowerCase();
+      const encontrados = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((c) => (c.razonSocialLower || "").includes(t) || (c.cuit || "").includes(input.texto));
+      return encontrados.slice(0, 5);
+    }
+
+    case "cuenta_corriente_cliente": {
+      const cliente = await buscarClientePorTexto(db, input.texto);
+      if (!cliente) return { error: "No se encontró ese cliente." };
+
+      const [ventasSnap, cobrosSnap] = await Promise.all([
+        db.collection("ventas").where("clienteId", "==", cliente.id).get(),
+        db.collection("cobros").where("clienteId", "==", cliente.id).get(),
+      ]);
+      const totalVentas = ventasSnap.docs.reduce((acc, d) => acc + (d.data().total || 0), 0);
+      const totalCobros = cobrosSnap.docs.reduce((acc, d) => acc + (d.data().monto || 0), 0);
+
+      return {
+        cliente: cliente.razonSocial,
+        saldoACobrar: Math.round((totalVentas - totalCobros) * 100) / 100,
+        cantidadVentas: ventasSnap.size,
+      };
+    }
+
+    case "resumen_ventas": {
+      const snap = await db.collection("ventas").where("fecha", ">=", input.desde).where("fecha", "<=", input.hasta).get();
+      const ventas = snap.docs.map((d) => d.data());
+      let total = 0;
+      let unidades = 0;
+      let margenBruto = 0;
+      ventas.forEach((v) => {
+        total += v.total || 0;
+        (v.items || []).forEach((it) => {
+          unidades += it.cantidad || 0;
+          margenBruto += (it.subtotal || 0) - (it.costoUnitario || 0) * (it.cantidad || 0);
+        });
+      });
+      const cantidad = ventas.length;
+      const resumen = {
+        total: Math.round(total * 100) / 100,
+        cantidad,
+        ticketPromedio: cantidad > 0 ? Math.round((total / cantidad) * 100) / 100 : 0,
+        unidades,
+      };
+      // Margen bruto expone info de costos — mismo criterio que con productos, no va para "vendedor".
+      if (rol !== "vendedor") resumen.margenBruto = Math.round(margenBruto * 100) / 100;
+      return resumen;
+    }
+
+    case "mejores_clientes": {
+      const snap = await db.collection("ventas").where("fecha", ">=", input.desde).where("fecha", "<=", input.hasta).get();
+      const porCliente = {};
+      snap.docs.forEach((d) => {
+        const v = d.data();
+        const key = v.clienteId || "consumidor-final";
+        if (!porCliente[key]) porCliente[key] = { clienteNombre: v.clienteNombre || "Consumidor final", total: 0, cantidad: 0 };
+        porCliente[key].total += v.total || 0;
+        porCliente[key].cantidad += 1;
+      });
+      return Object.values(porCliente)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10);
+    }
+
+    case "productos_mas_vendidos": {
+      const snap = await db.collection("ventas").where("fecha", ">=", input.desde).where("fecha", "<=", input.hasta).get();
+      const porProducto = {};
+      snap.docs.forEach((d) => {
+        (d.data().items || []).forEach((it) => {
+          if (!porProducto[it.productoId]) porProducto[it.productoId] = { productoDescripcion: it.productoDescripcion, cantidad: 0, total: 0 };
+          porProducto[it.productoId].cantidad += it.cantidad;
+          porProducto[it.productoId].total += it.subtotal || 0;
+        });
+      });
+      return Object.values(porProducto)
+        .sort((a, b) => b.cantidad - a.cantidad)
+        .slice(0, 10);
     }
 
     default:

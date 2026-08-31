@@ -24,7 +24,7 @@ export function montarChatWidget() {
       <button type="button" id="chat-ia-cerrar" style="border:none;background:none;color:inherit;cursor:pointer">✕</button>
     </div>
     <div class="chat-ia-mensajes" id="chat-ia-mensajes">
-      <div class="chat-ia-bubble assistant">Hola — preguntame cosas como "¿qué productos tienen poco stock?" o "¿cuánto sale la aspiradora Ultracomb?".</div>
+      <div class="chat-ia-bubble assistant">Hola — preguntame cosas como "¿qué productos tienen poco stock?", "¿cuánto vendimos este mes?" o "¿cuánto nos debe tal cliente?".</div>
     </div>
     <form id="chat-ia-form" class="chat-ia-input-row">
       <input type="text" id="chat-ia-input" placeholder="Escribí tu pregunta…" autocomplete="off" />
