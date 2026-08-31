@@ -166,5 +166,11 @@ service cloud.firestore {
       allow read: if estaLogueado();
       allow write: if puedeVender();
     }
+
+    // Datos generales de la empresa (contacto, logo, datos fiscales) — configuracion/empresa.
+    match /configuracion/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
   }
 }

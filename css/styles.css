@@ -143,6 +143,36 @@ a {
   white-space: nowrap;
 }
 
+.topbar-org {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 12px;
+  margin-right: 2px;
+  border-right: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.topbar-org:empty {
+  display: none;
+}
+
+.topbar-org img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
+@media (max-width: 860px) {
+  .topbar-org span {
+    display: none;
+  }
+}
+
 .icon-btn {
   width: 32px;
   height: 32px;
@@ -863,6 +893,35 @@ tbody tr {
     grid-template-columns: 1fr 48px 72px 56px 72px 24px;
     font-size: 12px;
   }
+}
+
+/* --- Tabs --- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 4px;
+  margin-right: 20px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.tab-btn:hover {
+  background: none;
+  color: var(--foreground);
+}
+
+.tab-btn.active {
+  color: var(--foreground);
+  border-bottom-color: var(--accent);
 }
 
 /* --- Dashboard --- */

@@ -2,6 +2,7 @@ import { cerrarSesion } from "./auth.js";
 import { montarChatWidget } from "./chat-widget.js";
 import { icono, ICONOS_NAV } from "./iconos.js";
 import { initBuscadorGlobal } from "./buscador-global.js";
+import { obtenerConfigEmpresa } from "./configuracion-empresa.js";
 
 function nav(key, href, label) {
   return `<a href="${href}" data-key="${key}">${icono(ICONOS_NAV[key])}<span>${label}</span></a>`;
@@ -31,6 +32,7 @@ export function renderShell({ active, titulo, usuario }) {
         ${nav("cuenta-corriente", "/productos/cuenta-corriente.html", "Cuenta corriente")}
         ${nav("pagos", "/productos/pagos.html", "Pagos")}
         <div class="nav-group-label">Configuración</div>
+        ${usuario?.rol === "administrador" ? nav("config-empresa", "/configuracion/empresa.html", "Empresa") : ""}
         ${nav("config-categorias", "/configuracion/categorias.html", "Categorías")}
         ${nav("config-marcas", "/configuracion/marcas.html", "Marcas")}
         ${nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores")}
@@ -43,6 +45,7 @@ export function renderShell({ active, titulo, usuario }) {
         <div class="topbar">
           <div class="topbar-left">
             <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Abrir menú">☰</button>
+            <span id="topbar-org" class="topbar-org"></span>
             <h1>${titulo}</h1>
           </div>
           <div id="gsearch-container" class="topbar-search"></div>
@@ -79,6 +82,15 @@ export function renderShell({ active, titulo, usuario }) {
   initBuscadorGlobal(document.getElementById("gsearch-container"));
   document.getElementById("topbar-ia-btn").addEventListener("click", () => {
     document.getElementById("chat-ia-fab")?.click();
+  });
+
+  // Logo/nombre de la empresa en la topbar — no bloquea el resto del render.
+  obtenerConfigEmpresa().then((config) => {
+    if (!config.logoDataUrl && !config.nombreFantasia) return;
+    document.getElementById("topbar-org").innerHTML = `
+      ${config.logoDataUrl ? `<img src="${config.logoDataUrl}" alt="" />` : ""}
+      ${config.nombreFantasia ? `<span>${config.nombreFantasia}</span>` : ""}
+    `;
   });
 
   return document.getElementById("main-content");
