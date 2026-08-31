@@ -10,6 +10,7 @@ import {
   reporteMejoresClientes,
   reporteVentasPorVendedor,
   reporteValorizacionStock,
+  reportePosicionIva,
 } from "/js/reportes.js";
 
 const usuario = await requireAuth();
@@ -210,6 +211,44 @@ async function cargar() {
         ${kpiCard("Margen sobre ventas", `${margenPct.toFixed(1)}%`)}
       </div>
       <div class="hint">Margen = precio de venta menos el costo del producto al momento exacto de venderse (no el costo actual) — así el número no se corre si el costo cambió después.</div>
+    `;
+    return;
+  }
+
+  if (tipo === "posicion-iva") {
+    const pos = await reportePosicionIva(desde, hasta);
+    const filaHtml = (titulo, monto) => `
+      <tr>
+        <td>${titulo}</td>
+        <td style="text-align:right; color:var(--${monto >= 0 ? "success" : "foreground"})">${monto >= 0 ? "+" : ""}${formatMonto(monto)}</td>
+      </tr>
+    `;
+    contenedor.innerHTML = `
+      <div class="dashboard-grid" style="margin-bottom:16px">
+        ${kpiCard("Débito fiscal ventas", formatMonto(pos.debitoFiscalVentas))}
+        ${kpiCard("Crédito fiscal compras", `+${formatMonto(pos.creditoFiscalCompras)}`)}
+        ${kpiCard("Saldo a favor estimado", `${pos.saldoAFavorEstimado >= 0 ? "+" : ""}${formatMonto(pos.saldoAFavorEstimado)}`)}
+      </div>
+      <div class="card" style="padding:20px; max-width:520px">
+        <div class="section-title">Determinación del período</div>
+        <div class="table-scroll">
+          <table>
+            <tbody>
+              ${filaHtml("IVA débito fiscal", pos.debitoFiscalVentas)}
+              ${filaHtml("IVA crédito fiscal", pos.creditoFiscalCompras)}
+              ${filaHtml("Saldo técnico a favor", pos.saldoTecnico)}
+              ${filaHtml("Retenciones IVA sufridas", pos.retencionesSufridas)}
+              ${filaHtml("Percepciones sufridas (compras)", pos.percepcionesSufridas)}
+              ${filaHtml("Saldo a favor estimado", pos.saldoAFavorEstimado)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:12px">
+        El sistema todavía no discrimina IVA en las ventas (no factura fiscalmente) — por eso el débito
+        fiscal da $0. Las retenciones tampoco se registran en ningún lado todavía. Esto se completa
+        cuando se conecte la facturación electrónica ARCA.
+      </div>
     `;
     return;
   }

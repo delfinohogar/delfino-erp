@@ -28,6 +28,12 @@ export const CATEGORIAS_REPORTES = [
       { id: "cuenta-corriente-proveedores", titulo: "Cuenta corriente de proveedores", descripcion: "Saldo adeudado por proveedor.", href: "/productos/cuenta-corriente.html" },
     ],
   },
+  {
+    categoria: "Impositivo",
+    reportes: [
+      { id: "posicion-iva", titulo: "Posición IVA", descripcion: "Débito fiscal de ventas contra crédito fiscal de compras del período." },
+    ],
+  },
 ];
 
 function fechaISO(date) {
@@ -141,6 +147,41 @@ export async function reporteValorizacionStock(top = 10) {
   const total = productos.reduce((acc, p) => acc + p.valorizado, 0);
   const principales = productos.sort((a, b) => b.valorizado - a.valorizado).slice(0, top);
   return { total: Math.round(total * 100) / 100, principales };
+}
+
+// Posición IVA del período: débito fiscal (IVA de lo vendido) contra crédito fiscal (IVA de lo
+// comprado). El sistema no discrimina IVA en las ventas todavía (no factura fiscalmente) — por eso
+// el débito fiscal da $0 siempre, no es un error, es lo que hay hasta que exista facturación
+// electrónica. Retenciones no se registran en ningún lado del sistema, así que van en $0 explícito
+// en vez de inventar un valor.
+export async function reportePosicionIva(desde, hasta) {
+  // compras.fecha es un Timestamp (a diferencia de ventas.fecha, que es un string) — no se puede
+  // filtrar por rango del lado de Firestore sin que los tipos coincidan, así que se trae todo y se
+  // filtra acá, mismo criterio defensivo que ya usa cuenta-corriente.js con esta misma colección.
+  const snap = await getDocs(collection(db, "compras"));
+  const compras = snap.docs
+    .map((d) => d.data())
+    .filter((c) => {
+      const fechaStr = c.fecha?.toDate ? fechaISO(c.fecha.toDate()) : c.fecha;
+      return fechaStr >= desde && fechaStr <= hasta;
+    });
+  const creditoFiscalCompras = compras.reduce((acc, c) => acc + (c.ivaTotal || 0), 0);
+  const percepcionesSufridas = compras.reduce((acc, c) => acc + (c.percepciones || 0), 0);
+  const debitoFiscalVentas = 0;
+  // Positivo = a favor nuestro (crédito > débito). Retenciones/percepciones que ya nos aplicaron
+  // suman a favor — son IVA que ya "pagamos" de más y se puede usar contra el saldo técnico.
+  const saldoTecnico = creditoFiscalCompras - debitoFiscalVentas;
+  const retencionesSufridas = 0;
+  const saldoAFavorEstimado = saldoTecnico + retencionesSufridas + percepcionesSufridas;
+
+  return {
+    debitoFiscalVentas,
+    creditoFiscalCompras: Math.round(creditoFiscalCompras * 100) / 100,
+    saldoTecnico: Math.round(saldoTecnico * 100) / 100,
+    retencionesSufridas,
+    percepcionesSufridas: Math.round(percepcionesSufridas * 100) / 100,
+    saldoAFavorEstimado: Math.round(saldoAFavorEstimado * 100) / 100,
+  };
 }
 
 export async function reporteProductosMasVendidos(desde, hasta, top = 8) {
