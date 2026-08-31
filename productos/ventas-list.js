@@ -22,6 +22,7 @@ content.innerHTML = `
             <th>Cliente</th>
             <th>Vendedor</th>
             <th>Medio de pago</th>
+            <th>Entrega</th>
             <th>Total</th>
             <th>Estado</th>
           </tr>
@@ -50,6 +51,13 @@ function medioResumen(pagos) {
 
 // El estado se recalcula con los cobros reales (no con venta.montoPendiente, que queda congelado
 // al momento de la venta y no se entera de los cobros que se registren después).
+function entregaBadge(venta) {
+  const tipo = venta.tipoEntrega || "Retira ahora";
+  if (tipo === "Retira ahora") return tipo;
+  const pendiente = venta.estadoEntrega !== "entregado";
+  return `${tipo} ${pendiente ? '<span class="badge warning">Pendiente</span>' : '<span class="badge success">Entregado</span>'}`;
+}
+
 function estadoBadge(saldo, total) {
   if (saldo <= 0.01) return '<span class="badge success">Cobrada</span>';
   if (saldo < total - 0.01) return '<span class="badge warning">Parcial</span>';
@@ -75,6 +83,7 @@ async function cargar() {
       <td>${v.clienteNombre || "Consumidor final"}</td>
       <td>${v.vendedorNombre || ""}</td>
       <td>${medioResumen(v.pagos)}</td>
+      <td>${entregaBadge(v)}</td>
       <td>$${(v.total ?? 0).toLocaleString("es-AR")}</td>
       <td>${estadoBadge(saldo, v.total || 0)}</td>
     `;

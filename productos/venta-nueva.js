@@ -1,7 +1,7 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { buscarProductos } from "/js/productos.js";
-import { crearVenta } from "/js/ventas.js";
+import { crearVenta, TIPOS_ENTREGA } from "/js/ventas.js";
 import { actualizarCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { initClientePicker } from "/js/cliente-picker.js";
@@ -24,6 +24,14 @@ content.innerHTML = `
         <div id="cliente-picker" style="flex:1; max-width:280px"></div>
         <button type="button" id="btn-editar-cliente" class="link-btn" style="display:none">Editar</button>
         <button type="button" id="btn-quitar-cliente" class="link-btn" style="display:none">Quitar</button>
+      </div>
+      <div class="field" style="margin-bottom:14px">
+        <label for="pos-tipo-entrega">Entrega</label>
+        <select id="pos-tipo-entrega">
+          ${TIPOS_ENTREGA.map((t) => `<option>${t}</option>`).join("")}
+        </select>
+        <input type="text" id="pos-domicilio-entrega" placeholder="Domicilio de entrega…" style="display:none; margin-top:8px; width:100%" />
+        <input type="text" id="pos-nota-entrega" placeholder="Detalle…" style="display:none; margin-top:8px; width:100%" />
       </div>
       <div id="pos-carrito-vacio" class="empty-state">El carrito está vacío. Buscá productos para agregarlos.</div>
       <div id="pos-carrito-items"></div>
@@ -48,6 +56,9 @@ const continuarBtn = document.getElementById("pos-continuar");
 const errorEl = document.getElementById("pos-error");
 const btnQuitarCliente = document.getElementById("btn-quitar-cliente");
 const btnEditarCliente = document.getElementById("btn-editar-cliente");
+const tipoEntregaSelect = document.getElementById("pos-tipo-entrega");
+const domicilioEntregaInput = document.getElementById("pos-domicilio-entrega");
+const notaEntregaInput = document.getElementById("pos-nota-entrega");
 
 let carrito = []; // { productoId, productoSku, productoDescripcion, cantidad, precioUnitario, descuentoPct }
 let clienteSeleccionado = null;
@@ -58,8 +69,22 @@ const clientePicker = initClientePicker(document.getElementById("cliente-picker"
     clienteSeleccionado = cliente;
     btnQuitarCliente.style.display = cliente ? "inline-block" : "none";
     btnEditarCliente.style.display = cliente ? "inline-block" : "none";
+    if (cliente?.domicilioEntrega && !domicilioEntregaInput.value) {
+      domicilioEntregaInput.value = cliente.domicilioEntrega;
+    }
   },
 });
+
+function actualizarCamposEntrega() {
+  const tipo = tipoEntregaSelect.value;
+  domicilioEntregaInput.style.display = tipo === "Envío a domicilio" ? "block" : "none";
+  notaEntregaInput.style.display = tipo === "Otro" ? "block" : "none";
+  if (tipo === "Envío a domicilio" && !domicilioEntregaInput.value && clienteSeleccionado?.domicilioEntrega) {
+    domicilioEntregaInput.value = clienteSeleccionado.domicilioEntrega;
+  }
+}
+tipoEntregaSelect.addEventListener("change", actualizarCamposEntrega);
+actualizarCamposEntrega();
 
 btnQuitarCliente.addEventListener("click", () => clientePicker.limpiarSeleccion());
 
@@ -194,7 +219,7 @@ searchInput.addEventListener("input", () => {
   }, 200);
 });
 
-function mostrarConfirmacion(numeroVenta, total) {
+function mostrarConfirmacion(numeroVenta, total, tipoEntrega) {
   posLayout.style.display = "none";
   const conf = document.getElementById("pos-confirmacion");
   conf.style.display = "block";
@@ -203,13 +228,22 @@ function mostrarConfirmacion(numeroVenta, total) {
     <div style="font-size:18px; font-weight:600; margin:8px 0">¡Venta confirmada!</div>
     <div class="hint" style="font-size:14px">Venta #${numeroVenta}</div>
     <div style="font-size:26px; font-weight:600; margin:12px 0">$${total.toLocaleString("es-AR")}</div>
-    <button type="button" class="primary" id="btn-nueva-venta" style="width:100%">Nueva venta</button>
+    ${tipoEntrega !== "Retira ahora" ? `<div class="hint" style="font-size:14px">${tipoEntrega} — queda pendiente para Logística.</div>` : ""}
+    <button type="button" class="primary" id="btn-nueva-venta" style="width:100%; margin-top:12px">Nueva venta</button>
   `;
   document.getElementById("btn-nueva-venta").addEventListener("click", () => location.reload());
 }
 
 continuarBtn.addEventListener("click", async () => {
   errorEl.style.display = "none";
+
+  const tipoEntrega = tipoEntregaSelect.value;
+  if (tipoEntrega === "Envío a domicilio" && !domicilioEntregaInput.value.trim()) {
+    errorEl.textContent = "Cargá el domicilio de entrega.";
+    errorEl.style.display = "block";
+    return;
+  }
+
   const total = totalCarrito();
   const pagos = await pedirMedioPagoVenta(total, clienteSeleccionado);
   if (!pagos) return;
@@ -220,6 +254,9 @@ continuarBtn.addEventListener("click", async () => {
       fecha: new Date().toISOString().slice(0, 10),
       clienteId: clienteSeleccionado?.id || null,
       clienteNombre: clienteSeleccionado?.razonSocial || null,
+      tipoEntrega,
+      domicilioEntrega: domicilioEntregaInput.value.trim(),
+      notaEntrega: notaEntregaInput.value.trim(),
       items: carrito.map((i) => ({
         productoId: i.productoId,
         productoSku: i.productoSku,
@@ -235,7 +272,7 @@ continuarBtn.addEventListener("click", async () => {
       pagos,
     };
     const resultado = await crearVenta(datos, usuario);
-    mostrarConfirmacion(resultado.numeroVenta, total);
+    mostrarConfirmacion(resultado.numeroVenta, total, tipoEntrega);
   } catch (err) {
     errorEl.textContent = err?.message || "Ocurrió un error al registrar la venta.";
     errorEl.style.display = "block";

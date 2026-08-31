@@ -22,6 +22,10 @@ import {
 
 export const MEDIOS_PAGO_VENTA = ["Efectivo", "Tarjeta", "Transferencia", "Otro", "Pendiente de pago"];
 
+// Tipos de entrega: por ahora fijos acá, pero es el único lugar que el futuro módulo de Logística
+// necesita tocar para agregar/quitar opciones (ej. "Envío programado", "Retiro en depósito").
+export const TIPOS_ENTREGA = ["Retira ahora", "Envío a domicilio", "Otro"];
+
 async function siguienteNumeroVenta() {
   const contadorRef = doc(db, "contadores", "ventas");
   return runTransaction(db, async (tx) => {
@@ -101,6 +105,11 @@ export async function crearVenta(datos, usuario) {
     total: datos.total,
     pagos: datos.pagos,
     montoPendiente,
+    tipoEntrega: datos.tipoEntrega || "Retira ahora",
+    domicilioEntrega: datos.tipoEntrega === "Envío a domicilio" ? datos.domicilioEntrega || null : null,
+    notaEntrega: datos.notaEntrega || null,
+    // "Retira ahora" se resuelve en el momento — el resto queda pendiente para que Logística lo tome.
+    estadoEntrega: datos.tipoEntrega && datos.tipoEntrega !== "Retira ahora" ? "pendiente" : "entregado",
     creadoPor: usuario.uid,
     creadoEn: ahora,
   });
