@@ -40,11 +40,14 @@ content.innerHTML = `
 `;
 
 const contenedor = document.getElementById("reporte-contenido");
-const ACCENT = "#e23e3a";
+// Se leen de las variables CSS (no valores fijos) para que los gráficos seas legibles tanto en tema
+// claro como oscuro — --accent es la marca y no cambia, el resto sí.
+const estilos = getComputedStyle(document.documentElement);
+const ACCENT = estilos.getPropertyValue("--accent").trim() || "#e23e3a";
 const ACCENT_SUAVE = "rgba(226, 62, 58, 0.12)";
-const BORDE = "#e4e4e7";
+const BORDE = estilos.getPropertyValue("--border").trim() || "#e4e4e7";
 Chart.defaults.font.family = "Inter, system-ui, sans-serif";
-Chart.defaults.color = "#71717a";
+Chart.defaults.color = estilos.getPropertyValue("--muted").trim() || "#71717a";
 
 let charts = [];
 function destruirCharts() {

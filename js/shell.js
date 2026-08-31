@@ -3,6 +3,7 @@ import { montarChatWidget } from "./chat-widget.js";
 import { icono, ICONOS_NAV } from "./iconos.js";
 import { initBuscadorGlobal } from "./buscador-global.js";
 import { obtenerConfigEmpresa } from "./configuracion-empresa.js";
+import { aplicarTemaGuardado, initSelectorTema } from "./tema.js";
 
 function nav(key, href, label) {
   return `<a href="${href}" data-key="${key}">${icono(ICONOS_NAV[key])}<span>${label}</span></a>`;
@@ -10,6 +11,9 @@ function nav(key, href, label) {
 
 // Arma el layout (sidebar + topbar) y devuelve el <main> donde cada página vuelca su contenido.
 export function renderShell({ active, titulo, usuario }) {
+  // Lo antes posible, para minimizar el parpadeo de tema equivocado antes de que se arme el resto.
+  aplicarTemaGuardado();
+
   document.body.innerHTML = `
     <div class="layout">
       <aside class="sidebar">
@@ -58,6 +62,7 @@ export function renderShell({ active, titulo, usuario }) {
           <div id="gsearch-container" class="topbar-search"></div>
           <div class="topbar-right">
             <button type="button" id="topbar-ia-btn" class="icon-btn" title="Preguntale a la IA" aria-label="Preguntale a la IA">✨</button>
+            <div id="theme-picker-container"></div>
             <span class="hint" style="margin:0">${usuario?.nombre || usuario?.email || ""}</span>
             <button id="logout-btn">Salir</button>
           </div>
@@ -113,6 +118,7 @@ export function renderShell({ active, titulo, usuario }) {
 
   montarChatWidget();
   initBuscadorGlobal(document.getElementById("gsearch-container"));
+  initSelectorTema(document.getElementById("theme-picker-container"));
   document.getElementById("topbar-ia-btn").addEventListener("click", () => {
     document.getElementById("chat-ia-fab")?.click();
   });

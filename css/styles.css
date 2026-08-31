@@ -1,6 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 :root {
+  --page-bg: #f4f4f5;
   --background: #ffffff;
   --foreground: #18181b;
   --card: #ffffff;
@@ -18,6 +19,46 @@
   --warning-bg: #fffbeb;
 }
 
+/* Tema oscuro (paleta tomada de La Pyme): se activa solo, siguiendo el sistema, cuando el usuario no
+   eligió nada explícito — y siempre que elija "Oscuro" a mano (data-theme="dark"), sin importar el
+   sistema. "Claro" a mano fuerza lo de arriba incluso con el sistema en oscuro. --accent se mantiene
+   igual en los dos temas: es la marca, no cambia con el tema. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page-bg: #0a0a0a;
+    --background: #171717;
+    --foreground: #fafafa;
+    --card: #171717;
+    --border: rgba(255, 255, 255, 0.1);
+    --muted: #a1a1aa;
+    --muted-bg: #27272a;
+    --accent-foreground: #ffffff;
+    --danger: #f87171;
+    --danger-bg: rgba(185, 28, 28, 0.18);
+    --success: #4ade80;
+    --success-bg: rgba(21, 128, 61, 0.18);
+    --warning: #fbbf24;
+    --warning-bg: rgba(180, 83, 9, 0.18);
+  }
+}
+
+:root[data-theme="dark"] {
+  --page-bg: #0a0a0a;
+  --background: #171717;
+  --foreground: #fafafa;
+  --card: #171717;
+  --border: rgba(255, 255, 255, 0.1);
+  --muted: #a1a1aa;
+  --muted-bg: #27272a;
+  --accent-foreground: #ffffff;
+  --danger: #f87171;
+  --danger-bg: rgba(185, 28, 28, 0.18);
+  --success: #4ade80;
+  --success-bg: rgba(21, 128, 61, 0.18);
+  --warning: #fbbf24;
+  --warning-bg: rgba(180, 83, 9, 0.18);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -31,7 +72,7 @@ body {
 body {
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--foreground);
-  background: var(--muted-bg);
+  background: var(--page-bg);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -75,7 +116,8 @@ a {
   align-items: center;
   gap: 8px;
   padding: 8px 8px 16px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .sidebar .brand .dot {
@@ -161,7 +203,8 @@ a {
 }
 
 .topbar h1 {
-  font-size: 20px;
+  font-size: 26px;
+  font-weight: 700;
   margin: 0;
   white-space: nowrap;
 }
@@ -287,7 +330,9 @@ a {
     padding-right: 12px;
   }
 
-  .topbar-right span {
+  /* Combinador de hijo directo: solo el nombre de usuario, no cualquier span anidado más adentro
+     (ej. el menú de tema, que también vive dentro de .topbar-right). */
+  .topbar-right > span {
     display: none;
   }
 
@@ -335,7 +380,7 @@ a {
   }
 
   .topbar h1 {
-    font-size: 17px;
+    font-size: 19px;
   }
 }
 
@@ -378,7 +423,7 @@ textarea:focus {
 
 label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--muted);
   margin-bottom: 4px;
@@ -489,7 +534,7 @@ tbody tr {
 }
 
 .section-title {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   margin: 0 0 12px;
   padding-bottom: 8px;
@@ -497,7 +542,7 @@ tbody tr {
 }
 
 .hint {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
   margin-top: 4px;
 }
@@ -550,7 +595,7 @@ tbody tr {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--muted-bg);
+  background: var(--page-bg);
 }
 
 .login-card {
@@ -931,6 +976,44 @@ tbody tr {
   border-bottom-color: var(--accent);
 }
 
+/* --- Selector de tema (topbar) --- */
+.theme-picker {
+  position: relative;
+}
+
+.theme-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 0.25rem);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  z-index: 150;
+  min-width: 140px;
+  overflow: hidden;
+  text-align: left;
+}
+
+.theme-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.theme-option:hover {
+  background: var(--muted-bg);
+}
+
+.theme-option.selected {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 /* --- Dashboard --- */
 .dashboard-grid {
   display: grid;
@@ -950,8 +1033,8 @@ tbody tr {
 }
 
 .dashboard-card-valor {
-  font-size: 26px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 700;
   margin: 6px 0 4px;
 }
 
