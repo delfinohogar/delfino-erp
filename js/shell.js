@@ -1,5 +1,11 @@
 import { cerrarSesion } from "./auth.js";
 import { montarChatWidget } from "./chat-widget.js";
+import { icono, ICONOS_NAV } from "./iconos.js";
+import { initBuscadorGlobal } from "./buscador-global.js";
+
+function nav(key, href, label) {
+  return `<a href="${href}" data-key="${key}">${icono(ICONOS_NAV[key])}<span>${label}</span></a>`;
+}
 
 // Arma el layout (sidebar + topbar) y devuelve el <main> donde cada página vuelca su contenido.
 export function renderShell({ active, titulo, usuario }) {
@@ -7,40 +13,42 @@ export function renderShell({ active, titulo, usuario }) {
     <div class="layout">
       <aside class="sidebar">
         <div class="brand"><span class="dot"></span> Delfino ERP</div>
-        <a href="/dashboard.html" data-key="dashboard">Dashboard</a>
+        ${nav("dashboard", "/dashboard.html", "Dashboard")}
         <div class="nav-group-label">Ventas</div>
-        <a href="/productos/venta-nueva.html" data-key="venta-nueva">Nueva venta</a>
-        <a href="/productos/ventas.html" data-key="ventas">Ventas</a>
-        <a href="/productos/cuenta-corriente-clientes.html" data-key="cuenta-corriente-clientes">Cuenta corriente</a>
-        <a href="/productos/cobros.html" data-key="cobros">Cobros</a>
+        ${nav("venta-nueva", "/productos/venta-nueva.html", "Nueva venta")}
+        ${nav("ventas", "/productos/ventas.html", "Ventas")}
+        ${nav("cuenta-corriente-clientes", "/productos/cuenta-corriente-clientes.html", "Cuenta corriente")}
+        ${nav("cobros", "/productos/cobros.html", "Cobros")}
         <div class="nav-group-label">Productos</div>
-        <a href="/productos/" data-key="productos">Productos</a>
-        <a href="/productos/precios.html" data-key="precios">Precios</a>
-        <a href="/productos/inventario.html" data-key="inventario">Inventario</a>
-        <a href="/productos/movimientos.html" data-key="movimientos">Movimientos</a>
-        <a href="/productos/importar.html" data-key="importar">Importar</a>
+        ${nav("productos", "/productos/", "Productos")}
+        ${nav("precios", "/productos/precios.html", "Precios")}
+        ${nav("inventario", "/productos/inventario.html", "Inventario")}
+        ${nav("movimientos", "/productos/movimientos.html", "Movimientos")}
+        ${nav("importar", "/productos/importar.html", "Importar")}
         <div class="nav-group-label">Compras</div>
-        <a href="/productos/ordenes-compra.html" data-key="ordenes-compra">Órdenes de compra</a>
-        <a href="/productos/compras.html" data-key="compras">Compras</a>
-        <a href="/productos/cuenta-corriente.html" data-key="cuenta-corriente">Cuenta corriente</a>
-        <a href="/productos/pagos.html" data-key="pagos">Pagos</a>
+        ${nav("ordenes-compra", "/productos/ordenes-compra.html", "Órdenes de compra")}
+        ${nav("compras", "/productos/compras.html", "Compras")}
+        ${nav("cuenta-corriente", "/productos/cuenta-corriente.html", "Cuenta corriente")}
+        ${nav("pagos", "/productos/pagos.html", "Pagos")}
         <div class="nav-group-label">Configuración</div>
-        <a href="/configuracion/categorias.html" data-key="config-categorias">Categorías</a>
-        <a href="/configuracion/marcas.html" data-key="config-marcas">Marcas</a>
-        <a href="/configuracion/proveedores.html" data-key="config-proveedores">Proveedores</a>
-        <a href="/configuracion/clientes.html" data-key="config-clientes">Clientes</a>
-        <a href="/configuracion/listas-precios.html" data-key="config-precios">Listas de Precios</a>
-        ${usuario?.rol === "administrador" ? '<a href="/configuracion/usuarios.html" data-key="config-usuarios">Usuarios</a>' : ""}
+        ${nav("config-categorias", "/configuracion/categorias.html", "Categorías")}
+        ${nav("config-marcas", "/configuracion/marcas.html", "Marcas")}
+        ${nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores")}
+        ${nav("config-clientes", "/configuracion/clientes.html", "Clientes")}
+        ${nav("config-precios", "/configuracion/listas-precios.html", "Listas de Precios")}
+        ${usuario?.rol === "administrador" ? nav("config-usuarios", "/configuracion/usuarios.html", "Usuarios") : ""}
       </aside>
       <div class="sidebar-backdrop"></div>
       <div class="main">
         <div class="topbar">
-          <div style="display:flex;align-items:center;gap:10px">
+          <div class="topbar-left">
             <button id="sidebar-toggle" class="sidebar-toggle" aria-label="Abrir menú">☰</button>
             <h1>${titulo}</h1>
           </div>
-          <div style="display:flex;align-items:center;gap:12px;font-size:13px;color:var(--muted)">
-            <span>${usuario?.nombre || usuario?.email || ""}</span>
+          <div id="gsearch-container" class="topbar-search"></div>
+          <div class="topbar-right">
+            <button type="button" id="topbar-ia-btn" class="icon-btn" title="Preguntale a la IA" aria-label="Preguntale a la IA">✨</button>
+            <span class="hint" style="margin:0">${usuario?.nombre || usuario?.email || ""}</span>
             <button id="logout-btn">Salir</button>
           </div>
         </div>
@@ -68,6 +76,10 @@ export function renderShell({ active, titulo, usuario }) {
   sidebarEl.querySelectorAll("a").forEach((a) => a.addEventListener("click", cerrarSidebar));
 
   montarChatWidget();
+  initBuscadorGlobal(document.getElementById("gsearch-container"));
+  document.getElementById("topbar-ia-btn").addEventListener("click", () => {
+    document.getElementById("chat-ia-fab")?.click();
+  });
 
   return document.getElementById("main-content");
 }
