@@ -2,16 +2,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { guardarDashboardCards } from "/js/usuarios.js";
 import { db, doc, getDoc } from "/js/firebase.js";
-import {
-  TARJETAS_DASHBOARD,
-  PERIODOS,
-  rangoPeriodo,
-  obtenerVentasPeriodo,
-  obtenerStockCritico,
-  obtenerSaldoClientes,
-  obtenerCuentaProveedores,
-} from "/js/dashboard.js";
-import { reporteVentasPorDia } from "/js/reportes.js";
+import { CATEGORIAS_REPORTES, PERIODOS, rangoPeriodo, RESUMENES_DASHBOARD } from "/js/dashboard.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -32,30 +23,31 @@ content.innerHTML = `
 const grid = document.getElementById("tarjetas-grid");
 const periodoSelect = document.getElementById("periodo-select");
 
+// Todo reporte con una entrada en RESUMENES_DASHBOARD puede mostrarse acá — el catálogo es el mismo
+// que /reportes.html (CATEGORIAS_REPORTES), así que agregar un reporte nuevo a esa lista más una
+// entrada en RESUMENES_DASHBOARD alcanza para que también pueda ser tarjeta.
+const todosLosReportes = CATEGORIAS_REPORTES.flatMap((g) => g.reportes.map((r) => ({ ...r, categoria: g.categoria }))).filter(
+  (r) => RESUMENES_DASHBOARD[r.id]
+);
+
 // Config guardada en el perfil (usuarios/{uid}.dashboardCards) — viaja con la cuenta entre PCs.
 // Sin config guardada todavía, se muestran todas.
 const perfilSnap = await getDoc(doc(db, "usuarios", usuario.uid));
-let cardsVisibles = perfilSnap.data()?.dashboardCards || TARJETAS_DASHBOARD.map((t) => t.id);
+let cardsVisibles = perfilSnap.data()?.dashboardCards || todosLosReportes.map((r) => r.id);
 
-function formatMonto(valor) {
-  return `$${Math.round(valor).toLocaleString("es-AR")}`;
+function hrefDe(reporte) {
+  return reporte.href || `/reportes-detalle.html?tipo=${reporte.id}`;
 }
 
-function variacion(actual, anterior) {
-  if (!anterior) return null;
-  const pct = ((actual - anterior) / anterior) * 100;
-  const signo = pct >= 0 ? "+" : "";
-  return { texto: `${signo}${pct.toFixed(1)}% vs. período anterior`, positivo: pct >= 0 };
-}
-
-function tarjetaHtml({ titulo, valor, comparacion, href, chartId }) {
+function tarjetaHtml(reporte, resumen, chartId) {
   return `
-    <a href="${href}" class="card dashboard-card">
-      <div class="hint" style="margin:0">${titulo}</div>
-      <div class="dashboard-card-valor">${valor}</div>
+    <a href="${hrefDe(reporte)}" class="card dashboard-card">
+      <div class="hint" style="margin:0">${reporte.titulo}</div>
+      <div class="dashboard-card-valor" style="font-size:${resumen.valor.length > 14 ? "18px" : "26px"}">${resumen.valor}</div>
+      ${resumen.sub ? `<div class="hint" style="margin:0">${resumen.sub}</div>` : ""}
       ${
-        comparacion
-          ? `<div class="hint" style="color:var(--${comparacion.positivo ? "success" : "danger"})">${comparacion.texto}</div>`
+        resumen.comparacion
+          ? `<div class="hint" style="color:var(--${resumen.comparacion.positivo ? "success" : "danger"})">${resumen.comparacion.texto}</div>`
           : ""
       }
       ${chartId ? `<div class="dashboard-card-sparkline"><canvas id="${chartId}"></canvas></div>` : ""}
@@ -76,15 +68,7 @@ function pintarSparkline(canvasId, valores) {
       data: {
         labels: valores.map(() => ""),
         datasets: [
-          {
-            data: valores,
-            borderColor: ACCENT,
-            backgroundColor: ACCENT_SUAVE,
-            fill: true,
-            tension: 0.3,
-            pointRadius: 0,
-            borderWidth: 1.5,
-          },
+          { data: valores, borderColor: ACCENT, backgroundColor: ACCENT_SUAVE, fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
         ],
       },
       options: {
@@ -103,62 +87,19 @@ async function cargar() {
   sparklines.forEach((c) => c.destroy());
   sparklines = [];
 
-  const { desde, hasta, desdeAnterior, hastaAnterior } = rangoPeriodo(periodoSelect.value);
-  const [ventasActual, ventasAnterior, stockCritico, saldoClientes, cuentaProveedores, serieDiaria] = await Promise.all([
-    obtenerVentasPeriodo(desde, hasta),
-    obtenerVentasPeriodo(desdeAnterior, hastaAnterior),
-    obtenerStockCritico(),
-    obtenerSaldoClientes(),
-    obtenerCuentaProveedores(),
-    reporteVentasPorDia(desde, hasta),
-  ]);
-
-  const datosPorTarjeta = {
-    "ventas-totales": {
-      titulo: "Ventas totales",
-      valor: formatMonto(ventasActual.total),
-      comparacion: variacion(ventasActual.total, ventasAnterior.total),
-      href: "/productos/ventas.html",
-      chartId: "spark-ventas-totales",
-    },
-    "cantidad-ventas": {
-      titulo: "Cantidad de ventas",
-      valor: String(ventasActual.cantidad),
-      comparacion: variacion(ventasActual.cantidad, ventasAnterior.cantidad),
-      href: "/productos/ventas.html",
-      chartId: "spark-cantidad-ventas",
-    },
-    "stock-critico": {
-      titulo: "Stock crítico",
-      valor: String(stockCritico.cantidad),
-      href: "/productos/inventario.html",
-    },
-    "cuentas-cobrar": {
-      titulo: "Cuentas por cobrar",
-      valor: formatMonto(saldoClientes.saldoTotal),
-      href: "/productos/cuenta-corriente-clientes.html",
-    },
-    "cuentas-pagar": {
-      titulo: "Cuentas por pagar",
-      valor: formatMonto(cuentaProveedores.saldoTotal),
-      href: "/productos/cuenta-corriente.html",
-    },
-    "facturas-vencer": {
-      titulo: "Facturas próximas a vencer (7 días)",
-      valor: String(cuentaProveedores.facturasPorVencer),
-      href: "/productos/compras.html",
-    },
-  };
-
-  const visibles = TARJETAS_DASHBOARD.filter((t) => cardsVisibles.includes(t.id));
+  const visibles = todosLosReportes.filter((r) => cardsVisibles.includes(r.id));
   if (visibles.length === 0) {
     grid.innerHTML = `<div class="empty-state">No hay tarjetas para mostrar. Usá "Personalizar" para elegir cuáles ver.</div>`;
     return;
   }
-  grid.innerHTML = visibles.map((t) => tarjetaHtml(datosPorTarjeta[t.id])).join("");
 
-  if (cardsVisibles.includes("ventas-totales")) pintarSparkline("spark-ventas-totales", serieDiaria.map((d) => d.total));
-  if (cardsVisibles.includes("cantidad-ventas")) pintarSparkline("spark-cantidad-ventas", serieDiaria.map((d) => d.cantidad));
+  const rango = rangoPeriodo(periodoSelect.value);
+  const resumenes = await Promise.all(visibles.map((r) => RESUMENES_DASHBOARD[r.id](rango)));
+
+  grid.innerHTML = visibles.map((r, i) => tarjetaHtml(r, resumenes[i], r.id === "resumen-ventas" ? "spark-resumen-ventas" : null)).join("");
+
+  const iVentas = visibles.findIndex((r) => r.id === "resumen-ventas");
+  if (iVentas >= 0 && resumenes[iVentas].serie) pintarSparkline("spark-resumen-ventas", resumenes[iVentas].serie);
 }
 
 periodoSelect.addEventListener("change", cargar);
@@ -170,14 +111,23 @@ function abrirPersonalizar() {
     <div class="modal-card card">
       <div class="section-title">Personalizar Dashboard</div>
       <form id="personalizar-form">
-        ${TARJETAS_DASHBOARD.map(
-          (t) => `
-          <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:400; margin-bottom:10px; color:var(--foreground)">
-            <input type="checkbox" name="tarjeta" value="${t.id}" ${cardsVisibles.includes(t.id) ? "checked" : ""} />
-            ${t.titulo}
-          </label>
-        `
-        ).join("")}
+        ${CATEGORIAS_REPORTES.map((g) => {
+          const reportesConResumen = g.reportes.filter((r) => RESUMENES_DASHBOARD[r.id]);
+          if (reportesConResumen.length === 0) return "";
+          return `
+            <div class="hint" style="margin:12px 0 6px; font-weight:600; color:var(--foreground)">${g.categoria}</div>
+            ${reportesConResumen
+              .map(
+                (r) => `
+              <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:400; margin-bottom:8px; color:var(--foreground)">
+                <input type="checkbox" name="tarjeta" value="${r.id}" ${cardsVisibles.includes(r.id) ? "checked" : ""} />
+                ${r.titulo}
+              </label>
+            `
+              )
+              .join("")}
+          `;
+        }).join("")}
         <div class="toolbar" style="margin-top:8px">
           <button type="submit" class="primary">Guardar</button>
           <button type="button" id="personalizar-cancelar">Cancelar</button>

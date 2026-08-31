@@ -10,6 +10,8 @@ import {
   reporteMejoresClientes,
   reporteVentasPorVendedor,
   reporteValorizacionStock,
+  reporteStockCritico,
+  reporteFacturasPorVencer,
   reportePosicionIva,
 } from "/js/reportes.js";
 
@@ -27,7 +29,7 @@ if (!reporte) {
   throw new Error("tipo de reporte inválido");
 }
 
-const SIN_PERIODO = tipo === "valorizacion-stock";
+const SIN_PERIODO = ["valorizacion-stock", "stock-critico", "facturas-vencer"].includes(tipo);
 
 content.innerHTML = `
   <div class="toolbar">
@@ -248,6 +250,47 @@ async function cargar() {
         El sistema todavía no discrimina IVA en las ventas (no factura fiscalmente) — por eso el débito
         fiscal da $0. Las retenciones tampoco se registran en ningún lado todavía. Esto se completa
         cuando se conecte la facturación electrónica ARCA.
+      </div>
+    `;
+    return;
+  }
+
+  if (tipo === "stock-critico") {
+    const productos = await reporteStockCritico();
+    contenedor.innerHTML = `
+      <div class="card">
+        <div id="empty" class="hint" style="display:${productos.length ? "none" : "block"}; padding:16px">Ningún producto activo está en o por debajo de su stock mínimo.</div>
+        ${
+          productos.length
+            ? `<div class="table-scroll"><table>
+                <thead><tr><th>SKU</th><th>Producto</th><th>Stock</th><th>Mínimo</th></tr></thead>
+                <tbody>${productos.map((p) => `<tr><td>${p.sku || ""}</td><td>${p.descripcion}</td><td>${p.stockTotal}</td><td>${p.stockMinimo}</td></tr>`).join("")}</tbody>
+              </table></div>`
+            : ""
+        }
+      </div>
+    `;
+    return;
+  }
+
+  if (tipo === "facturas-vencer") {
+    const facturas = await reporteFacturasPorVencer();
+    contenedor.innerHTML = `
+      <div class="card">
+        <div id="empty" class="hint" style="display:${facturas.length ? "none" : "block"}; padding:16px">No hay facturas de compra con saldo pendiente.</div>
+        ${
+          facturas.length
+            ? `<div class="table-scroll"><table>
+                <thead><tr><th>Proveedor</th><th>Comprobante</th><th>Vencimiento</th><th>Saldo</th></tr></thead>
+                <tbody>${facturas
+                  .map(
+                    (f) =>
+                      `<tr><td>${f.proveedorNombre || ""}</td><td>${f.numeroFactura || ""}</td><td>${f.fechaVencimiento ? new Date(f.fechaVencimiento).toLocaleDateString("es-AR") : "-"}</td><td>${formatMonto(f.saldo)}</td></tr>`
+                  )
+                  .join("")}</tbody>
+              </table></div>`
+            : ""
+        }
       </div>
     `;
     return;

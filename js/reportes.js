@@ -19,6 +19,7 @@ export const CATEGORIAS_REPORTES = [
     categoria: "Inventario",
     reportes: [
       { id: "valorizacion-stock", titulo: "Valorización de stock", descripcion: "Capital inmovilizado en inventario, valorizado al costo." },
+      { id: "stock-critico", titulo: "Stock crítico", descripcion: "Productos activos en o por debajo de su stock mínimo." },
     ],
   },
   {
@@ -26,6 +27,7 @@ export const CATEGORIAS_REPORTES = [
     reportes: [
       { id: "cuenta-corriente-clientes", titulo: "Cuenta corriente de clientes", descripcion: "Saldo a cobrar por cliente.", href: "/productos/cuenta-corriente-clientes.html" },
       { id: "cuenta-corriente-proveedores", titulo: "Cuenta corriente de proveedores", descripcion: "Saldo adeudado por proveedor.", href: "/productos/cuenta-corriente.html" },
+      { id: "facturas-vencer", titulo: "Facturas por vencer", descripcion: "Facturas de compra con saldo pendiente, ordenadas por vencimiento." },
     ],
   },
   {
@@ -182,6 +184,40 @@ export async function reportePosicionIva(desde, hasta) {
     percepcionesSufridas: Math.round(percepcionesSufridas * 100) / 100,
     saldoAFavorEstimado: Math.round(saldoAFavorEstimado * 100) / 100,
   };
+}
+
+export async function reporteStockCritico() {
+  const snap = await getDocs(query(collection(db, "productos"), where("estado", "==", "activo")));
+  return snap.docs
+    .map((d) => d.data())
+    .filter((p) => (p.stockTotal ?? 0) <= (p.stockMinimo ?? 0))
+    .map((p) => ({ sku: p.sku, descripcion: p.descripcion, stockTotal: p.stockTotal ?? 0, stockMinimo: p.stockMinimo ?? 0 }))
+    .sort((a, b) => a.stockTotal - b.stockTotal);
+}
+
+// Facturas de compra con saldo pendiente (impagas o parciales), sin importar el período — es un
+// listado de "qué hay que pagar ahora", no una serie histórica.
+export async function reporteFacturasPorVencer() {
+  const [comprasSnap, pagosSnap] = await Promise.all([getDocs(collection(db, "compras")), getDocs(collection(db, "pagosProveedores"))]);
+  const compras = comprasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const pagos = pagosSnap.docs.map((d) => d.data());
+  return compras
+    .map((c) => {
+      const pagado = pagos.filter((p) => p.compraId === c.id).reduce((acc, p) => acc + (p.monto || 0), 0);
+      // fechaVencimiento normalmente es un string "YYYY-MM-DD", pero alguna compra vieja (cargada
+      // antes de que ese campo existiera con ese formato) puede tenerlo como Timestamp — se normaliza
+      // acá para no romper el sort, mismo criterio que ya se usa con compras.fecha.
+      const fechaVencimiento = c.fechaVencimiento?.toDate ? c.fechaVencimiento.toDate().toISOString().slice(0, 10) : c.fechaVencimiento || null;
+      return {
+        proveedorNombre: c.proveedorNombre,
+        numeroFactura: c.numeroFactura,
+        fechaVencimiento,
+        total: c.total || 0,
+        saldo: Math.round(((c.total || 0) - pagado) * 100) / 100,
+      };
+    })
+    .filter((c) => c.saldo > 0.01)
+    .sort((a, b) => (a.fechaVencimiento || "9999").localeCompare(b.fechaVencimiento || "9999"));
 }
 
 export async function reporteProductosMasVendidos(desde, hasta, top = 8) {
