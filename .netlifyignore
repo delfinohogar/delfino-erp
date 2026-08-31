@@ -1,0 +1,6 @@
+functions/
+.claude/
+dev-server.py
+firebase.json
+firestore.rules
+firestore.indexes.json

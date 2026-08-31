@@ -1,0 +1,190 @@
+import { requireAuth } from "/js/auth.js";
+import { renderShell } from "/js/shell.js";
+import { obtenerCliente, actualizarCliente, guardarUbicacionCliente } from "/js/clientes.js";
+import { pedirClienteModal } from "/js/cliente-modal.js";
+import { consultarPadronArca } from "/js/arca.js";
+import { mostrarCentralDeudores } from "/js/bcra-modal.js";
+import { urlMapa } from "/js/motor-mapas.js";
+import { pedirNormalizacionDireccion } from "/js/normalizar-direccion-modal.js";
+
+const usuario = await requireAuth();
+if (!usuario) throw new Error("redirecting to login");
+
+const clienteId = new URLSearchParams(location.search).get("id");
+const content = renderShell({ active: "config-clientes", titulo: "Ficha de cliente", usuario });
+
+if (!clienteId) {
+  content.innerHTML = `<div class="card empty-state">Falta el cliente.</div>`;
+  throw new Error("falta id de cliente");
+}
+
+content.innerHTML = `
+  <div class="card" style="padding:20px; margin-bottom:16px">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px">
+      <div>
+        <div id="f-razonSocial" style="font-size:20px; font-weight:600"></div>
+        <div class="hint" id="f-cuit" style="margin-top:4px"></div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center">
+        <span id="f-origen"></span>
+        <button type="button" id="btn-reconsultar">🔎 Re-consultar ARCA</button>
+        <button type="button" id="btn-deudores">🏦 Central de Deudores</button>
+        <button type="button" id="btn-editar">Editar</button>
+      </div>
+    </div>
+    <div class="hint error-text" id="f-error" style="display:none; margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="section-title">Datos ARCA</div>
+    <div class="field-row">
+      <div class="field"><label>Condición IVA</label><div id="d-condicionIva">-</div></div>
+      <div class="field"><label>Situación tributaria</label><div id="d-situacion">-</div></div>
+      <div class="field"><label>Provincia</label><div id="d-provincia">-</div></div>
+      <div class="field"><label>Código postal</label><div id="d-cp">-</div></div>
+    </div>
+    <div class="field"><label>Domicilio fiscal</label><div id="d-domicilio">-</div></div>
+    <div class="field"><label>Actividades</label><div id="d-actividades">-</div></div>
+    <div class="hint" id="d-fecha"></div>
+  </div>
+
+  <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="section-title">Contacto</div>
+    <div class="field-row">
+      <div class="field"><label>WhatsApp</label><div id="d-whatsapp">-</div></div>
+      <div class="field"><label>Email</label><div id="d-email">-</div></div>
+    </div>
+    <div class="field">
+      <label>Domicilio de entrega</label>
+      <div style="display:flex; align-items:center; gap:10px">
+        <div id="d-domicilio-entrega">-</div>
+        <button type="button" id="btn-normalizar" style="flex-shrink:0">📍 Normalizar dirección</button>
+      </div>
+      <div class="hint" id="d-domicilio-normalizado" style="margin-top:6px"></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:20px">
+    <div class="section-title" style="border:none; margin:0; padding:0">Cuenta corriente</div>
+    <div class="hint" style="margin-top:8px">Todavía no hay ventas registradas a este cliente — esto se completa cuando exista el módulo de Ventas.</div>
+  </div>
+`;
+
+function formatFecha(fecha) {
+  if (!fecha) return "-";
+  if (fecha.toDate) return fecha.toDate().toLocaleDateString("es-AR");
+  return new Date(fecha).toLocaleDateString("es-AR");
+}
+
+function pintarCliente(c) {
+  document.getElementById("f-razonSocial").textContent = c.razonSocial || "";
+  document.getElementById("f-cuit").textContent = c.cuit ? `CUIT/DNI ${c.cuit}` : "Sin CUIT/DNI cargado";
+  document.getElementById("f-origen").innerHTML =
+    c.fuenteDatos === "arca" ? '<span class="badge success">Origen: ARCA</span>' : '<span class="badge muted">Origen: Manual</span>';
+
+  document.getElementById("d-condicionIva").textContent = c.condicionIva || "-";
+  document.getElementById("d-situacion").textContent = c.situacionTributaria || "-";
+  document.getElementById("d-provincia").textContent = c.provincia || "-";
+  document.getElementById("d-cp").textContent = c.codigoPostal || "-";
+  document.getElementById("d-domicilio").textContent = c.domicilioFiscal || "-";
+  document.getElementById("d-actividades").textContent = (c.actividades || []).map((a) => a.descripcion).join(", ") || "-";
+  document.getElementById("d-fecha").textContent = c.fechaConsultaArca
+    ? `Última consulta a ARCA: ${formatFecha(c.fechaConsultaArca)}`
+    : "Todavía no se consultó ARCA para este cliente.";
+
+  document.getElementById("d-whatsapp").textContent = c.whatsapp || "-";
+  document.getElementById("d-email").textContent = c.email || "-";
+  document.getElementById("d-domicilio-entrega").textContent = c.domicilioEntrega || "-";
+
+  const normalizadoEl = document.getElementById("d-domicilio-normalizado");
+  if (c.domicilioEntregaNormalizado) {
+    normalizadoEl.innerHTML = `✓ Normalizado: ${c.domicilioEntregaNormalizado} <span class="hint">(${c.domicilioEntregaLat?.toFixed(5)}, ${c.domicilioEntregaLon?.toFixed(5)})</span> · <a href="${urlMapa(c.domicilioEntregaLat, c.domicilioEntregaLon)}" target="_blank" rel="noopener">Ver en el mapa</a>`;
+    normalizadoEl.className = "hint";
+  } else {
+    normalizadoEl.textContent = c.domicilioEntrega ? "Todavía no se normalizó esta dirección." : "";
+    normalizadoEl.className = "hint";
+  }
+}
+
+let cliente = await obtenerCliente(clienteId);
+if (!cliente) {
+  content.innerHTML = `<div class="card empty-state">No se encontró el cliente.</div>`;
+  throw new Error("cliente no encontrado");
+}
+pintarCliente(cliente);
+
+document.getElementById("btn-editar").addEventListener("click", async () => {
+  const datos = await pedirClienteModal(null, cliente);
+  if (!datos) return;
+  await actualizarCliente(clienteId, datos.razonSocial, datos.cuit, datos.datosArca, datos.datosContacto);
+  cliente = await obtenerCliente(clienteId);
+  pintarCliente(cliente);
+});
+
+document.getElementById("btn-normalizar").addEventListener("click", async () => {
+  const errorEl = document.getElementById("f-error");
+  errorEl.style.display = "none";
+  errorEl.className = "hint error-text";
+  if (!cliente.domicilioEntrega) {
+    errorEl.textContent = "Cargá primero un domicilio de entrega (botón Editar).";
+    errorEl.style.display = "block";
+    return;
+  }
+  const btn = document.getElementById("btn-normalizar");
+  btn.disabled = true;
+  try {
+    const resultado = await pedirNormalizacionDireccion(cliente.domicilioEntrega, cliente.provincia);
+    if (!resultado) return;
+    await guardarUbicacionCliente(clienteId, resultado);
+    cliente = await obtenerCliente(clienteId);
+    pintarCliente(cliente);
+  } catch (err) {
+    errorEl.textContent = "No se pudo normalizar la dirección: " + (err?.message || "error desconocido");
+    errorEl.className = "hint error-text";
+    errorEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById("btn-deudores").addEventListener("click", () => {
+  const errorEl = document.getElementById("f-error");
+  errorEl.style.display = "none";
+  errorEl.className = "hint error-text";
+  if (!cliente.cuit) {
+    errorEl.textContent = "Este cliente no tiene CUIT/DNI cargado.";
+    errorEl.style.display = "block";
+    return;
+  }
+  mostrarCentralDeudores(cliente.cuit.replace(/\D/g, ""), cliente.razonSocial);
+});
+
+document.getElementById("btn-reconsultar").addEventListener("click", async () => {
+  const errorEl = document.getElementById("f-error");
+  errorEl.style.display = "none";
+  errorEl.className = "hint error-text";
+  if (!cliente.cuit) {
+    errorEl.textContent = "Este cliente no tiene CUIT cargado.";
+    errorEl.style.display = "block";
+    return;
+  }
+  const btn = document.getElementById("btn-reconsultar");
+  btn.disabled = true;
+  btn.textContent = "Consultando…";
+  try {
+    const datosArca = await consultarPadronArca(cliente.cuit);
+    await actualizarCliente(clienteId, cliente.razonSocial, cliente.cuit, datosArca, {
+      domicilioEntrega: cliente.domicilioEntrega,
+      whatsapp: cliente.whatsapp,
+      email: cliente.email,
+    });
+    cliente = await obtenerCliente(clienteId);
+    pintarCliente(cliente);
+  } catch (err) {
+    errorEl.textContent = "No se pudo consultar ARCA: " + (err?.message || "error desconocido");
+    errorEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "🔎 Re-consultar ARCA";
+  }
+});

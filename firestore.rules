@@ -1,0 +1,134 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estaLogueado() {
+      return request.auth != null;
+    }
+
+    function perfil() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function rol() {
+      return perfil().rol;
+    }
+
+    function esAdministrador() {
+      return estaLogueado() && rol() == 'administrador';
+    }
+
+    // Todo usuario logueado con perfil puede leer y escribir catálogo (productos, categorías, marcas, proveedores).
+    // La escritura de campos sensibles (costos, overrides) queda para más adelante cuando haya permisos más finos por rol.
+    function puedeEditarCatalogo() {
+      return estaLogueado() && rol() in ['administrador', 'administrativo'];
+    }
+
+    match /usuarios/{uid} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    // Necesaria además de la regla anidada de más abajo: las collection group queries (ej. "Movimientos",
+    // que junta el log de auditoría de todos los productos) solo se autorizan con una regla en la raíz
+    // que use el wildcard recursivo {path=**} — la regla anidada dentro de /productos/{id} alcanza para
+    // leer/escribir el historial de un producto puntual, pero no para la query agrupada.
+    match /{path=**}/logAuditoria/{entryId} {
+      allow read: if estaLogueado();
+    }
+
+    match /productos/{productoId} {
+      allow read: if estaLogueado();
+      allow create, update: if puedeEditarCatalogo();
+      allow delete: if esAdministrador();
+
+      match /historialCostos/{entryId} {
+        allow read: if estaLogueado();
+        allow create: if puedeEditarCatalogo();
+        allow update, delete: if false; // historial inmutable
+      }
+
+      match /logAuditoria/{entryId} {
+        allow read: if estaLogueado();
+        allow create: if puedeEditarCatalogo();
+        allow update, delete: if false; // log inmutable
+      }
+
+      match /stockPorDeposito/{depositoId} {
+        allow read: if estaLogueado();
+        allow write: if puedeEditarCatalogo();
+      }
+
+      match /proveedores/{proveedorId} {
+        allow read: if estaLogueado();
+        allow write: if puedeEditarCatalogo();
+      }
+
+      match /precios/{listaId} {
+        allow read: if estaLogueado();
+        allow write: if puedeEditarCatalogo();
+      }
+    }
+
+    match /categorias/{id} {
+      allow read: if estaLogueado();
+      allow write: if puedeEditarCatalogo();
+    }
+
+    match /marcas/{id} {
+      allow read: if estaLogueado();
+      allow write: if puedeEditarCatalogo();
+    }
+
+    match /proveedores/{id} {
+      allow read: if estaLogueado();
+      allow write: if puedeEditarCatalogo();
+    }
+
+    match /clientes/{id} {
+      allow read: if estaLogueado();
+      allow write: if puedeEditarCatalogo();
+    }
+
+    match /sucursales/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    match /depositos/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    match /listasPrecios/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    // Facturas de compra a proveedor: suman stock y actualizan costo de cada producto al crearse.
+    // Inmutables una vez cargadas (igual que historialCostos/logAuditoria) para mantener la trazabilidad.
+    match /compras/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeEditarCatalogo();
+      allow update, delete: if false;
+    }
+
+    // Pagos a proveedor, atados a una factura de compra puntual. Inmutables una vez creados —
+    // un pago cargado mal se corrige con un pago negativo o se deja una nota, nunca se edita/borra.
+    match /pagosProveedores/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeEditarCatalogo();
+      allow update, delete: if false;
+    }
+
+    // Órdenes de compra: pedidos/intenciones de compra que todavía no llegaron. A diferencia de
+    // /compras, NO impactan stock ni costo — por eso sí se pueden editar (cambiar estado, etc.)
+    // hasta que se reciban.
+    match /ordenesCompra/{id} {
+      allow read: if estaLogueado();
+      allow create, update: if puedeEditarCatalogo();
+      allow delete: if esAdministrador();
+    }
+  }
+}

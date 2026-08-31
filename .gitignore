@@ -1,0 +1,5 @@
+# Local Netlify folder
+.netlify
+
+# Dependencias de Cloud Functions (se reinstalan con npm install)
+functions/node_modules
