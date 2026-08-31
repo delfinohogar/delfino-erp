@@ -23,6 +23,7 @@ const FORMAS = {
   libro: `<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5V4.5z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><line x1="8" y1="7" x2="15" y2="7"/>`,
   balanza: `<line x1="12" y1="3" x2="12" y2="21"/><line x1="6" y1="7" x2="18" y2="7"/><path d="M4 7l-2 5a3 3 0 0 0 6 0L6 7"/><path d="M20 7l-2 5a3 3 0 0 0 6 0L20 7"/><line x1="9" y1="21" x2="15" y2="21"/>`,
   usuarios: `<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5.2 6-5.2s6 1.9 6 5.2"/><path d="M16 8.2A3 3 0 1 1 16 3"/><path d="M15 15c2.8.3 5 2.1 5 5"/>`,
+  chevron: `<polyline points="9 6 15 12 9 18"/>`,
 };
 
 export const ICONOS_NAV = {

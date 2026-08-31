@@ -9,6 +9,19 @@ function nav(key, href, label) {
   return `<a href="${href}" data-key="${key}" title="${label}">${icono(ICONOS_NAV[key])}<span>${label}</span></a>`;
 }
 
+// Grupo desplegable (acordeón), igual que los módulos de La Pyme: un encabezado con ícono + label
+// + flecha que abre/cierra la lista de items, en vez del rótulo fijo de antes.
+function grupo(key, label, iconoGrupo, itemsHtml) {
+  return `
+    <div class="nav-group" data-group="${key}">
+      <button type="button" class="nav-group-header">
+        ${icono(iconoGrupo)}<span>${label}</span>${icono("chevron")}
+      </button>
+      <div class="nav-group-items">${itemsHtml}</div>
+    </div>
+  `;
+}
+
 // Arma el layout (sidebar + topbar) y devuelve el <main> donde cada página vuelca su contenido.
 export function renderShell({ active, titulo, usuario }) {
   // Lo antes posible, para minimizar el parpadeo de tema equivocado antes de que se arme el resto.
@@ -20,36 +33,56 @@ export function renderShell({ active, titulo, usuario }) {
         <div class="brand"><span class="dot"></span><span class="brand-text">Delfino ERP</span></div>
         ${nav("dashboard", "/dashboard.html", "Dashboard")}
         ${nav("reportes", "/reportes.html", "Reportes")}
-        <div class="nav-group-label">Ventas</div>
-        ${nav("venta-nueva", "/productos/venta-nueva.html", "Nueva venta")}
-        ${nav("ventas", "/productos/ventas.html", "Ventas")}
-        ${nav("cuenta-corriente-clientes", "/productos/cuenta-corriente-clientes.html", "Cuenta corriente")}
-        ${nav("cobros", "/productos/cobros.html", "Cobros")}
-        <div class="nav-group-label">Productos</div>
-        ${nav("productos", "/productos/", "Productos")}
-        ${nav("precios", "/productos/precios.html", "Precios")}
-        ${nav("inventario", "/productos/inventario.html", "Inventario")}
-        ${nav("movimientos", "/productos/movimientos.html", "Movimientos")}
-        ${nav("importar", "/productos/importar.html", "Importar")}
-        <div class="nav-group-label">Compras</div>
-        ${nav("ordenes-compra", "/productos/ordenes-compra.html", "Órdenes de compra")}
-        ${nav("compras", "/productos/compras.html", "Compras")}
-        ${nav("cuenta-corriente", "/productos/cuenta-corriente.html", "Cuenta corriente")}
-        ${nav("pagos", "/productos/pagos.html", "Pagos")}
-        <div class="nav-group-label">Contabilidad</div>
-        ${nav("contabilidad-libro-diario", "/contabilidad/libro-diario.html", "Libro Diario")}
-        ${nav("contabilidad-libro-mayor", "/contabilidad/libro-mayor.html", "Libro Mayor")}
-        ${nav("contabilidad-sumas-saldos", "/contabilidad/sumas-saldos.html", "Sumas y Saldos")}
-        ${nav("contabilidad-estado-resultados", "/contabilidad/estado-resultados.html", "Estado de Resultados")}
-        ${nav("contabilidad-plan-cuentas", "/contabilidad/plan-cuentas.html", "Plan de Cuentas")}
-        <div class="nav-group-label">Configuración</div>
-        ${usuario?.rol === "administrador" ? nav("config-empresa", "/configuracion/empresa.html", "Empresa") : ""}
-        ${nav("config-categorias", "/configuracion/categorias.html", "Categorías")}
-        ${nav("config-marcas", "/configuracion/marcas.html", "Marcas")}
-        ${nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores")}
-        ${nav("config-clientes", "/configuracion/clientes.html", "Clientes")}
-        ${nav("config-precios", "/configuracion/listas-precios.html", "Listas de Precios")}
-        ${usuario?.rol === "administrador" ? nav("config-usuarios", "/configuracion/usuarios.html", "Usuarios") : ""}
+        ${grupo(
+          "ventas",
+          "Ventas",
+          "bolsa",
+          nav("venta-nueva", "/productos/venta-nueva.html", "Nueva venta") +
+            nav("ventas", "/productos/ventas.html", "Ventas") +
+            nav("cuenta-corriente-clientes", "/productos/cuenta-corriente-clientes.html", "Cuenta corriente") +
+            nav("cobros", "/productos/cobros.html", "Cobros")
+        )}
+        ${grupo(
+          "productos",
+          "Productos",
+          "caja",
+          nav("productos", "/productos/", "Productos") +
+            nav("precios", "/productos/precios.html", "Precios") +
+            nav("inventario", "/productos/inventario.html", "Inventario") +
+            nav("movimientos", "/productos/movimientos.html", "Movimientos") +
+            nav("importar", "/productos/importar.html", "Importar")
+        )}
+        ${grupo(
+          "compras",
+          "Compras",
+          "camion",
+          nav("ordenes-compra", "/productos/ordenes-compra.html", "Órdenes de compra") +
+            nav("compras", "/productos/compras.html", "Compras") +
+            nav("cuenta-corriente", "/productos/cuenta-corriente.html", "Cuenta corriente") +
+            nav("pagos", "/productos/pagos.html", "Pagos")
+        )}
+        ${grupo(
+          "contabilidad",
+          "Contabilidad",
+          "libro",
+          nav("contabilidad-libro-diario", "/contabilidad/libro-diario.html", "Libro Diario") +
+            nav("contabilidad-libro-mayor", "/contabilidad/libro-mayor.html", "Libro Mayor") +
+            nav("contabilidad-sumas-saldos", "/contabilidad/sumas-saldos.html", "Sumas y Saldos") +
+            nav("contabilidad-estado-resultados", "/contabilidad/estado-resultados.html", "Estado de Resultados") +
+            nav("contabilidad-plan-cuentas", "/contabilidad/plan-cuentas.html", "Plan de Cuentas")
+        )}
+        ${grupo(
+          "configuracion",
+          "Configuración",
+          "edificio",
+          (usuario?.rol === "administrador" ? nav("config-empresa", "/configuracion/empresa.html", "Empresa") : "") +
+            nav("config-categorias", "/configuracion/categorias.html", "Categorías") +
+            nav("config-marcas", "/configuracion/marcas.html", "Marcas") +
+            nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores") +
+            nav("config-clientes", "/configuracion/clientes.html", "Clientes") +
+            nav("config-precios", "/configuracion/listas-precios.html", "Listas de Precios") +
+            (usuario?.rol === "administrador" ? nav("config-usuarios", "/configuracion/usuarios.html", "Usuarios") : "")
+        )}
       </aside>
       <div class="sidebar-backdrop"></div>
       <div class="main">
@@ -74,6 +107,19 @@ export function renderShell({ active, titulo, usuario }) {
 
   const activeLink = document.querySelector(`.sidebar a[data-key="${active}"]`);
   if (activeLink) activeLink.classList.add("active");
+
+  // Acordeón de módulos, igual que La Pyme: el grupo del ítem activo arranca abierto, y solo uno
+  // puede estar abierto a la vez (abrir uno cierra los demás).
+  const gruposEl = document.querySelectorAll(".nav-group");
+  const grupoActivo = activeLink?.closest(".nav-group");
+  if (grupoActivo) grupoActivo.classList.add("open");
+  gruposEl.forEach((g) => {
+    g.querySelector(".nav-group-header").addEventListener("click", () => {
+      const yaAbierto = g.classList.contains("open");
+      gruposEl.forEach((otro) => otro.classList.remove("open"));
+      if (!yaAbierto) g.classList.add("open");
+    });
+  });
 
   document.getElementById("logout-btn").addEventListener("click", cerrarSesion);
 

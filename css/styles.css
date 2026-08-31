@@ -129,14 +129,58 @@ a {
   background: var(--accent);
 }
 
-.nav-group-label {
-  padding: 12px 10px 4px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+/* Módulos desplegables (acordeón), igual que La Pyme: un encabezado con ícono + label + flecha
+   que abre/cierra sus items; solo un módulo puede estar abierto a la vez. */
+.nav-group {
+  margin-top: 2px;
+}
+
+.nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px 7px 14px;
+  border: none;
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: none;
   color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+  font-size: 13px;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.nav-group-header:hover {
+  background: var(--muted-bg);
+  color: var(--foreground);
+}
+
+.nav-group-header span {
+  flex: 1;
+  text-align: left;
+}
+
+.nav-group-header .nav-icon:last-child {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+.nav-group.open .nav-group-header .nav-icon:last-child {
+  transform: rotate(90deg);
+}
+
+.nav-group-items {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 14px;
+}
+
+.nav-group.open .nav-group-items {
+  display: flex;
 }
 
 .sidebar a {
@@ -194,15 +238,27 @@ a {
     margin-left: 64px;
   }
 
-  .sidebar.collapsed .nav-group-label,
   .sidebar.collapsed a span,
-  .sidebar.collapsed .brand-text {
+  .sidebar.collapsed .brand-text,
+  .sidebar.collapsed .nav-group-header span,
+  .sidebar.collapsed .nav-group-header .nav-icon:last-child {
     display: none;
   }
 
   .sidebar.collapsed a {
     justify-content: center;
     padding: 8px 0;
+  }
+
+  /* Colapsada, el acordeón no aplica: se ve como lista plana de íconos, igual que antes. */
+  .sidebar.collapsed .nav-group-header {
+    justify-content: center;
+    padding: 8px 0;
+  }
+
+  .sidebar.collapsed .nav-group-items {
+    display: flex;
+    padding-left: 0;
   }
 
   .sidebar.collapsed .brand {
