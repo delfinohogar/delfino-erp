@@ -2,6 +2,8 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { buscarProductos } from "/js/productos.js";
 import { crearVenta } from "/js/ventas.js";
+import { actualizarCliente } from "/js/clientes.js";
+import { pedirClienteModal } from "/js/cliente-modal.js";
 import { initClientePicker } from "/js/cliente-picker.js";
 import { pedirMedioPagoVenta } from "/js/venta-pago-modal.js";
 
@@ -20,6 +22,7 @@ content.innerHTML = `
       <div class="pos-cliente-row">
         <span class="hint" style="margin:0">Cliente</span>
         <div id="cliente-picker" style="flex:1; max-width:280px"></div>
+        <button type="button" id="btn-editar-cliente" class="link-btn" style="display:none">Editar</button>
         <button type="button" id="btn-quitar-cliente" class="link-btn" style="display:none">Quitar</button>
       </div>
       <div id="pos-carrito-vacio" class="empty-state">El carrito está vacío. Buscá productos para agregarlos.</div>
@@ -44,6 +47,7 @@ const totalEl = document.getElementById("pos-total");
 const continuarBtn = document.getElementById("pos-continuar");
 const errorEl = document.getElementById("pos-error");
 const btnQuitarCliente = document.getElementById("btn-quitar-cliente");
+const btnEditarCliente = document.getElementById("btn-editar-cliente");
 
 let carrito = []; // { productoId, productoSku, productoDescripcion, cantidad, precioUnitario, descuentoPct }
 let clienteSeleccionado = null;
@@ -53,10 +57,30 @@ const clientePicker = initClientePicker(document.getElementById("cliente-picker"
   onSelect: (cliente) => {
     clienteSeleccionado = cliente;
     btnQuitarCliente.style.display = cliente ? "inline-block" : "none";
+    btnEditarCliente.style.display = cliente ? "inline-block" : "none";
   },
 });
 
 btnQuitarCliente.addEventListener("click", () => clientePicker.limpiarSeleccion());
+
+// Por si cambió de domicilio, WhatsApp, etc. desde la última venta — se edita ahí mismo, sin tener
+// que ir a Clientes y volver.
+btnEditarCliente.addEventListener("click", async () => {
+  const resultado = await pedirClienteModal(clienteSeleccionado.razonSocial, clienteSeleccionado);
+  if (!resultado) return;
+  await actualizarCliente(clienteSeleccionado.id, resultado.razonSocial, resultado.cuit, resultado.datosArca, resultado.datosContacto);
+  const actualizado = {
+    ...clienteSeleccionado,
+    razonSocial: resultado.razonSocial,
+    cuit: resultado.cuit,
+    domicilioEntrega: resultado.datosContacto.domicilioEntrega || null,
+    whatsapp: resultado.datosContacto.whatsapp || null,
+    email: resultado.datosContacto.email || null,
+    ...(resultado.datosArca || {}),
+  };
+  clienteSeleccionado = actualizado;
+  clientePicker.seleccionarDirecto(actualizado);
+});
 
 function subtotalItem(item) {
   return Math.round(item.cantidad * item.precioUnitario * (1 - (item.descuentoPct || 0) / 100) * 100) / 100;
