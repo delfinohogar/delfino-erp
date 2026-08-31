@@ -46,7 +46,7 @@
         errorText.style.display = "none";
         try {
           await signInWithEmailAndPassword(auth, email, password);
-          const next = params.get("next") || "/productos/";
+          const next = params.get("next") || "/dashboard.html";
           location.href = next;
         } catch (err) {
           errorText.textContent = "Email o contraseña incorrectos.";

@@ -22,3 +22,9 @@ export async function crearPerfilUsuario({ uid, nombre, email, rol }) {
 export async function actualizarPerfilUsuario(uid, { nombre, email, rol }) {
   await updateDoc(doc(db, "usuarios", uid), { nombre: nombre.trim(), email: email.trim(), rol });
 }
+
+// Qué tarjetas del Dashboard eligió ver cada usuario (y en qué orden) — viaja con la cuenta, no con
+// el navegador, para que sea la misma personalización sin importar desde qué PC entre.
+export async function guardarDashboardCards(uid, cardIds) {
+  await updateDoc(doc(db, "usuarios", uid), { dashboardCards: cardIds });
+}

@@ -39,6 +39,10 @@ service cloud.firestore {
     match /usuarios/{uid} {
       allow read: if estaLogueado();
       allow write: if esAdministrador();
+      // Cada usuario puede guardar su propia personalización del Dashboard (qué tarjetas ve y en qué
+      // orden) sin poder tocar su rol ni ningún otro campo del perfil.
+      allow update: if estaLogueado() && request.auth.uid == uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dashboardCards']);
     }
 
     // Necesaria además de la regla anidada de más abajo: las collection group queries (ej. "Movimientos",

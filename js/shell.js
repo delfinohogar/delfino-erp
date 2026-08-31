@@ -7,6 +7,7 @@ export function renderShell({ active, titulo, usuario }) {
     <div class="layout">
       <aside class="sidebar">
         <div class="brand"><span class="dot"></span> Delfino ERP</div>
+        <a href="/dashboard.html" data-key="dashboard">Dashboard</a>
         <div class="nav-group-label">Ventas</div>
         <a href="/productos/venta-nueva.html" data-key="venta-nueva">Nueva venta</a>
         <a href="/productos/ventas.html" data-key="ventas">Ventas</a>

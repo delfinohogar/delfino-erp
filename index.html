@@ -9,7 +9,7 @@
     <script type="module">
       import { auth, onAuthStateChanged } from "/js/firebase.js";
       onAuthStateChanged(auth, (user) => {
-        location.href = user ? "/productos/" : "/login.html";
+        location.href = user ? "/dashboard.html" : "/login.html";
       });
     </script>
   </body>

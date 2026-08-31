@@ -740,6 +740,30 @@ tbody tr {
   }
 }
 
+/* --- Dashboard --- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.dashboard-card {
+  display: block;
+  padding: 18px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.dashboard-card:hover {
+  border-color: var(--accent);
+}
+
+.dashboard-card-valor {
+  font-size: 26px;
+  font-weight: 600;
+  margin: 6px 0 4px;
+}
+
 .spinner {
   display: inline-block;
   width: 14px;
