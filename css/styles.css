@@ -54,6 +54,20 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  overflow-y: auto;
+  z-index: 50;
+  transform: translateX(-100%);
+  transition: transform 0.2s ease;
+  box-shadow: 2px 0 16px rgba(0, 0, 0, 0.08);
+}
+
+/* Visible y fija: no se va con el scroll de la página, el contenido se corre para no quedar tapado. */
+.sidebar.open {
+  transform: translateX(0);
 }
 
 .sidebar .brand {
@@ -111,6 +125,15 @@ a {
   flex: 1;
   min-width: 0;
   padding: 24px 32px;
+  transition: margin-left 0.2s ease;
+}
+
+/* La barra empuja el contenido solo en pantallas anchas — en mobile queda como superposición
+   (con fondo oscuro), nunca reservando 220px fijos de un celular. */
+@media (min-width: 861px) {
+  .sidebar.open ~ .main {
+    margin-left: 220px;
+  }
 }
 
 .topbar {
@@ -273,8 +296,10 @@ a {
   }
 }
 
+/* Botón para mostrar/ocultar la barra lateral — visible en cualquier tamaño de pantalla, como en
+   La Pyme (no solo en mobile). */
 .sidebar-toggle {
-  display: none;
+  display: inline-flex;
   width: 36px;
   height: 36px;
   align-items: center;
@@ -290,30 +315,13 @@ a {
   padding: 0;
 }
 
+/* Fondo oscuro detrás de la barra — solo tiene sentido como superposición en pantallas angostas;
+   en desktop la barra empuja el contenido (margin-left en .main), no lo tapa. */
 .sidebar-backdrop {
   display: none;
 }
 
 @media (max-width: 860px) {
-  .sidebar-toggle {
-    display: inline-flex;
-  }
-
-  .sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 50;
-    transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.18);
-  }
-
-  .sidebar.open {
-    transform: translateX(0);
-  }
-
   .sidebar-backdrop.open {
     display: block;
     position: fixed;
@@ -324,7 +332,6 @@ a {
 
   .main {
     padding: 16px;
-    width: 100%;
   }
 
   .topbar h1 {

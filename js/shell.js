@@ -74,16 +74,42 @@ export function renderShell({ active, titulo, usuario }) {
 
   const sidebarEl = document.querySelector(".sidebar");
   const backdropEl = document.querySelector(".sidebar-backdrop");
+  const ES_MOBILE = () => window.innerWidth <= 860;
+
+  // En desktop arranca visible y fija (salvo que el usuario la haya cerrado antes — se recuerda
+  // entre páginas porque cada navegación acá es una carga de página nueva, no una SPA). En mobile
+  // siempre arranca oculta: reservarle 220px fijos a una pantalla chica no tiene sentido.
+  let prefAbierta = true;
+  try {
+    prefAbierta = localStorage.getItem("sidebarAbierta") !== "false";
+  } catch {
+    // Storage bloqueado (ej. navegación privada) — se sigue con el default (abierta).
+  }
+  if (!ES_MOBILE() && prefAbierta) sidebarEl.classList.add("open");
+
   const cerrarSidebar = () => {
     sidebarEl.classList.remove("open");
     backdropEl.classList.remove("open");
   };
   document.getElementById("sidebar-toggle").addEventListener("click", () => {
-    sidebarEl.classList.toggle("open");
-    backdropEl.classList.toggle("open");
+    const abierta = sidebarEl.classList.toggle("open");
+    backdropEl.classList.toggle("open", abierta && ES_MOBILE());
+    if (!ES_MOBILE()) {
+      try {
+        localStorage.setItem("sidebarAbierta", abierta ? "true" : "false");
+      } catch {
+        // Sin storage, el toggle sigue funcionando — solo no se recuerda para la próxima página.
+      }
+    }
   });
   backdropEl.addEventListener("click", cerrarSidebar);
-  sidebarEl.querySelectorAll("a").forEach((a) => a.addEventListener("click", cerrarSidebar));
+  // Al elegir un destino desde la barra solo tiene sentido cerrarla en mobile (ahí es una
+  // superposición); en desktop se queda fija, como el resto de La Pyme.
+  sidebarEl.querySelectorAll("a").forEach((a) =>
+    a.addEventListener("click", () => {
+      if (ES_MOBILE()) cerrarSidebar();
+    })
+  );
 
   montarChatWidget();
   initBuscadorGlobal(document.getElementById("gsearch-container"));
