@@ -19,11 +19,13 @@ const FORMAS = {
   camion: `<rect x="2" y="8" width="12" height="9" rx="1"/><path d="M14 11h4l3 3v3h-7z"/><circle cx="6" cy="19" r="1.6"/><circle cx="17" cy="19" r="1.6"/>`,
   usuario: `<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6"/>`,
   edificio: `<rect x="4" y="3" width="10" height="18"/><rect x="14" y="9" width="6" height="12"/><line x1="7" y1="7" x2="7" y2="7.01"/><line x1="11" y1="7" x2="11" y2="7.01"/><line x1="7" y1="11" x2="7" y2="11.01"/><line x1="11" y1="11" x2="11" y2="11.01"/><line x1="7" y1="15" x2="7" y2="15.01"/><line x1="11" y1="15" x2="11" y2="15.01"/>`,
+  grafico: `<polyline points="4 16 9 10 13 13 20 5"/><polyline points="15 5 20 5 20 10"/>`,
   usuarios: `<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5.2 6-5.2s6 1.9 6 5.2"/><path d="M16 8.2A3 3 0 1 1 16 3"/><path d="M15 15c2.8.3 5 2.1 5 5"/>`,
 };
 
 export const ICONOS_NAV = {
   dashboard: "dashboard",
+  reportes: "grafico",
   "venta-nueva": "mas",
   ventas: "lista",
   "cuenta-corriente-clientes": "intercambio",

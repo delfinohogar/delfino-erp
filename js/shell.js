@@ -15,6 +15,7 @@ export function renderShell({ active, titulo, usuario }) {
       <aside class="sidebar">
         <div class="brand"><span class="dot"></span> Delfino ERP</div>
         ${nav("dashboard", "/dashboard.html", "Dashboard")}
+        ${nav("reportes", "/reportes.html", "Reportes")}
         <div class="nav-group-label">Ventas</div>
         ${nav("venta-nueva", "/productos/venta-nueva.html", "Nueva venta")}
         ${nav("ventas", "/productos/ventas.html", "Ventas")}

@@ -11,6 +11,7 @@ import {
   obtenerSaldoClientes,
   obtenerCuentaProveedores,
 } from "/js/dashboard.js";
+import { reporteVentasPorDia } from "/js/reportes.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -23,6 +24,7 @@ content.innerHTML = `
       ${PERIODOS.map((p) => `<option ${p === "Este mes" ? "selected" : ""}>${p}</option>`).join("")}
     </select>
     <button type="button" id="btn-personalizar">Personalizar</button>
+    <a href="/reportes.html"><button type="button">Ver reportes</button></a>
   </div>
   <div id="tarjetas-grid" class="dashboard-grid"></div>
 `;
@@ -46,7 +48,7 @@ function variacion(actual, anterior) {
   return { texto: `${signo}${pct.toFixed(1)}% vs. período anterior`, positivo: pct >= 0 };
 }
 
-function tarjetaHtml({ titulo, valor, comparacion, href }) {
+function tarjetaHtml({ titulo, valor, comparacion, href, chartId }) {
   return `
     <a href="${href}" class="card dashboard-card">
       <div class="hint" style="margin:0">${titulo}</div>
@@ -56,20 +58,59 @@ function tarjetaHtml({ titulo, valor, comparacion, href }) {
           ? `<div class="hint" style="color:var(--${comparacion.positivo ? "success" : "danger"})">${comparacion.texto}</div>`
           : ""
       }
+      ${chartId ? `<div class="dashboard-card-sparkline"><canvas id="${chartId}"></canvas></div>` : ""}
     </a>
   `;
 }
 
+const ACCENT = "#e23e3a";
+const ACCENT_SUAVE = "rgba(226, 62, 58, 0.12)";
+let sparklines = [];
+
+function pintarSparkline(canvasId, valores) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  sparklines.push(
+    new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: valores.map(() => ""),
+        datasets: [
+          {
+            data: valores,
+            borderColor: ACCENT,
+            backgroundColor: ACCENT_SUAVE,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 1.5,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } },
+      },
+    })
+  );
+}
+
 async function cargar() {
   grid.innerHTML = `<div class="hint" style="padding:24px">Cargando…</div>`;
+  sparklines.forEach((c) => c.destroy());
+  sparklines = [];
 
   const { desde, hasta, desdeAnterior, hastaAnterior } = rangoPeriodo(periodoSelect.value);
-  const [ventasActual, ventasAnterior, stockCritico, saldoClientes, cuentaProveedores] = await Promise.all([
+  const [ventasActual, ventasAnterior, stockCritico, saldoClientes, cuentaProveedores, serieDiaria] = await Promise.all([
     obtenerVentasPeriodo(desde, hasta),
     obtenerVentasPeriodo(desdeAnterior, hastaAnterior),
     obtenerStockCritico(),
     obtenerSaldoClientes(),
     obtenerCuentaProveedores(),
+    reporteVentasPorDia(desde, hasta),
   ]);
 
   const datosPorTarjeta = {
@@ -78,12 +119,14 @@ async function cargar() {
       valor: formatMonto(ventasActual.total),
       comparacion: variacion(ventasActual.total, ventasAnterior.total),
       href: "/productos/ventas.html",
+      chartId: "spark-ventas-totales",
     },
     "cantidad-ventas": {
       titulo: "Cantidad de ventas",
       valor: String(ventasActual.cantidad),
       comparacion: variacion(ventasActual.cantidad, ventasAnterior.cantidad),
       href: "/productos/ventas.html",
+      chartId: "spark-cantidad-ventas",
     },
     "stock-critico": {
       titulo: "Stock crítico",
@@ -113,6 +156,9 @@ async function cargar() {
     return;
   }
   grid.innerHTML = visibles.map((t) => tarjetaHtml(datosPorTarjeta[t.id])).join("");
+
+  if (cardsVisibles.includes("ventas-totales")) pintarSparkline("spark-ventas-totales", serieDiaria.map((d) => d.total));
+  if (cardsVisibles.includes("cantidad-ventas")) pintarSparkline("spark-cantidad-ventas", serieDiaria.map((d) => d.cantidad));
 }
 
 periodoSelect.addEventListener("change", cargar);

@@ -948,6 +948,11 @@ tbody tr {
   margin: 6px 0 4px;
 }
 
+.dashboard-card-sparkline {
+  height: 40px;
+  margin-top: 8px;
+}
+
 .spinner {
   display: inline-block;
   width: 14px;
