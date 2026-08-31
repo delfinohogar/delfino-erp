@@ -6,7 +6,7 @@ import { obtenerConfigEmpresa } from "./configuracion-empresa.js";
 import { aplicarTemaGuardado, initSelectorTema } from "./tema.js";
 
 function nav(key, href, label) {
-  return `<a href="${href}" data-key="${key}">${icono(ICONOS_NAV[key])}<span>${label}</span></a>`;
+  return `<a href="${href}" data-key="${key}" title="${label}">${icono(ICONOS_NAV[key])}<span>${label}</span></a>`;
 }
 
 // Arma el layout (sidebar + topbar) y devuelve el <main> donde cada página vuelca su contenido.
@@ -17,7 +17,7 @@ export function renderShell({ active, titulo, usuario }) {
   document.body.innerHTML = `
     <div class="layout">
       <aside class="sidebar">
-        <div class="brand"><span class="dot"></span> Delfino ERP</div>
+        <div class="brand"><span class="dot"></span><span class="brand-text">Delfino ERP</span></div>
         ${nav("dashboard", "/dashboard.html", "Dashboard")}
         ${nav("reportes", "/reportes.html", "Reportes")}
         <div class="nav-group-label">Ventas</div>
@@ -81,38 +81,40 @@ export function renderShell({ active, titulo, usuario }) {
   const backdropEl = document.querySelector(".sidebar-backdrop");
   const ES_MOBILE = () => window.innerWidth <= 860;
 
-  // En desktop arranca visible y fija (salvo que el usuario la haya cerrado antes — se recuerda
-  // entre páginas porque cada navegación acá es una carga de página nueva, no una SPA). En mobile
-  // siempre arranca oculta: reservarle 220px fijos a una pantalla chica no tiene sentido.
-  let prefAbierta = true;
+  // En desktop la barra SIEMPRE está visible y fija (como en La Pyme) — el botón no la esconde,
+  // la colapsa a solo íconos para devolverle ancho al contenido (el grid de tarjetas se reacomoda
+  // solo, vía CSS Grid). En mobile sigue siendo una superposición que se puede ocultar del todo.
+  let prefColapsada = false;
   try {
-    prefAbierta = localStorage.getItem("sidebarAbierta") !== "false";
+    prefColapsada = localStorage.getItem("sidebarColapsada") === "true";
   } catch {
-    // Storage bloqueado (ej. navegación privada) — se sigue con el default (abierta).
+    // Storage bloqueado (ej. navegación privada) — se sigue con el default (expandida).
   }
-  if (!ES_MOBILE() && prefAbierta) sidebarEl.classList.add("open");
+  if (!ES_MOBILE() && prefColapsada) sidebarEl.classList.add("collapsed");
 
-  const cerrarSidebar = () => {
+  const cerrarSidebarMobile = () => {
     sidebarEl.classList.remove("open");
     backdropEl.classList.remove("open");
   };
   document.getElementById("sidebar-toggle").addEventListener("click", () => {
-    const abierta = sidebarEl.classList.toggle("open");
-    backdropEl.classList.toggle("open", abierta && ES_MOBILE());
-    if (!ES_MOBILE()) {
-      try {
-        localStorage.setItem("sidebarAbierta", abierta ? "true" : "false");
-      } catch {
-        // Sin storage, el toggle sigue funcionando — solo no se recuerda para la próxima página.
-      }
+    if (ES_MOBILE()) {
+      const abierta = sidebarEl.classList.toggle("open");
+      backdropEl.classList.toggle("open", abierta);
+      return;
+    }
+    const colapsada = sidebarEl.classList.toggle("collapsed");
+    try {
+      localStorage.setItem("sidebarColapsada", colapsada ? "true" : "false");
+    } catch {
+      // Sin storage, el toggle sigue funcionando — solo no se recuerda para la próxima página.
     }
   });
-  backdropEl.addEventListener("click", cerrarSidebar);
-  // Al elegir un destino desde la barra solo tiene sentido cerrarla en mobile (ahí es una
-  // superposición); en desktop se queda fija, como el resto de La Pyme.
+  backdropEl.addEventListener("click", cerrarSidebarMobile);
+  // Elegir un destino cierra la superposición solo en mobile — en desktop la barra se queda fija
+  // (expandida o colapsada, como estuviera), nunca se cierra sola al navegar.
   sidebarEl.querySelectorAll("a").forEach((a) =>
     a.addEventListener("click", () => {
-      if (ES_MOBILE()) cerrarSidebar();
+      if (ES_MOBILE()) cerrarSidebarMobile();
     })
   );
 

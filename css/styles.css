@@ -100,13 +100,14 @@ a {
   left: 0;
   bottom: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   z-index: 50;
   transform: translateX(-100%);
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, width 0.2s ease;
   box-shadow: 2px 0 16px rgba(0, 0, 0, 0.08);
 }
 
-/* Visible y fija: no se va con el scroll de la página, el contenido se corre para no quedar tapado. */
+/* En mobile el botón la muestra como superposición. */
 .sidebar.open {
   transform: translateX(0);
 }
@@ -123,6 +124,7 @@ a {
 .sidebar .brand .dot {
   width: 10px;
   height: 10px;
+  flex-shrink: 0;
   border-radius: 999px;
   background: var(--accent);
 }
@@ -134,6 +136,7 @@ a {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .sidebar a {
@@ -146,6 +149,7 @@ a {
   color: var(--muted);
   font-weight: 500;
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .nav-icon {
@@ -170,11 +174,40 @@ a {
   transition: margin-left 0.2s ease;
 }
 
-/* La barra empuja el contenido solo en pantallas anchas — en mobile queda como superposición
-   (con fondo oscuro), nunca reservando 220px fijos de un celular. */
+/* En desktop la barra SIEMPRE está visible y fija (como en La Pyme) — nunca se esconde del todo.
+   El botón la colapsa a una franja de solo íconos (64px) para devolverle ancho al contenido; el
+   grid de tarjetas se reacomoda solo porque ya usa auto-fill. */
 @media (min-width: 861px) {
-  .sidebar.open ~ .main {
+  .sidebar {
+    transform: translateX(0);
+  }
+
+  .main {
     margin-left: 220px;
+  }
+
+  .sidebar.collapsed {
+    width: 64px;
+  }
+
+  .sidebar.collapsed ~ .main {
+    margin-left: 64px;
+  }
+
+  .sidebar.collapsed .nav-group-label,
+  .sidebar.collapsed a span,
+  .sidebar.collapsed .brand-text {
+    display: none;
+  }
+
+  .sidebar.collapsed a {
+    justify-content: center;
+    padding: 8px 0;
+  }
+
+  .sidebar.collapsed .brand {
+    justify-content: center;
+    padding: 8px 0 16px;
   }
 }
 
@@ -189,7 +222,7 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .topbar-right {
@@ -207,6 +240,9 @@ a {
   font-weight: 700;
   margin: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 40px;
 }
 
 .topbar-org {
@@ -220,6 +256,7 @@ a {
   font-weight: 500;
   color: var(--muted);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .topbar-org:empty {
@@ -230,10 +267,9 @@ a {
   width: 20px;
   height: 20px;
   object-fit: contain;
-  border-radius: 4px;
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1100px) {
   .topbar-org span {
     display: none;
   }
