@@ -32,6 +32,12 @@ export function renderShell({ active, titulo, usuario }) {
         ${nav("compras", "/productos/compras.html", "Compras")}
         ${nav("cuenta-corriente", "/productos/cuenta-corriente.html", "Cuenta corriente")}
         ${nav("pagos", "/productos/pagos.html", "Pagos")}
+        <div class="nav-group-label">Contabilidad</div>
+        ${nav("contabilidad-libro-diario", "/contabilidad/libro-diario.html", "Libro Diario")}
+        ${nav("contabilidad-libro-mayor", "/contabilidad/libro-mayor.html", "Libro Mayor")}
+        ${nav("contabilidad-sumas-saldos", "/contabilidad/sumas-saldos.html", "Sumas y Saldos")}
+        ${nav("contabilidad-estado-resultados", "/contabilidad/estado-resultados.html", "Estado de Resultados")}
+        ${nav("contabilidad-plan-cuentas", "/contabilidad/plan-cuentas.html", "Plan de Cuentas")}
         <div class="nav-group-label">Configuración</div>
         ${usuario?.rol === "administrador" ? nav("config-empresa", "/configuracion/empresa.html", "Empresa") : ""}
         ${nav("config-categorias", "/configuracion/categorias.html", "Categorías")}

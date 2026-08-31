@@ -20,6 +20,8 @@ const FORMAS = {
   usuario: `<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.9 3.1-6 7-6s7 2.1 7 6"/>`,
   edificio: `<rect x="4" y="3" width="10" height="18"/><rect x="14" y="9" width="6" height="12"/><line x1="7" y1="7" x2="7" y2="7.01"/><line x1="11" y1="7" x2="11" y2="7.01"/><line x1="7" y1="11" x2="7" y2="11.01"/><line x1="11" y1="11" x2="11" y2="11.01"/><line x1="7" y1="15" x2="7" y2="15.01"/><line x1="11" y1="15" x2="11" y2="15.01"/>`,
   grafico: `<polyline points="4 16 9 10 13 13 20 5"/><polyline points="15 5 20 5 20 10"/>`,
+  libro: `<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5V4.5z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><line x1="8" y1="7" x2="15" y2="7"/>`,
+  balanza: `<line x1="12" y1="3" x2="12" y2="21"/><line x1="6" y1="7" x2="18" y2="7"/><path d="M4 7l-2 5a3 3 0 0 0 6 0L6 7"/><path d="M20 7l-2 5a3 3 0 0 0 6 0L20 7"/><line x1="9" y1="21" x2="15" y2="21"/>`,
   usuarios: `<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-5.2 6-5.2s6 1.9 6 5.2"/><path d="M16 8.2A3 3 0 1 1 16 3"/><path d="M15 15c2.8.3 5 2.1 5 5"/>`,
 };
 
@@ -46,6 +48,11 @@ export const ICONOS_NAV = {
   "config-precios": "lista",
   "config-usuarios": "usuarios",
   "config-empresa": "edificio",
+  "contabilidad-plan-cuentas": "libro",
+  "contabilidad-libro-diario": "libro",
+  "contabilidad-libro-mayor": "libro",
+  "contabilidad-sumas-saldos": "balanza",
+  "contabilidad-estado-resultados": "grafico",
 };
 
 export function icono(nombre) {

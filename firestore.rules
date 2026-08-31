@@ -172,5 +172,20 @@ service cloud.firestore {
       allow read: if estaLogueado();
       allow write: if esAdministrador();
     }
+
+    // Plan de cuentas contable: se siembra una vez y rara vez cambia — solo administrador lo toca.
+    match /cuentasContables/{codigo} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    // Asientos contables: se generan solos desde ventas/compras/cobros/pagos, nunca a mano. Cualquiera
+    // que pueda hacer esas operaciones (puedeVender() ya cubre los cuatro roles) puede generarlos.
+    // Inmutables — un asiento mal generado se corrige con un asiento de ajuste, no editando el original.
+    match /asientosContables/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update, delete: if false;
+    }
   }
 }

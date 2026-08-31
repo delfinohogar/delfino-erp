@@ -1,6 +1,7 @@
 // Pagos a proveedor, siempre atados a una factura de compra puntual (permite saber qué facturas
 // están pagas/parciales/pendientes, y armar la cuenta corriente por proveedor).
 import { db, collection, getDocs, addDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
+import { generarAsiento, CUENTA } from "./contabilidad.js";
 
 export const MEDIOS_PAGO = ["Efectivo", "Transferencia", "Cheque", "Otro"];
 
@@ -19,6 +20,20 @@ export async function crearPago(datos, usuario) {
     usuario: usuario.uid,
     creadoEn: serverTimestamp(),
   });
+
+  await generarAsiento(
+    {
+      fecha: datos.fecha,
+      descripcion: `Pago — ${datos.proveedorNombre} (${datos.compraNumero})`,
+      origen: { tipo: "pago", id: ref.id },
+      movimientos: [
+        { cuenta: CUENTA.PROVEEDORES, debe: Math.round(datos.monto * 100) / 100, haber: 0 },
+        { cuenta: CUENTA.CAJA, debe: 0, haber: Math.round(datos.monto * 100) / 100 },
+      ],
+    },
+    usuario
+  );
+
   return ref.id;
 }
 

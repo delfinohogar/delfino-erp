@@ -19,6 +19,7 @@ import {
   serverTimestamp,
   runTransaction,
 } from "./firebase.js";
+import { generarAsiento, CUENTA } from "./contabilidad.js";
 
 export const MEDIOS_PAGO_VENTA = ["Efectivo", "Tarjeta", "Transferencia", "Otro", "Pendiente de pago"];
 
@@ -134,6 +135,23 @@ export async function crearVenta(datos, usuario) {
       });
     }
   }
+
+  // Asiento contable: lo pagado al momento entra a Caja, lo que quedó a cuenta corriente entra a
+  // Deudores. El costo de lo vendido sale de Bienes de Cambio y pasa a Costo de Mercadería Vendida —
+  // un solo asiento balanceado (ver contabilidad.js para por qué cierra matemáticamente).
+  const costoTotal = items.reduce((acc, it) => acc + (it.costoUnitario || 0) * (it.cantidad || 0), 0);
+  const cobradoAhora = (datos.pagos || []).filter((p) => p.medio !== "Pendiente de pago").reduce((acc, p) => acc + p.monto, 0);
+  const movimientos = [
+    { cuenta: CUENTA.CAJA, debe: Math.round(cobradoAhora * 100) / 100, haber: 0 },
+    { cuenta: CUENTA.DEUDORES_VENTAS, debe: Math.round(montoPendiente * 100) / 100, haber: 0 },
+    { cuenta: CUENTA.VENTAS, debe: 0, haber: Math.round(datos.total * 100) / 100 },
+    { cuenta: CUENTA.COSTO_MERCADERIA_VENDIDA, debe: Math.round(costoTotal * 100) / 100, haber: 0 },
+    { cuenta: CUENTA.BIENES_DE_CAMBIO, debe: 0, haber: Math.round(costoTotal * 100) / 100 },
+  ];
+  await generarAsiento(
+    { fecha: datos.fecha, descripcion: `Venta #${numeroVenta} — ${datos.clienteId ? datos.clienteNombre : "Consumidor final"}`, origen: { tipo: "venta", id: ventaRef.id, numero: numeroVenta }, movimientos },
+    usuario
+  );
 
   return { id: ventaRef.id, numeroVenta };
 }

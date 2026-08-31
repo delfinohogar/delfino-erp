@@ -14,6 +14,7 @@ import {
   serverTimestamp,
   runTransaction,
 } from "./firebase.js";
+import { generarAsiento, CUENTA } from "./contabilidad.js";
 
 export async function listarCompras(maxResultados = 100) {
   const snap = await getDocs(query(collection(db, "compras"), orderBy("creadoEn", "desc"), limit(maxResultados)));
@@ -110,6 +111,23 @@ export async function crearCompra(datos, usuario) {
       }
     });
   }
+
+  // Asiento contable: el neto (sin IVA) entra a Bienes de Cambio, el IVA de la factura es crédito
+  // fiscal (no es costo de mercadería), y todo junto se debe al proveedor.
+  const netoSinIva = importes - descuentoGlobal + percepciones;
+  await generarAsiento(
+    {
+      fecha: datos.fecha,
+      descripcion: `Compra ${datos.tipoComprobante} ${datos.numeroFactura} — ${datos.proveedorNombre}`,
+      origen: { tipo: "compra", id: compraRef.id, numero: datos.numeroFactura },
+      movimientos: [
+        { cuenta: CUENTA.BIENES_DE_CAMBIO, debe: Math.round(netoSinIva * 100) / 100, haber: 0 },
+        { cuenta: CUENTA.IVA_CREDITO_FISCAL, debe: Math.round(ivaTotal * 100) / 100, haber: 0 },
+        { cuenta: CUENTA.PROVEEDORES, debe: 0, haber: Math.round(total * 100) / 100 },
+      ],
+    },
+    usuario
+  );
 
   return compraRef.id;
 }
