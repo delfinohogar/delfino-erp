@@ -30,6 +30,7 @@ export function renderShell({ active, titulo, usuario }) {
   document.body.innerHTML = `
     <div class="layout">
       <aside class="sidebar">
+        <div class="brand"><span class="dot"></span><span class="brand-text">Delfino ERP</span></div>
         ${nav("dashboard", "/dashboard.html", "Dashboard")}
         ${nav("reportes", "/reportes.html", "Reportes")}
         ${grupo(

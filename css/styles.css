@@ -112,6 +112,23 @@ a {
   transform: translateX(0);
 }
 
+.sidebar .brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 16px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.sidebar .brand .dot {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
 /* Módulos desplegables (acordeón), igual que La Pyme: un encabezado con ícono + label + flecha
    que abre/cierra sus items; solo un módulo puede estar abierto a la vez. */
 .nav-group {
@@ -222,6 +239,7 @@ a {
   }
 
   .sidebar.collapsed a span,
+  .sidebar.collapsed .brand-text,
   .sidebar.collapsed .nav-group-header span,
   .sidebar.collapsed .nav-group-header .nav-icon:last-child {
     display: none;
@@ -241,6 +259,11 @@ a {
   .sidebar.collapsed .nav-group-items {
     display: flex;
     padding-left: 0;
+  }
+
+  .sidebar.collapsed .brand {
+    justify-content: center;
+    padding: 8px 0 16px;
   }
 }
 
