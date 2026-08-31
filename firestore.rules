@@ -25,6 +25,17 @@ service cloud.firestore {
       return estaLogueado() && rol() in ['administrador', 'administrativo'];
     }
 
+    // Todos los roles pueden vender (es el uso principal de un vendedor). Superset de puedeEditarCatalogo().
+    function puedeVender() {
+      return estaLogueado() && rol() in ['administrador', 'administrativo', 'vendedor'];
+    }
+
+    // Una venta descuenta stock de producto vía transacción — un vendedor necesita poder tocar ESE
+    // campo puntual sin heredar permiso para editar costo/precio/etc. del catálogo.
+    function soloActualizaStock() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockTotal', 'modificadoPor', 'modificadoEn']);
+    }
+
     match /usuarios/{uid} {
       allow read: if estaLogueado();
       allow write: if esAdministrador();
@@ -40,7 +51,7 @@ service cloud.firestore {
 
     match /productos/{productoId} {
       allow read: if estaLogueado();
-      allow create, update: if puedeEditarCatalogo();
+      allow create, update: if puedeEditarCatalogo() || (puedeVender() && soloActualizaStock());
       allow delete: if esAdministrador();
 
       match /historialCostos/{entryId} {
@@ -51,7 +62,7 @@ service cloud.firestore {
 
       match /logAuditoria/{entryId} {
         allow read: if estaLogueado();
-        allow create: if puedeEditarCatalogo();
+        allow create: if puedeVender(); // ventas y compras/ajustes de catálogo dejan entrada acá
         allow update, delete: if false; // log inmutable
       }
 
@@ -88,7 +99,7 @@ service cloud.firestore {
 
     match /clientes/{id} {
       allow read: if estaLogueado();
-      allow write: if puedeEditarCatalogo();
+      allow write: if puedeVender(); // un vendedor tiene que poder cargar un cliente nuevo en el momento de la venta
     }
 
     match /sucursales/{id} {
@@ -129,6 +140,27 @@ service cloud.firestore {
       allow read: if estaLogueado();
       allow create, update: if puedeEditarCatalogo();
       allow delete: if esAdministrador();
+    }
+
+    // Ventas: bajan stock y dejan una foto del costo de cada producto al momento de vender. Inmutables
+    // una vez creadas, igual que /compras — una venta mal cargada se corrige con una nota, no se edita.
+    match /ventas/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update, delete: if false;
+    }
+
+    // Cobros a cliente, atados a una venta puntual — contraparte de /pagosProveedores.
+    match /cobros/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update, delete: if false;
+    }
+
+    // Correlativo interno del número de venta (contadores/ventas: { ultimo }).
+    match /contadores/{id} {
+      allow read: if estaLogueado();
+      allow write: if puedeVender();
     }
   }
 }

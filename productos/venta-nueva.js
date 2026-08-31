@@ -1,111 +1,222 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { attachAutocomplete } from "/js/autocomplete.js";
 import { buscarProductos } from "/js/productos.js";
-import { registrarVenta } from "/js/venta.js";
+import { crearVenta } from "/js/ventas.js";
+import { initClientePicker } from "/js/cliente-picker.js";
+import { pedirMedioPagoVenta } from "/js/venta-pago-modal.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "productos", titulo: "Registrar venta", usuario });
+const content = renderShell({ active: "venta-nueva", titulo: "Nueva venta", usuario });
 
 content.innerHTML = `
-  <div class="hint" style="margin-bottom:12px">
-    Baja simple de stock por venta — sin cliente, numeración ni totales (eso queda para un módulo de Ventas más adelante).
+  <div class="pos-layout" id="pos-layout">
+    <div class="pos-buscar card">
+      <input type="text" id="pos-search" placeholder="Buscar producto por SKU, código o descripción…" autocomplete="off" />
+      <div id="pos-resultados" class="pos-resultados"></div>
+    </div>
+    <div class="pos-carrito card">
+      <div class="pos-cliente-row">
+        <span class="hint" style="margin:0">Cliente</span>
+        <div id="cliente-picker" style="flex:1; max-width:280px"></div>
+        <button type="button" id="btn-quitar-cliente" class="link-btn" style="display:none">Quitar</button>
+      </div>
+      <div id="pos-carrito-vacio" class="empty-state">El carrito está vacío. Buscá productos para agregarlos.</div>
+      <div id="pos-carrito-items"></div>
+      <div class="pos-total-row">
+        <span>Total</span>
+        <span id="pos-total">$0</span>
+      </div>
+      <button type="button" class="primary" id="pos-continuar" disabled style="width:100%">Continuar</button>
+      <div class="error-text" id="pos-error" style="display:none"></div>
+    </div>
   </div>
-  <form id="form-venta">
-    <div class="card" style="padding:20px; margin-bottom:16px">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:50%">Producto</th>
-            <th>Cantidad</th>
-            <th>Stock actual</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="lineas-body"></tbody>
-      </table>
-      <button type="button" id="btn-agregar-linea" style="margin-top:12px">+ Agregar línea</button>
-    </div>
-    <div class="toolbar">
-      <button type="submit" class="primary" id="submit-btn">Registrar venta</button>
-      <a href="/productos/"><button type="button">Cancelar</button></a>
-      <span class="error-text" id="form-error" style="display:none"></span>
-    </div>
-  </form>
+  <div id="pos-confirmacion" class="card" style="display:none; text-align:center; padding:40px; max-width:420px; margin:24px auto"></div>
 `;
 
-const lineasBody = document.getElementById("lineas-body");
-let contadorLinea = 0;
+const posLayout = document.getElementById("pos-layout");
+const searchInput = document.getElementById("pos-search");
+const resultadosEl = document.getElementById("pos-resultados");
+const carritoVacioEl = document.getElementById("pos-carrito-vacio");
+const carritoItemsEl = document.getElementById("pos-carrito-items");
+const totalEl = document.getElementById("pos-total");
+const continuarBtn = document.getElementById("pos-continuar");
+const errorEl = document.getElementById("pos-error");
+const btnQuitarCliente = document.getElementById("btn-quitar-cliente");
 
-function agregarLinea() {
-  const id = `linea-${contadorLinea++}`;
-  const tr = document.createElement("tr");
-  tr.dataset.id = id;
-  tr.innerHTML = `
-    <td>
-      <div class="field autocomplete" id="wrapper-${id}" style="margin:0">
-        <input type="text" data-role="search" autocomplete="off" placeholder="Buscar producto…" />
-        <div class="autocomplete-list" data-role="list"></div>
-      </div>
-    </td>
-    <td><input type="number" data-role="cantidad" step="1" min="1" value="1" style="max-width:90px" /></td>
-    <td data-role="stock-actual" class="hint">-</td>
-    <td><button type="button" data-role="quitar">Quitar</button></td>
-  `;
-  lineasBody.appendChild(tr);
+let carrito = []; // { productoId, productoSku, productoDescripcion, cantidad, precioUnitario, descuentoPct }
+let clienteSeleccionado = null;
 
-  let productoSeleccionado = null;
-  attachAutocomplete(document.getElementById(`wrapper-${id}`), {
-    buscar: buscarProductos,
-    etiqueta: (p) => `${p.sku ? p.sku + " — " : ""}${p.descripcion}`,
-    onSelect: (item) => {
-      productoSeleccionado = item;
-      tr.querySelector("[data-role=stock-actual]").textContent = item ? item.stockTotal ?? 0 : "-";
-    },
-  });
-  tr._getProducto = () => productoSeleccionado;
+const clientePicker = initClientePicker(document.getElementById("cliente-picker"), {
+  placeholder: "Consumidor final",
+  onSelect: (cliente) => {
+    clienteSeleccionado = cliente;
+    btnQuitarCliente.style.display = cliente ? "inline-block" : "none";
+  },
+});
 
-  tr.querySelector("[data-role=quitar]").addEventListener("click", () => tr.remove());
+btnQuitarCliente.addEventListener("click", () => clientePicker.limpiarSeleccion());
+
+function subtotalItem(item) {
+  return Math.round(item.cantidad * item.precioUnitario * (1 - (item.descuentoPct || 0) / 100) * 100) / 100;
 }
 
-document.getElementById("btn-agregar-linea").addEventListener("click", agregarLinea);
-agregarLinea();
+function totalCarrito() {
+  return Math.round(carrito.reduce((acc, i) => acc + subtotalItem(i), 0) * 100) / 100;
+}
 
-document.getElementById("form-venta").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const errorEl = document.getElementById("form-error");
-  errorEl.style.display = "none";
+function actualizarTotal() {
+  totalEl.textContent = `$${totalCarrito().toLocaleString("es-AR")}`;
+  continuarBtn.disabled = carrito.length === 0;
+}
 
-  const items = [];
-  for (const tr of lineasBody.querySelectorAll("tr")) {
-    const producto = tr._getProducto();
-    const cantidad = parseFloat(tr.querySelector("[data-role=cantidad]").value) || 0;
-    if (!producto || cantidad <= 0) continue;
-    items.push({
+function pintarCarrito() {
+  carritoVacioEl.style.display = carrito.length === 0 ? "block" : "none";
+  carritoItemsEl.innerHTML = "";
+  carrito.forEach((item, idx) => {
+    const div = document.createElement("div");
+    div.className = "pos-cart-item";
+    div.innerHTML = `
+      <div class="pos-cart-item-info">
+        <div>${item.productoDescripcion}</div>
+        <div class="hint">${item.productoSku || ""}</div>
+      </div>
+      <input type="number" data-role="cantidad" min="1" step="1" value="${item.cantidad}" title="Cantidad" />
+      <input type="number" data-role="precio" min="0" step="0.01" value="${item.precioUnitario}" title="Precio unitario" />
+      <input type="number" data-role="descuento" min="0" max="100" step="1" value="${item.descuentoPct || 0}" title="Descuento %" />
+      <div class="pos-cart-item-subtotal">$${subtotalItem(item).toLocaleString("es-AR")}</div>
+      <button type="button" data-role="quitar" title="Quitar">✕</button>
+    `;
+    const subtotalEl = div.querySelector(".pos-cart-item-subtotal");
+    div.querySelector("[data-role=cantidad]").addEventListener("input", (e) => {
+      item.cantidad = Math.max(parseFloat(e.target.value) || 1, 1);
+      subtotalEl.textContent = `$${subtotalItem(item).toLocaleString("es-AR")}`;
+      actualizarTotal();
+    });
+    div.querySelector("[data-role=precio]").addEventListener("input", (e) => {
+      item.precioUnitario = Math.max(parseFloat(e.target.value) || 0, 0);
+      subtotalEl.textContent = `$${subtotalItem(item).toLocaleString("es-AR")}`;
+      actualizarTotal();
+    });
+    div.querySelector("[data-role=descuento]").addEventListener("input", (e) => {
+      item.descuentoPct = Math.min(Math.max(parseFloat(e.target.value) || 0, 0), 100);
+      subtotalEl.textContent = `$${subtotalItem(item).toLocaleString("es-AR")}`;
+      actualizarTotal();
+    });
+    div.querySelector("[data-role=quitar]").addEventListener("click", () => {
+      carrito.splice(idx, 1);
+      pintarCarrito();
+      actualizarTotal();
+    });
+    carritoItemsEl.appendChild(div);
+  });
+  actualizarTotal();
+}
+
+function agregarAlCarrito(producto) {
+  const existente = carrito.find((i) => i.productoId === producto.id);
+  if (existente) {
+    existente.cantidad += 1;
+  } else {
+    carrito.push({
       productoId: producto.id,
       productoSku: producto.sku,
       productoDescripcion: producto.descripcion,
-      cantidad,
+      cantidad: 1,
+      precioUnitario: producto.precioVenta ?? 0,
+      descuentoPct: 0,
     });
   }
+  searchInput.value = "";
+  resultadosEl.innerHTML = "";
+  searchInput.focus();
+  pintarCarrito();
+}
 
-  if (items.length === 0) {
-    errorEl.textContent = "Agregá al menos un producto con cantidad mayor a cero.";
-    errorEl.style.display = "block";
+function pintarResultados(productos) {
+  resultadosEl.innerHTML = "";
+  if (productos.length === 0) {
+    resultadosEl.innerHTML = '<div class="hint" style="padding:12px 8px">Sin resultados.</div>';
     return;
   }
+  productos.forEach((p) => {
+    const sinStock = (p.stockTotal ?? 0) <= 0;
+    const div = document.createElement("div");
+    div.className = "pos-result-item";
+    div.innerHTML = `
+      <div>
+        <div>${p.descripcion || ""}</div>
+        <div class="hint">${p.sku || ""}${sinStock ? ' · <span style="color:var(--danger)">Sin stock</span>' : ""}</div>
+      </div>
+      <div style="font-weight:600">$${(p.precioVenta ?? 0).toLocaleString("es-AR")}</div>
+    `;
+    div.addEventListener("click", () => agregarAlCarrito(p));
+    resultadosEl.appendChild(div);
+  });
+}
 
-  const submitBtn = document.getElementById("submit-btn");
-  submitBtn.disabled = true;
+let debounceTimer = null;
+searchInput.addEventListener("input", () => {
+  clearTimeout(debounceTimer);
+  const texto = searchInput.value.trim();
+  if (!texto) {
+    resultadosEl.innerHTML = "";
+    return;
+  }
+  debounceTimer = setTimeout(async () => {
+    const productos = await buscarProductos(texto, 15);
+    pintarResultados(productos);
+  }, 200);
+});
 
+function mostrarConfirmacion(numeroVenta, total) {
+  posLayout.style.display = "none";
+  const conf = document.getElementById("pos-confirmacion");
+  conf.style.display = "block";
+  conf.innerHTML = `
+    <div style="font-size:40px; color:var(--success)">✓</div>
+    <div style="font-size:18px; font-weight:600; margin:8px 0">¡Venta confirmada!</div>
+    <div class="hint" style="font-size:14px">Venta #${numeroVenta}</div>
+    <div style="font-size:26px; font-weight:600; margin:12px 0">$${total.toLocaleString("es-AR")}</div>
+    <button type="button" class="primary" id="btn-nueva-venta" style="width:100%">Nueva venta</button>
+  `;
+  document.getElementById("btn-nueva-venta").addEventListener("click", () => location.reload());
+}
+
+continuarBtn.addEventListener("click", async () => {
+  errorEl.style.display = "none";
+  const total = totalCarrito();
+  const pagos = await pedirMedioPagoVenta(total, clienteSeleccionado);
+  if (!pagos) return;
+
+  continuarBtn.disabled = true;
   try {
-    await registrarVenta(items, usuario);
-    location.href = "/productos/movimientos.html";
+    const datos = {
+      fecha: new Date().toISOString().slice(0, 10),
+      clienteId: clienteSeleccionado?.id || null,
+      clienteNombre: clienteSeleccionado?.razonSocial || null,
+      items: carrito.map((i) => ({
+        productoId: i.productoId,
+        productoSku: i.productoSku,
+        productoDescripcion: i.productoDescripcion,
+        cantidad: i.cantidad,
+        precioUnitario: i.precioUnitario,
+        descuentoPct: i.descuentoPct || 0,
+        subtotal: subtotalItem(i),
+      })),
+      descuentoGlobal: 0,
+      subtotal: total,
+      total,
+      pagos,
+    };
+    const resultado = await crearVenta(datos, usuario);
+    mostrarConfirmacion(resultado.numeroVenta, total);
   } catch (err) {
     errorEl.textContent = err?.message || "Ocurrió un error al registrar la venta.";
     errorEl.style.display = "block";
-    submitBtn.disabled = false;
+    continuarBtn.disabled = false;
   }
 });
+
+pintarCarrito();
