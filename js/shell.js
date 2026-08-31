@@ -30,7 +30,6 @@ export function renderShell({ active, titulo, usuario }) {
   document.body.innerHTML = `
     <div class="layout">
       <aside class="sidebar">
-        <div class="brand"><img id="sidebar-logo" class="sidebar-logo" alt="" style="display:none" /></div>
         ${nav("dashboard", "/dashboard.html", "Dashboard")}
         ${nav("reportes", "/reportes.html", "Reportes")}
         ${grupo(
@@ -173,11 +172,6 @@ export function renderShell({ active, titulo, usuario }) {
 
   // Logo/nombre de la empresa en la topbar — no bloquea el resto del render.
   obtenerConfigEmpresa().then((config) => {
-    if (config.logoDataUrl) {
-      const logoSidebar = document.getElementById("sidebar-logo");
-      logoSidebar.src = config.logoDataUrl;
-      logoSidebar.style.display = "block";
-    }
     if (!config.logoDataUrl && !config.nombreFantasia) return;
     document.getElementById("topbar-org").innerHTML = `
       ${config.logoDataUrl ? `<img src="${config.logoDataUrl}" alt="" />` : ""}
