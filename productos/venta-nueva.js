@@ -276,16 +276,25 @@ function abrirModalEmail(comprobante) {
 
 // La venta y su comprobante quedan mostrados juntos, en la misma pantalla — no hace falta ir a
 // buscar la venta en otro módulo para poder facturarla (esa era la falla de arquitectura anterior).
-function mostrarConfirmacion(numeroVenta, tipoEntrega, comprobante) {
+function mostrarConfirmacion(numeroVenta, tipoEntrega, comprobante, routeoTesoreria) {
   posLayout.style.display = "none";
   const conf = document.getElementById("pos-confirmacion");
   conf.style.display = "block";
+  const sinRutear = (routeoTesoreria || []).filter((r) => !r.ruteado);
   conf.innerHTML = `
     <div class="card" style="padding:20px; text-align:center; margin-bottom:16px">
       <div style="font-size:32px; color:var(--success)">✓</div>
       <div style="font-size:16px; font-weight:600; margin:4px 0">Venta #${numeroVenta} confirmada</div>
       ${tipoEntrega !== "Retira ahora" ? `<div class="hint">${tipoEntrega} — queda pendiente para Logística.</div>` : ""}
     </div>
+    ${
+      sinRutear.length > 0
+        ? `<div class="card no-imprimir" style="padding:14px 20px; margin-bottom:16px; background:var(--warning-bg); border-color:var(--warning)">
+        <div style="font-weight:600; color:var(--warning)">⚠️ La venta se registró, pero Tesorería no pudo ubicar el pago</div>
+        ${sinRutear.map((r) => `<div class="hint">${r.medio} ($${r.monto.toLocaleString("es-AR")}): ${r.motivo}</div>`).join("")}
+      </div>`
+        : ""
+    }
 
     <div class="card no-imprimir" style="padding:16px 20px; margin-bottom:16px; background:var(--success-bg); border-color:var(--success); text-align:center">
       <div style="font-size:15px; font-weight:700; color:var(--success)">🧾 COMPROBANTE EMITIDO</div>
@@ -369,7 +378,7 @@ continuarBtn.addEventListener("click", async () => {
       usuario
     );
 
-    mostrarConfirmacion(resultado.numeroVenta, tipoEntrega, comprobante);
+    mostrarConfirmacion(resultado.numeroVenta, tipoEntrega, comprobante, resultado.routeoTesoreria);
   } catch (err) {
     errorEl.textContent = err?.message || "Ocurrió un error al registrar la venta.";
     errorEl.style.display = "block";

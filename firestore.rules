@@ -228,5 +228,81 @@ service cloud.firestore {
       allow read: if false;
       allow write: if false;
     }
+
+    // --- Tesorería -------------------------------------------------------------------------------
+    // Mismo criterio que el resto del ERP: los movimientos financieros nunca se borran ni se editan
+    // libremente — solo se pueden "anular" (allowlist de campos, gateado a administrador) o, en el
+    // caso de movimientos bancarios, marcar como conciliados. El saldo de cada caja/cuenta se calcula
+    // siempre a partir de estos movimientos (ver js/cajas.js, js/bancos.js) — nunca se guarda un saldo.
+
+    match /cajas/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    // Una sesión = un ciclo apertura → cierre de una caja puntual. Se crea al abrir (puedeVender,
+    // cualquier cajero/vendedor puede abrir su caja) y solo se puede tocar de nuevo para cerrarla.
+    match /sesionesCaja/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if puedeVender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'estado', 'fechaCierre', 'cierrePor', 'cierrePorNombre',
+          'saldoTeorico', 'dineroContado', 'diferencia', 'arqueo'
+        ]);
+      allow delete: if false;
+    }
+
+    match /movimientosCaja/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if esAdministrador() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'motivoAnulacion', 'anuladoPor', 'anuladoPorNombre', 'fechaAnulacion']);
+      allow delete: if false;
+    }
+
+    match /bancos/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    match /cuentasBancarias/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
+    match /movimientosBancarios/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if
+        (puedeVender() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'conciliadoPor', 'conciliadoPorNombre', 'fechaConciliacion', 'movimientoRelacionado'])) ||
+        (esAdministrador() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'motivoAnulacion', 'anuladoPor', 'anuladoPorNombre', 'fechaAnulacion']));
+      allow delete: if false;
+    }
+
+    match /gastos/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if esAdministrador() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'motivoAnulacion', 'anuladoPor', 'anuladoPorNombre', 'fechaAnulacion']);
+      allow delete: if false;
+    }
+
+    match /transferenciasInternas/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update, delete: if false;
+    }
+
+    // Mercado Pago / GoCuotas / Boston Cred / Tarjeta de crédito: la venta crea la cuenta por cobrar
+    // (pendiente); registrar un cobro/acreditación solo puede tocar los campos de cobro, nunca el
+    // origen (venta, cliente, importe bruto) que quedó fijado al crearse.
+    match /cuentasPorCobrar/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if puedeVender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'pagosRecibidos', 'totalCobrado', 'saldoPendiente', 'actualizadoEn']);
+      allow delete: if false;
+    }
   }
 }

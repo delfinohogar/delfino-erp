@@ -79,6 +79,19 @@ export function renderShell({ active, titulo, usuario }) {
             nav("facturacion-nuevo", "/facturacion/nuevo.html", "Nuevo comprobante (manual)")
         )}
         ${grupo(
+          "tesoreria",
+          "Tesorería",
+          "balanza",
+          nav("tesoreria-dashboard", "/tesoreria/dashboard.html", "Posición") +
+            nav("tesoreria-cajas", "/tesoreria/cajas.html", "Cajas") +
+            nav("tesoreria-bancos", "/tesoreria/bancos.html", "Bancos") +
+            nav("tesoreria-cxc", "/tesoreria/cuentas-por-cobrar.html", "Cuentas por cobrar") +
+            nav("tesoreria-gastos", "/tesoreria/gastos.html", "Gastos") +
+            nav("tesoreria-transferencias", "/tesoreria/transferencias.html", "Transferencias") +
+            nav("tesoreria-movimientos", "/tesoreria/movimientos.html", "Movimientos") +
+            nav("tesoreria-conciliacion", "/tesoreria/conciliacion.html", "Conciliación")
+        )}
+        ${grupo(
           "mercado-pago",
           "Mercado Pago",
           "billetera",

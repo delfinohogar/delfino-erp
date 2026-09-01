@@ -61,6 +61,14 @@ export const ICONOS_NAV = {
   "facturacion-nuevo": "mas",
   "config-sucursales": "edificio",
   "config-facturacion": "recibo",
+  "tesoreria-dashboard": "balanza",
+  "tesoreria-cajas": "caja",
+  "tesoreria-bancos": "edificio",
+  "tesoreria-cxc": "billetera",
+  "tesoreria-gastos": "tarjeta",
+  "tesoreria-transferencias": "intercambio",
+  "tesoreria-movimientos": "lista",
+  "tesoreria-conciliacion": "portapapeles",
 };
 
 export function icono(nombre) {

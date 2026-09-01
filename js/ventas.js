@@ -20,8 +20,59 @@ import {
   runTransaction,
 } from "./firebase.js";
 import { generarAsiento, CUENTA } from "./contabilidad.js";
+import { listarSucursalesActivas } from "./sucursales.js";
+import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
+import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
+import { crearCuentaPorCobrar } from "./cuentas-por-cobrar.js";
 
-export const MEDIOS_PAGO_VENTA = ["Efectivo", "Tarjeta", "Transferencia", "Otro", "Pendiente de pago"];
+// Débito y Transferencia van a Banco (acreditación same-day, se tratan como disponible ya). Crédito,
+// Mercado Pago, GoCuotas y Boston Cred generan una Cuenta por Cobrar — el dinero no está disponible
+// todavía, solo prometido (ver js/cuentas-por-cobrar.js). Efectivo va a la Caja de la sucursal.
+export const MEDIOS_PAGO_VENTA = ["Efectivo", "Débito", "Transferencia", "Crédito", "Mercado Pago", "GoCuotas", "Boston Cred", "Otro", "Pendiente de pago"];
+const MEDIOS_A_CUENTA_POR_COBRAR = { "Crédito": "Tarjeta de crédito", "Mercado Pago": "Mercado Pago", GoCuotas: "GoCuotas", "Boston Cred": "Boston Cred" };
+
+// Dónde termina la plata de un pago de venta, según el medio — el corazón de la integración con
+// Tesorería (VENTA → COBRO → TESORERÍA). Nunca registra un pago como "disponible" si en realidad
+// quedó pendiente de acreditar (ver PROMPT MAESTRO — TESORERÍA, punto 36).
+async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clienteId, clienteNombre, fecha }, usuario) {
+  if (medio === "Pendiente de pago" || medio === "Otro" || monto <= 0) return { ruteado: false, motivo: "Medio sin destino de tesorería definido." };
+
+  const sucursales = await listarSucursalesActivas();
+  const sucursal = sucursales[0] || null;
+
+  const medioCuentaPorCobrar = MEDIOS_A_CUENTA_POR_COBRAR[medio];
+  if (medioCuentaPorCobrar) {
+    await crearCuentaPorCobrar({ medio: medioCuentaPorCobrar, ventaId, clienteId, clienteNombre, fecha, importeBruto: monto, sucursalId: sucursal?.id }, usuario);
+    return { ruteado: true, destino: "cuentaPorCobrar", medio: medioCuentaPorCobrar };
+  }
+
+  if (medio === "Efectivo") {
+    if (!sucursal) return { ruteado: false, motivo: "No hay ninguna sucursal configurada — no se sabe a qué caja va el efectivo." };
+    const cajas = await listarCajasPorSucursal(sucursal.id);
+    const caja = cajas.find((c) => c.tipo === "Principal" && c.activa !== false) || cajas.find((c) => c.activa !== false);
+    if (!caja) return { ruteado: false, motivo: `${sucursal.nombre} todavía no tiene ninguna caja creada (Tesorería → Cajas).` };
+    const sesion = await sesionAbiertaDeCaja(caja.id);
+    if (!sesion) return { ruteado: false, motivo: `${caja.nombre} (${sucursal.nombre}) está cerrada — abrila para que el efectivo de las ventas se registre ahí.` };
+    await registrarMovimientoCaja(
+      { cajaId: caja.id, sesionId: sesion.id, sucursalId: sucursal.id, tipo: "ingreso", concepto: `Cobro venta #${numeroVenta}`, importe: monto, medio, ventaId, clienteId, clienteNombre, origen: { tipo: "venta", id: ventaId } },
+      usuario
+    );
+    return { ruteado: true, destino: "caja", id: caja.id };
+  }
+
+  if (medio === "Débito" || medio === "Transferencia") {
+    const cuentas = await listarCuentasBancariasActivas();
+    const cuenta = (sucursal ? cuentas.find((c) => c.sucursalId === sucursal.id) : null) || cuentas[0];
+    if (!cuenta) return { ruteado: false, motivo: "No hay ninguna cuenta bancaria configurada (Tesorería → Bancos)." };
+    await registrarMovimientoBancario(
+      { cuentaId: cuenta.id, fecha, tipo: "ingreso", concepto: `Cobro venta #${numeroVenta}`, importe: monto, ventaId, clienteId, clienteNombre, origen: { tipo: "venta", id: ventaId } },
+      usuario
+    );
+    return { ruteado: true, destino: "banco", id: cuenta.id };
+  }
+
+  return { ruteado: false, motivo: "Medio sin destino de tesorería definido." };
+}
 
 // Tipos de entrega: por ahora fijos acá, pero es el único lugar que el futuro módulo de Logística
 // necesita tocar para agregar/quitar opciones (ej. "Envío programado", "Retiro en depósito").
@@ -153,7 +204,21 @@ export async function crearVenta(datos, usuario) {
     usuario
   );
 
-  return { id: ventaRef.id, numeroVenta };
+  // Tesorería: cada pago que no quedó "Pendiente de pago" busca dónde termina esa plata (caja, banco,
+  // o una cuenta por cobrar si todavía no está disponible) — ver routearPagoATesoreria más arriba.
+  // Un pago sin dónde rutear (ej. caja cerrada) NUNCA bloquea la venta — solo queda sin reflejar en
+  // Tesorería, y se informa en el resultado para que la pantalla lo pueda avisar.
+  const routeo = [];
+  for (const pago of datos.pagos) {
+    if (pago.medio === "Pendiente de pago" || pago.monto <= 0) continue;
+    const resultado = await routearPagoATesoreria(
+      { medio: pago.medio, monto: pago.monto, ventaId: ventaRef.id, numeroVenta, clienteId: datos.clienteId, clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final", fecha: datos.fecha },
+      usuario
+    );
+    routeo.push({ medio: pago.medio, monto: pago.monto, ...resultado });
+  }
+
+  return { id: ventaRef.id, numeroVenta, routeoTesoreria: routeo };
 }
 
 export async function listarVentas(maxResultados = 100) {

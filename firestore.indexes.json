@@ -16,6 +16,38 @@
         { "fieldPath": "parentId", "order": "ASCENDING" },
         { "fieldPath": "nombreLower", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "sesionesCaja",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cajaId", "order": "ASCENDING" },
+        { "fieldPath": "fechaApertura", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cuentasPorCobrar",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "medio", "order": "ASCENDING" },
+        { "fieldPath": "creadoEn", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cuentasPorCobrar",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estado", "order": "ASCENDING" },
+        { "fieldPath": "creadoEn", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "gastos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sucursalId", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
