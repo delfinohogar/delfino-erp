@@ -11,7 +11,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderConfigShell({ activeItem: "mercado-pago", titulo: "Mercado Pago", usuario });
+const content = renderConfigShell({ activeItem: "integraciones", titulo: "Mercado Pago", usuario });
 
 content.innerHTML = `
   <div id="banner-modo"></div>

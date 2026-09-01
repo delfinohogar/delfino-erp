@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -9,12 +9,9 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Integraciones", usuario });
+const content = renderConfigShell({ activeItem: "integraciones", titulo: "Integraciones", usuario });
 
 content.innerHTML = `
-  <div class="toolbar">
-    <a href="/configuracion/index.html" class="link-btn">← Configuración</a>
-  </div>
   <div class="hint" style="margin-bottom:16px; max-width:64ch">
     Conexiones con servicios externos. Configurar acá es distinto de operar — para consultar
     operaciones, saldos o acreditaciones de un medio ya conectado, andá al módulo correspondiente
