@@ -27,7 +27,6 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
               <button type="button" id="cm-consultar-arca">🔎 Buscar en ARCA</button>
             </div>
             <div class="hint" id="cm-cuit-validacion"></div>
-            <div class="hint" id="cm-dni-sugerencias"></div>
             <div class="hint" id="cm-arca-estado"></div>
           </div>
           <div class="field">
@@ -70,7 +69,6 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
     const razonSocialInput = overlay.querySelector("#cm-razonSocial");
     const cuitInput = overlay.querySelector("#cm-cuit");
     const cuitValidacionEl = overlay.querySelector("#cm-cuit-validacion");
-    const dniSugerenciasEl = overlay.querySelector("#cm-dni-sugerencias");
     const estadoEl = overlay.querySelector("#cm-arca-estado");
     const previewEl = overlay.querySelector("#cm-arca-preview");
     const previewContentEl = overlay.querySelector("#cm-arca-preview-content");
@@ -119,26 +117,14 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
       const diff = cuitInput.value.length - antesLen;
       cuitInput.setSelectionRange(posicionCursor + diff, posicionCursor + diff);
 
-      dniSugerenciasEl.innerHTML = "";
       if (digitos.length === 11) {
         cuitValidacionEl.textContent = validarCuit(digitos) ? "✓ CUIT válido." : "El CUIT no es válido (dígito verificador incorrecto).";
         cuitValidacionEl.className = validarCuit(digitos) ? "hint" : "hint error-text";
       } else if (digitos.length === 7 || digitos.length === 8) {
-        cuitValidacionEl.textContent = "Parece un DNI. CUIT probables:";
+        // No hace falta elegir el prefijo a mano: "Buscar en ARCA" ya prueba los de persona física
+        // (20/27/23/24) uno por uno hasta encontrar el real (ver el handler de cm-consultar-arca).
+        cuitValidacionEl.textContent = "Parece un DNI — Buscar en ARCA prueba los prefijos solo.";
         cuitValidacionEl.className = "hint";
-        cuitsPosiblesDesdeDni(digitos).forEach(({ etiqueta, formateado }) => {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.textContent = formateado;
-          btn.title = etiqueta;
-          btn.style.marginRight = "6px";
-          btn.style.marginTop = "4px";
-          btn.addEventListener("click", () => {
-            cuitInput.value = formateado;
-            actualizarCuit();
-          });
-          dniSugerenciasEl.appendChild(btn);
-        });
       } else {
         cuitValidacionEl.textContent = "";
       }
