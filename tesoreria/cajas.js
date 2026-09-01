@@ -50,7 +50,7 @@ async function cargar() {
       <td>${caja.tipo}</td>
       <td>${abierta ? '<span class="badge success">Abierta</span>' : '<span class="badge muted">Cerrada</span>'}</td>
       <td class="num">${formatMonto(saldo)}</td>
-      <td><a href="/tesoreria/caja-ficha.html?id=${caja.id}"><button type="button">Abrir</button></a></td>
+      <td><a href="/tesoreria/caja-ficha.html?id=${caja.id}"><button type="button">${abierta ? "Ver" : "Abrir"}</button></a></td>
     </tr>
   `
     )
