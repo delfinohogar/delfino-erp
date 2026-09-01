@@ -75,8 +75,8 @@ export function renderShell({ active, titulo, usuario }) {
           "facturacion",
           "Facturación",
           "recibo",
-          nav("facturacion-dashboard", "/facturacion/dashboard.html", "Comprobantes") +
-            nav("facturacion-nuevo", "/facturacion/nuevo.html", "Nuevo comprobante")
+          nav("facturacion-dashboard", "/facturacion/dashboard.html", "Historial de comprobantes") +
+            nav("facturacion-nuevo", "/facturacion/nuevo.html", "Nuevo comprobante (manual)")
         )}
         ${grupo(
           "mercado-pago",
@@ -90,6 +90,8 @@ export function renderShell({ active, titulo, usuario }) {
           "Configuración",
           "edificio",
           (usuario?.rol === "administrador" ? nav("config-empresa", "/configuracion/empresa.html", "Empresa") : "") +
+            (usuario?.rol === "administrador" ? nav("config-sucursales", "/configuracion/sucursales.html", "Sucursales") : "") +
+            (usuario?.rol === "administrador" ? nav("config-facturacion", "/configuracion/facturacion.html", "Facturación") : "") +
             nav("config-categorias", "/configuracion/categorias.html", "Categorías") +
             nav("config-marcas", "/configuracion/marcas.html", "Marcas") +
             nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores") +

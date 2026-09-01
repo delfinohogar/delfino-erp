@@ -5,6 +5,7 @@ import { obtenerVenta } from "/js/ventas.js";
 import { obtenerCliente } from "/js/clientes.js";
 import { initClientePicker } from "/js/cliente-picker.js";
 import { obtenerConfigEmpresa } from "/js/configuracion-empresa.js";
+import { obtenerConfigFacturacion } from "/js/facturacion-config.js";
 import { crearComprobante, comprobanteDesdeVenta, subtotalItem, calcularTotales, FORMAS_PAGO_COMPROBANTE } from "/js/facturacion.js";
 import { renderizarComprobanteHtml } from "/js/facturacion-preview.js";
 import { descargarPdfComprobante, nombreArchivoComprobante } from "/js/facturacion-pdf.js";
@@ -17,7 +18,7 @@ if (!usuario) throw new Error("redirecting to login");
 const content = renderShell({ active: "facturacion-nuevo", titulo: "Nuevo comprobante", usuario });
 
 const ventaId = new URLSearchParams(location.search).get("ventaId");
-const configEmpresa = await obtenerConfigEmpresa();
+const configEmpresa = { ...(await obtenerConfigEmpresa()), ...(await obtenerConfigFacturacion()) };
 
 function formatMonto(v) {
   return `$${Math.round(v || 0).toLocaleString("es-AR")}`;

@@ -1241,52 +1241,80 @@ details.card[open] summary::before {
 
 .comprobante-marca {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+  flex: 1;
+  min-width: 200px;
 }
 
 .comprobante-marca img {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
   border-radius: 6px;
+  flex-shrink: 0;
 }
 
 .comprobante-nombre {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--accent);
-}
-
-.comprobante-tagline {
-  font-size: 12px;
-  color: var(--muted);
+  margin-bottom: 3px;
 }
 
 .comprobante-datos-empresa {
-  text-align: right;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
   line-height: 1.5;
 }
 
-.comprobante-titulo-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
+.comprobante-letra-box {
+  flex-shrink: 0;
+  width: 52px;
+  border: 1.5px solid var(--foreground);
+  border-radius: 4px;
+  text-align: center;
+  padding: 2px 0 4px;
 }
 
-.comprobante-titulo {
-  font-size: 16px;
-  font-weight: 700;
+.comprobante-letra {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.comprobante-letra-cod {
+  font-size: 8px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .comprobante-numero {
   font-size: 15px;
   font-weight: 700;
+}
+
+.comprobante-datos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  font-size: 12.5px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.comprobante-medios-pago {
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+
+.comprobante-medios-pago > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
 }
 
 .comprobante-banner-fiscal {
@@ -1358,12 +1386,13 @@ details.card[open] summary::before {
 }
 
 .comprobante-footer {
+  display: flex;
+  justify-content: space-between;
   margin-top: 22px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--muted);
-  text-align: center;
 }
 
 @media print {

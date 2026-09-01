@@ -1,7 +1,8 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { obtenerConfigEmpresa } from "/js/configuracion-empresa.js";
-import { obtenerComprobante, anularComprobante } from "/js/facturacion.js";
+import { obtenerConfigFacturacion } from "/js/facturacion-config.js";
+import { obtenerComprobante, crearNotaCredito } from "/js/facturacion.js";
 import { renderizarComprobanteHtml } from "/js/facturacion-preview.js";
 import { descargarPdfComprobante } from "/js/facturacion-pdf.js";
 import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
@@ -13,7 +14,12 @@ if (!usuario) throw new Error("redirecting to login");
 const id = new URLSearchParams(location.search).get("id");
 const content = renderShell({ active: "facturacion-dashboard", titulo: "Comprobante", usuario });
 
-const [comprobante, configEmpresa] = await Promise.all([obtenerComprobante(id), obtenerConfigEmpresa()]);
+const [comprobante, configEmpresaBase, configFacturacion] = await Promise.all([
+  obtenerComprobante(id),
+  obtenerConfigEmpresa(),
+  obtenerConfigFacturacion(),
+]);
+const configEmpresa = { ...configEmpresaBase, ...configFacturacion };
 
 if (!comprobante) {
   content.innerHTML = `<div class="empty-state">No se encontró ese comprobante. <a href="/facturacion/dashboard.html">Volver a Facturación</a></div>`;
@@ -35,8 +41,8 @@ function pintar() {
       <button type="button" id="btn-whatsapp">📱 WhatsApp</button>
       <button type="button" id="btn-email">✉️ Email</button>
       ${
-        comprobante.estado === "EMITIDA" && usuario.rol === "administrador"
-          ? `<button type="button" id="btn-anular" style="color:var(--danger); border-color:var(--danger)">Anular comprobante</button>`
+        comprobante.estado === "EMITIDA" && !comprobante.tipoComprobanteCodigo?.startsWith("NOTA_CREDITO") && usuario.rol === "administrador"
+          ? `<button type="button" id="btn-nota-credito" style="color:var(--danger); border-color:var(--danger)">↩️ Emitir Nota de Crédito</button>`
           : ""
       }
     </div>
@@ -47,6 +53,11 @@ function pintar() {
         <div><div class="hint" style="margin:0">Generado por</div><div style="font-weight:600">${comprobante.creadoPorNombre || "-"}</div></div>
         <div><div class="hint" style="margin:0">Fecha de creación</div><div style="font-weight:600">${formatFechaHora(comprobante.creadoEn)}</div></div>
         ${comprobante.ventaId ? `<div><div class="hint" style="margin:0">Origen</div><div style="font-weight:600">Venta vinculada</div></div>` : ""}
+        ${
+          comprobante.comprobanteRelacionadoId
+            ? `<div><div class="hint" style="margin:0">${comprobante.tipoComprobanteCodigo?.startsWith("NOTA_CREDITO") ? "Nota de crédito de" : "Comprobante relacionado"}</div><div style="font-weight:600"><a href="/facturacion/ficha.html?id=${comprobante.comprobanteRelacionadoId}">Ver</a></div></div>`
+            : ""
+        }
         ${
           comprobante.estado === "ANULADA"
             ? `<div><div class="hint" style="margin:0">Anulado por</div><div style="font-weight:600">${comprobante.anuladoPorNombre || "-"} — ${formatFechaHora(comprobante.fechaAnulacion)}</div></div>`
@@ -72,19 +83,15 @@ function pintar() {
   });
   document.getElementById("btn-email").addEventListener("click", () => abrirModalEmail());
 
-  document.getElementById("btn-anular")?.addEventListener("click", async () => {
-    const motivo = prompt("Motivo de la anulación:");
+  document.getElementById("btn-nota-credito")?.addEventListener("click", async () => {
+    const motivo = prompt("Motivo de la nota de crédito (ej. devolución, cancelación/ajuste):");
     if (!motivo) return;
-    if (!confirm(`¿Anular el comprobante ${comprobante.numeroCompleto}? El número no se va a poder reutilizar.`)) return;
+    if (!confirm(`¿Generar una Nota de Crédito por el total de ${comprobante.numeroCompleto}? El comprobante original queda registrado, no se borra.`)) return;
     try {
-      await anularComprobante(comprobante.id, motivo, usuario);
-      comprobante.estado = "ANULADA";
-      comprobante.motivoAnulacion = motivo.trim();
-      comprobante.fechaAnulacion = new Date();
-      comprobante.anuladoPorNombre = usuario.nombre || usuario.email;
-      pintar();
+      const notaCredito = await crearNotaCredito(comprobante.id, motivo, usuario);
+      location.href = `/facturacion/ficha.html?id=${notaCredito.id}`;
     } catch (err) {
-      document.getElementById("anular-resultado").textContent = err?.message || "No se pudo anular el comprobante.";
+      document.getElementById("anular-resultado").textContent = err?.message || "No se pudo generar la nota de crédito.";
       document.getElementById("anular-resultado").classList.add("error-text");
     }
   });

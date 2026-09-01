@@ -59,6 +59,8 @@ export const ICONOS_NAV = {
   "mp-centro-pruebas": "billetera",
   "facturacion-dashboard": "recibo",
   "facturacion-nuevo": "mas",
+  "config-sucursales": "edificio",
+  "config-facturacion": "recibo",
 };
 
 export function icono(nombre) {

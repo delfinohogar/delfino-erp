@@ -1,6 +1,6 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { listarComprobantes, ESTADOS_COMPROBANTE, FORMAS_PAGO_COMPROBANTE } from "/js/facturacion.js";
+import { listarComprobantes, ESTADOS_COMPROBANTE, FORMAS_PAGO_COMPROBANTE, TIPOS_COMPROBANTE } from "/js/facturacion.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -55,6 +55,13 @@ content.innerHTML = `
         <input type="text" id="f-texto" placeholder="Buscar…" />
       </div>
       <div class="field">
+        <label for="f-tipo">Tipo</label>
+        <select id="f-tipo">
+          <option value="">Todos</option>
+          ${TIPOS_COMPROBANTE.filter((t) => !t.requiereArca).map((t) => `<option value="${t.codigo}">${t.nombre}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field">
         <label for="f-estado">Estado</label>
         <select id="f-estado">
           <option value="">Todos</option>
@@ -77,8 +84,10 @@ content.innerHTML = `
         <thead>
           <tr>
             <th>Número</th>
+            <th>Tipo</th>
             <th>Fecha</th>
             <th>Cliente</th>
+            <th>Venta</th>
             <th>Forma de pago</th>
             <th style="text-align:right">Total</th>
             <th>Estado</th>
@@ -115,10 +124,12 @@ function aplicarFiltrosYPintar() {
   const texto = document.getElementById("f-texto").value.trim().toLowerCase();
   const estado = document.getElementById("f-estado").value;
   const formaPago = document.getElementById("f-forma-pago").value;
+  const tipo = document.getElementById("f-tipo").value;
 
   const filtrados = comprobantesDelRango.filter((c) => {
     if (estado && c.estado !== estado) return false;
     if (formaPago && c.formaPago !== formaPago) return false;
+    if (tipo && c.tipoComprobanteCodigo !== tipo) return false;
     if (texto) {
       const enTexto = [c.numeroCompleto, c.clienteNombre, c.clienteCuit, c.clienteDni].filter(Boolean).join(" ").toLowerCase();
       if (!enTexto.includes(texto)) return false;
@@ -132,8 +143,10 @@ function aplicarFiltrosYPintar() {
       (c) => `
     <tr style="cursor:pointer" onclick="location.href='/facturacion/ficha.html?id=${c.id}'">
       <td>${c.numeroCompleto || "-"}</td>
+      <td>${c.tipoComprobante || "-"}</td>
       <td>${formatFecha(c.fechaEmision)}</td>
       <td>${c.clienteNombre || "Consumidor final"}</td>
+      <td>${c.ventaId ? '<span class="badge muted">Venta</span>' : "-"}</td>
       <td>${c.formaPago || "-"}</td>
       <td style="text-align:right">${formatMonto(c.total)}</td>
       <td>${badgeEstado(c.estado)}</td>
@@ -171,5 +184,6 @@ document.getElementById("f-hasta").addEventListener("change", cargar);
 document.getElementById("f-texto").addEventListener("input", aplicarFiltrosYPintar);
 document.getElementById("f-estado").addEventListener("change", aplicarFiltrosYPintar);
 document.getElementById("f-forma-pago").addEventListener("change", aplicarFiltrosYPintar);
+document.getElementById("f-tipo").addEventListener("change", aplicarFiltrosYPintar);
 
 cargar();

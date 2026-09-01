@@ -2,6 +2,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarVentas } from "/js/ventas.js";
 import { listarCobros } from "/js/cobros.js";
+import { listarComprobantes } from "/js/facturacion.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -73,6 +74,10 @@ async function cargar() {
   // Solo hace falta traer cobros para las ventas que arrancaron con algo pendiente — el resto ya
   // se sabe "Cobrada" sin consultar nada más.
   const cobros = ventas.some((v) => (v.montoPendiente || 0) > 0.01) ? await listarCobros(500) : [];
+  // Desde que la venta genera el comprobante automáticamente casi todas lo van a tener — esto solo
+  // hace falta para ofrecer "Generar" en ventas viejas, de antes de ese cambio.
+  const comprobantes = await listarComprobantes({ maxResultados: 500 });
+  const comprobantePorVenta = new Map(comprobantes.filter((c) => c.ventaId).map((c) => [c.ventaId, c]));
 
   ventas.forEach((v) => {
     const cobrado = cobros.filter((c) => c.ventaId === v.id).reduce((acc, c) => acc + (c.monto || 0), 0);
@@ -87,7 +92,11 @@ async function cargar() {
       <td>${entregaBadge(v)}</td>
       <td>$${(v.total ?? 0).toLocaleString("es-AR")}</td>
       <td>${estadoBadge(saldo, v.total || 0)}</td>
-      <td><a href="/facturacion/nuevo.html?ventaId=${v.id}"><button type="button" title="Generar comprobante">🧾</button></a></td>
+      <td>${
+        comprobantePorVenta.has(v.id)
+          ? `<a href="/facturacion/ficha.html?id=${comprobantePorVenta.get(v.id).id}"><button type="button" title="Ver comprobante">🧾 Ver</button></a>`
+          : `<a href="/facturacion/nuevo.html?ventaId=${v.id}"><button type="button" title="Generar comprobante">🧾 Generar</button></a>`
+      }</td>
     `;
     tablaBody.appendChild(tr);
   });

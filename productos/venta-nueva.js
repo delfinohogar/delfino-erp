@@ -6,6 +6,16 @@ import { actualizarCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { initClientePicker } from "/js/cliente-picker.js";
 import { pedirMedioPagoVenta } from "/js/venta-pago-modal.js";
+import { crearComprobante, comprobanteDesdeVenta, tiposComprobanteDisponibles } from "/js/facturacion.js";
+import { obtenerConfigEmpresa } from "/js/configuracion-empresa.js";
+import { obtenerConfigFacturacion } from "/js/facturacion-config.js";
+import { renderizarComprobanteHtml } from "/js/facturacion-preview.js";
+import { descargarPdfComprobante } from "/js/facturacion-pdf.js";
+import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
+import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
+
+const configEmpresa = { ...(await obtenerConfigEmpresa()), ...(await obtenerConfigFacturacion()) };
+const TIPOS_COMPROBANTE_UI = tiposComprobanteDisponibles();
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -39,11 +49,18 @@ content.innerHTML = `
         <span>Total</span>
         <span id="pos-total">$0</span>
       </div>
-      <button type="button" class="primary" id="pos-continuar" disabled style="width:100%">Continuar</button>
+      <div class="field" style="margin-top:14px; margin-bottom:0">
+        <label for="pos-tipo-comprobante">🧾 Comprobante</label>
+        <select id="pos-tipo-comprobante">
+          ${TIPOS_COMPROBANTE_UI.map((t) => `<option value="${t.codigo}">${t.nombre}</option>`).join("")}
+        </select>
+        <div class="hint" style="margin-top:4px">Comprobante interno — sin validez fiscal. Se genera automáticamente al confirmar.</div>
+      </div>
+      <button type="button" class="primary" id="pos-continuar" disabled style="width:100%; margin-top:14px">Continuar</button>
       <div class="error-text" id="pos-error" style="display:none"></div>
     </div>
   </div>
-  <div id="pos-confirmacion" class="card" style="display:none; text-align:center; padding:40px; max-width:420px; margin:24px auto"></div>
+  <div id="pos-confirmacion" style="display:none; max-width:820px; margin:24px auto"></div>
 `;
 
 const posLayout = document.getElementById("pos-layout");
@@ -219,19 +236,83 @@ searchInput.addEventListener("input", () => {
   }, 200);
 });
 
-function mostrarConfirmacion(numeroVenta, total, tipoEntrega) {
+function abrirModalEmail(comprobante) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-card card" style="max-width:460px">
+      <div class="section-title">Enviar por email</div>
+      <div class="field">
+        <label for="em-para">Para</label>
+        <input type="email" id="em-para" value="${clienteSeleccionado?.email || ""}" placeholder="cliente@ejemplo.com" />
+      </div>
+      <div class="field">
+        <label for="em-asunto">Asunto</label>
+        <input type="text" id="em-asunto" value="${asuntoEmailComprobante()}" />
+      </div>
+      <div class="field">
+        <label for="em-mensaje">Mensaje</label>
+        <textarea id="em-mensaje" rows="6" style="width:100%; font-family:inherit; font-size:14px; padding:8px; border-radius:8px; border:1px solid var(--border); background:var(--background); color:var(--foreground)">${mensajeEmailComprobante(comprobante)}</textarea>
+      </div>
+      <div class="hint" style="margin-bottom:10px">Se abre tu programa de correo con esto ya cargado — el PDF no se adjunta solo, lo adjuntás vos ahí.</div>
+      <div class="toolbar">
+        <button type="button" class="primary" id="em-enviar">Abrir email</button>
+        <button type="button" id="em-cancelar">Cancelar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector("#em-cancelar").addEventListener("click", () => overlay.remove());
+  overlay.addEventListener("click", (e) => e.target === overlay && overlay.remove());
+  overlay.querySelector("#em-enviar").addEventListener("click", () => {
+    abrirEmailComprobante({
+      para: overlay.querySelector("#em-para").value.trim(),
+      asunto: overlay.querySelector("#em-asunto").value.trim(),
+      mensaje: overlay.querySelector("#em-mensaje").value,
+    });
+    overlay.remove();
+  });
+}
+
+// La venta y su comprobante quedan mostrados juntos, en la misma pantalla — no hace falta ir a
+// buscar la venta en otro módulo para poder facturarla (esa era la falla de arquitectura anterior).
+function mostrarConfirmacion(numeroVenta, tipoEntrega, comprobante) {
   posLayout.style.display = "none";
   const conf = document.getElementById("pos-confirmacion");
   conf.style.display = "block";
   conf.innerHTML = `
-    <div style="font-size:40px; color:var(--success)">✓</div>
-    <div style="font-size:18px; font-weight:600; margin:8px 0">¡Venta confirmada!</div>
-    <div class="hint" style="font-size:14px">Venta #${numeroVenta}</div>
-    <div style="font-size:26px; font-weight:600; margin:12px 0">$${total.toLocaleString("es-AR")}</div>
-    ${tipoEntrega !== "Retira ahora" ? `<div class="hint" style="font-size:14px">${tipoEntrega} — queda pendiente para Logística.</div>` : ""}
-    <button type="button" class="primary" id="btn-nueva-venta" style="width:100%; margin-top:12px">Nueva venta</button>
+    <div class="card" style="padding:20px; text-align:center; margin-bottom:16px">
+      <div style="font-size:32px; color:var(--success)">✓</div>
+      <div style="font-size:16px; font-weight:600; margin:4px 0">Venta #${numeroVenta} confirmada</div>
+      ${tipoEntrega !== "Retira ahora" ? `<div class="hint">${tipoEntrega} — queda pendiente para Logística.</div>` : ""}
+    </div>
+
+    <div class="card no-imprimir" style="padding:16px 20px; margin-bottom:16px; background:var(--success-bg); border-color:var(--success); text-align:center">
+      <div style="font-size:15px; font-weight:700; color:var(--success)">🧾 COMPROBANTE EMITIDO</div>
+      <div class="hint" style="margin:2px 0 0">${comprobante.numeroCompleto}</div>
+    </div>
+    <div class="toolbar no-imprimir" style="justify-content:center">
+      <button type="button" id="btn-pdf">📄 PDF</button>
+      <button type="button" id="btn-imprimir">🖨️ Imprimir</button>
+      <button type="button" id="btn-whatsapp">📱 WhatsApp</button>
+      <button type="button" id="btn-email">✉️ Email</button>
+      <button type="button" id="btn-nueva-venta" class="primary">Nueva venta</button>
+    </div>
+    ${renderizarComprobanteHtml(comprobante, configEmpresa)}
   `;
+
   document.getElementById("btn-nueva-venta").addEventListener("click", () => location.reload());
+  document.getElementById("btn-pdf").addEventListener("click", () => descargarPdfComprobante(comprobante, configEmpresa));
+  document.getElementById("btn-imprimir").addEventListener("click", () => window.print());
+  document.getElementById("btn-whatsapp").addEventListener("click", () => {
+    const { tieneNumero } = abrirWhatsappComprobante(comprobante, clienteSeleccionado?.whatsapp);
+    alert(
+      tieneNumero
+        ? "Se abrió WhatsApp con el mensaje listo — adjuntá el PDF a mano, no se puede hacer automáticamente desde el navegador."
+        : "El cliente no tiene WhatsApp cargado — elegí el contacto a mano. No te olvides de adjuntar el PDF."
+    );
+  });
+  document.getElementById("btn-email").addEventListener("click", () => abrirModalEmail(comprobante));
 }
 
 continuarBtn.addEventListener("click", async () => {
@@ -272,7 +353,23 @@ continuarBtn.addEventListener("click", async () => {
       pagos,
     };
     const resultado = await crearVenta(datos, usuario);
-    mostrarConfirmacion(resultado.numeroVenta, total, tipoEntrega);
+
+    // El comprobante se genera automáticamente al confirmar — nunca hay que volver a cargar
+    // cliente/productos/pagos en otra pantalla (esa era la falla de arquitectura anterior).
+    const comprobante = await crearComprobante(
+      {
+        ventaId: resultado.id,
+        tipoComprobanteCodigo: document.getElementById("pos-tipo-comprobante").value,
+        items: datos.items,
+        descuentoGlobalPct: 0,
+        cliente: clienteSeleccionado,
+        formaPago: pagos.length > 1 ? "Varios medios" : pagos[0]?.medio || "Efectivo",
+        pagos,
+      },
+      usuario
+    );
+
+    mostrarConfirmacion(resultado.numeroVenta, tipoEntrega, comprobante);
   } catch (err) {
     errorEl.textContent = err?.message || "Ocurrió un error al registrar la venta.";
     errorEl.style.display = "block";

@@ -1,5 +1,8 @@
 // Render HTML del comprobante — lo usan tanto la vista previa (antes de emitir) como la ficha
 // (después de emitido) y la pantalla de impresión, para que las tres se vean exactamente igual.
+// Formato inspirado en el comprobante clásico de AFIP/ARCA (letra en recuadro, dos columnas de
+// datos, medios de pago detallados) — el mismo esqueleto que va a usar el día de mañana un
+// comprobante fiscal real, solo que hoy con letra "X" y la leyenda de "sin validez fiscal".
 function formatMonto(v) {
   return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
 }
@@ -8,62 +11,73 @@ function formatFecha(fechaStr) {
   return new Date(fechaStr + "T00:00:00").toLocaleDateString("es-AR");
 }
 
-export function renderizarComprobanteHtml(comprobante, configEmpresa = {}) {
-  const datosEmpresa = [
-    configEmpresa.razonSocial,
-    configEmpresa.cuit ? `CUIT ${configEmpresa.cuit}` : null,
-    configEmpresa.domicilioFiscal,
-    configEmpresa.condicionIva,
-    configEmpresa.telefono ? `Tel: ${configEmpresa.telefono}` : null,
-    configEmpresa.whatsapp ? `WhatsApp: ${configEmpresa.whatsapp}` : null,
-    configEmpresa.sitioWeb,
+export function renderizarComprobanteHtml(comprobante, configEmpresaYFacturacion = {}) {
+  const configEmpresa = configEmpresaYFacturacion;
+  const mostrarLogo = configEmpresa.mostrarLogoEnComprobante !== false;
+  const textoLegal = configEmpresa.textoLegal || "Comprobante interno — sin validez fiscal.";
+  const datosCliente = [
+    comprobante.clienteCuit ? `CUIT: ${comprobante.clienteCuit}` : null,
+    comprobante.clienteDireccion ? `Domicilio: ${comprobante.clienteDireccion}` : null,
   ].filter(Boolean);
 
-  const datosCliente = [
-    comprobante.clienteNombre,
-    comprobante.clienteCuit ? `CUIT/DNI: ${comprobante.clienteCuit}` : null,
-    comprobante.clienteDireccion,
-    comprobante.clienteCondicionIva,
-  ].filter(Boolean);
+  const medios = comprobante.pagos?.length
+    ? comprobante.pagos.map((p) => ({ medio: p.medio, monto: p.monto }))
+    : [{ medio: comprobante.formaPago, monto: comprobante.total }];
 
   return `
     <div class="comprobante">
       <div class="comprobante-header">
         <div class="comprobante-marca">
-          ${configEmpresa.logoDataUrl ? `<img src="${configEmpresa.logoDataUrl}" alt="" />` : ""}
+          ${mostrarLogo && configEmpresa.logoDataUrl ? `<img src="${configEmpresa.logoDataUrl}" alt="" />` : ""}
           <div>
             <div class="comprobante-nombre">${configEmpresa.nombreFantasia || "Delfino Hogar"}</div>
-            <div class="comprobante-tagline">Electrodomésticos • Hogar • Colchones</div>
+            <div class="comprobante-datos-empresa">
+              ${[configEmpresa.razonSocial, configEmpresa.domicilioFiscal, configEmpresa.telefono ? `Tel.: ${configEmpresa.telefono}` : null].filter(Boolean).map((l) => `<div>${l}</div>`).join("")}
+            </div>
           </div>
         </div>
-        <div class="comprobante-datos-empresa">
-          ${datosEmpresa.map((l) => `<div>${l}</div>`).join("")}
-        </div>
-      </div>
 
-      <div class="comprobante-titulo-row">
-        <div>
-          <div class="comprobante-titulo">COMPROBANTE INTERNO</div>
-          <div class="hint" style="margin:0">${comprobante.estado === "ANULADA" ? "ANULADO" : ""}</div>
+        <div class="comprobante-letra-box">
+          <div class="comprobante-letra">${comprobante.letra || "X"}</div>
+          <div class="comprobante-letra-cod">${comprobante.tipoComprobanteCodigo === "COMPROBANTE_INTERNO" ? "No fiscal" : comprobante.tipoComprobante}</div>
         </div>
-        <div style="text-align:right">
-          <div class="comprobante-numero">${comprobante.numeroCompleto || "(sin emitir)"}</div>
-          <div class="hint" style="margin:0">Fecha: ${formatFecha(comprobante.fechaEmision)}</div>
+
+        <div class="comprobante-datos-empresa" style="text-align:right">
+          <div style="font-weight:600; color:var(--foreground)">${comprobante.tipoComprobante}</div>
+          <div>N.º ${comprobante.numeroCompleto?.replace(/^[A-Z]\s/, "") || "(sin emitir)"}</div>
+          <div>Fecha de emisión: ${formatFecha(comprobante.fechaEmision)}</div>
         </div>
       </div>
 
       <div class="comprobante-banner-fiscal">🧾 COMPROBANTE INTERNO — SIN VALIDEZ FISCAL</div>
-      ${comprobante.estado === "ANULADA" ? `<div class="comprobante-banner-fiscal comprobante-banner-anulado">ANULADO — ${comprobante.motivoAnulacion || ""}</div>` : ""}
+      ${
+        comprobante.estado === "ANULADA"
+          ? `<div class="comprobante-banner-fiscal comprobante-banner-anulado">ANULADO${comprobante.motivoAnulacion ? " — " + comprobante.motivoAnulacion : ""}</div>`
+          : ""
+      }
+      ${
+        comprobante.comprobanteRelacionadoId
+          ? `<div class="hint" style="margin-bottom:12px">Relacionado con el comprobante original (nota de crédito).</div>`
+          : ""
+      }
 
-      <div class="comprobante-seccion">
-        <div class="comprobante-seccion-titulo">Datos del cliente</div>
-        ${datosCliente.map((l) => `<div>${l}</div>`).join("")}
+      <div class="comprobante-datos-grid">
+        <div>
+          <div class="comprobante-seccion-titulo">Cliente</div>
+          <div style="font-weight:600">${comprobante.clienteNombre}</div>
+          ${datosCliente.map((l) => `<div>${l}</div>`).join("")}
+        </div>
+        <div>
+          <div class="comprobante-seccion-titulo">Condición</div>
+          <div>IVA: ${comprobante.clienteCondicionIva || "Consumidor Final"}</div>
+          <div>Venta: ${comprobante.formaPago}</div>
+        </div>
       </div>
 
       <div class="table-scroll">
         <table class="comprobante-tabla">
           <thead>
-            <tr><th>Código</th><th>Producto</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio unitario</th><th style="text-align:right">Desc.</th><th style="text-align:right">Total</th></tr>
+            <tr><th>Código</th><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio unitario</th><th style="text-align:right">Desc.</th><th style="text-align:right">Subtotal</th></tr>
           </thead>
           <tbody>
             ${comprobante.items
@@ -93,10 +107,17 @@ export function renderizarComprobanteHtml(comprobante, configEmpresa = {}) {
         </div>
       </div>
 
-      <div class="comprobante-forma-pago">Forma de pago: <strong>${comprobante.formaPago}</strong></div>
-      ${comprobante.observaciones ? `<div class="hint" style="margin-top:8px">${comprobante.observaciones}</div>` : ""}
+      <div class="comprobante-seccion-titulo">Medios de pago</div>
+      <div class="comprobante-medios-pago">
+        ${medios.map((m) => `<div><span>${m.medio}</span><span>${formatMonto(m.monto)}</span></div>`).join("")}
+      </div>
 
-      <div class="comprobante-footer">Comprobante interno — sin validez fiscal. Generado por Delfino ERP.</div>
+      ${comprobante.observaciones ? `<div class="hint" style="margin-top:12px">${comprobante.observaciones}</div>` : ""}
+
+      <div class="comprobante-footer">
+        <span>${textoLegal}</span>
+        <span>Generado por Delfino ERP</span>
+      </div>
     </div>
   `;
 }
