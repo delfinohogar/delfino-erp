@@ -20,7 +20,7 @@ content.innerHTML = `
   </div>
   <div class="card">
     <div class="table-scroll">
-      <table>
+      <table class="table-clickable">
         <thead><tr><th>Sucursal</th><th>Caja</th><th>Tipo</th><th>Estado</th><th style="text-align:right">Saldo</th><th></th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>

@@ -22,7 +22,7 @@ content.innerHTML = `
     </div>
     <div class="card">
       <div class="table-scroll">
-        <table>
+        <table class="table-clickable">
           <thead>
             <tr>
               <th>Fecha</th>
@@ -89,7 +89,6 @@ async function cargarCuenta(cliente) {
     saldo += m.debe - m.haber;
     const tr = document.createElement("tr");
     if (m.ventaId) {
-      tr.style.cursor = "pointer";
       tr.title = "Ver ficha de la venta";
       tr.addEventListener("click", () => (location.href = `/productos/venta-ficha.html?id=${m.ventaId}`));
     }

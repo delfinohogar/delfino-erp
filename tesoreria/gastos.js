@@ -61,7 +61,7 @@ async function cargar() {
       <td>${g.sucursalNombre || "-"}</td>
       <td>${g.destinoTipo === "caja" ? "🧾" : "🏦"} ${g.destinoNombre}</td>
       <td style="text-align:right">${formatMonto(g.importe)}</td>
-      <td>${g.estado !== "anulado" && usuario.rol === "administrador" ? `<button type="button" data-anular="${g.id}">Anular</button>` : ""}</td>
+      <td>${g.estado !== "anulado" && usuario.rol === "administrador" ? `<button type="button" class="danger" data-anular="${g.id}">Anular</button>` : ""}</td>
     </tr>
   `
     )

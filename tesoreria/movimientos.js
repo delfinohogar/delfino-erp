@@ -51,7 +51,7 @@ content.innerHTML = `
   </div>
   <div class="card">
     <div class="table-scroll">
-      <table>
+      <table class="table-clickable">
         <thead><tr><th></th><th>Fecha</th><th>Lugar</th><th>Tipo</th><th>Concepto</th><th>Medio</th><th style="text-align:right">Importe</th><th>Estado</th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>

@@ -28,7 +28,7 @@
     --page-bg: #0a0a0a;
     --background: #171717;
     --foreground: #fafafa;
-    --card: #171717;
+    --card: #1f1f1f;
     --border: rgba(255, 255, 255, 0.1);
     --muted: #a1a1aa;
     --muted-bg: #27272a;
@@ -46,7 +46,7 @@
   --page-bg: #0a0a0a;
   --background: #171717;
   --foreground: #fafafa;
-  --card: #171717;
+  --card: #1f1f1f;
   --border: rgba(255, 255, 255, 0.1);
   --muted: #a1a1aa;
   --muted-bg: #27272a;
@@ -238,33 +238,64 @@ a {
     margin-left: 64px;
   }
 
-  .sidebar.collapsed a span,
+  /* Los labels se ocultan en los links sueltos y en los encabezados de grupo (quedan como una franja
+     de solo íconos) — pero NO dentro de .nav-group-items: esos recién se muestran en el flyout de
+     abajo, con su label completo, como cualquier submenú. */
+  .sidebar.collapsed > a span,
   .sidebar.collapsed .brand-text,
   .sidebar.collapsed .nav-group-header span,
   .sidebar.collapsed .nav-group-header .nav-icon:last-child {
     display: none;
   }
 
-  .sidebar.collapsed a {
+  .sidebar.collapsed > a {
     justify-content: center;
     padding: 8px 0;
   }
 
-  /* Colapsada, el acordeón no aplica: se ve como lista plana de íconos, igual que antes. */
   .sidebar.collapsed .nav-group-header {
     justify-content: center;
     padding: 8px 0;
   }
 
+  /* Colapsada, el acordeón no se puede abrir in-line (no hay lugar) — al pasar el mouse por un grupo,
+     js/shell.js arma un flyout con sus items al costado, así el grupo se sigue reconociendo por
+     nombre en vez de quedar como una sopa de íconos sueltos. */
   .sidebar.collapsed .nav-group-items {
-    display: flex;
-    padding-left: 0;
+    display: none;
   }
 
   .sidebar.collapsed .brand {
     justify-content: center;
     padding: 8px 0 16px;
   }
+}
+
+/* Flyout de un grupo con la barra colapsada — se define FUERA de ".sidebar" a propósito: js/shell.js
+   saca este nodo del sidebar y lo cuelga de <body> mientras está abierto (ver comentario ahí), así
+   que un selector ".sidebar.collapsed .nav-group-items.flyout-open" nunca matchearía una vez movido.
+*/
+.nav-group-items.flyout-open {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  min-width: 190px;
+  padding: 6px;
+  gap: 2px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 0.25rem);
+  box-shadow: 4px 4px 20px rgba(0, 0, 0, 0.16);
+  z-index: 60;
+}
+
+.nav-group-items.flyout-open a {
+  justify-content: flex-start;
+  padding: 7px 10px;
+}
+
+.nav-group-items.flyout-open a span {
+  display: inline;
 }
 
 .topbar {
@@ -330,6 +361,13 @@ a {
   .topbar-org span {
     display: none;
   }
+
+  /* El nombre de usuario es lo segundo que se saca de encima — antes se sacaba recién a los 860px,
+     y entre 861-1100px el buscador quedaba apretado contra org+usuario+Salir hasta ser inusable
+     (llegaba a ~65px de ancho a 870px). */
+  .topbar-right > span {
+    display: none;
+  }
 }
 
 .icon-btn {
@@ -348,7 +386,7 @@ a {
   position: relative;
   flex: 1;
   max-width: 420px;
-  min-width: 0;
+  min-width: 120px;
   margin: 0 auto;
 }
 
@@ -423,12 +461,6 @@ a {
     padding-right: 12px;
   }
 
-  /* Combinador de hijo directo: solo el nombre de usuario, no cualquier span anidado más adentro
-     (ej. el menú de tema, que también vive dentro de .topbar-right). */
-  .topbar-right > span {
-    display: none;
-  }
-
   .topbar-left h1 {
     display: none;
   }
@@ -481,6 +513,52 @@ a {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  padding: 20px;
+}
+
+/* Sin padding propio — para una card que solo envuelve una tabla (o cualquier contenido que ya se
+   banca ir a borde) sin el recuadro extra que .card agrega por default. El espaciado ENTRE cards
+   queda a cargo del contenedor (gap en flex/grid, o .mb-16 cuando van una debajo de la otra sueltas)
+   — .card no trae margin propio para no duplicarse con el gap en los layouts en grilla (dashboard,
+   POS).
+*/
+.card--flush {
+  padding: 0;
+}
+
+.mt-0 {
+  margin-top: 0;
+}
+
+.mb-8 {
+  margin-bottom: 8px;
+}
+
+.mb-12 {
+  margin-bottom: 12px;
+}
+
+.mb-16 {
+  margin-bottom: 16px;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.stack-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hidden {
+  display: none;
 }
 
 .toolbar {
@@ -559,6 +637,16 @@ button.primary:hover {
   filter: brightness(0.94);
 }
 
+button.danger {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+button.danger:hover {
+  filter: brightness(0.94);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -589,12 +677,23 @@ th {
   letter-spacing: 0.02em;
 }
 
-tbody tr:hover {
+/* Cursor de mano y hover solo en tablas que de verdad tienen click en la fila (ver tr.addEventListener
+   en el JS de esa pantalla) — antes era global y toda tabla "parecía" clickeable, incluyendo listados
+   puramente informativos como el Libro Diario. */
+.table-clickable tbody tr {
+  cursor: pointer;
+}
+
+.table-clickable tbody tr:hover {
   background: var(--muted-bg);
 }
 
-tbody tr {
-  cursor: pointer;
+/* Columnas numéricas (montos, cantidades): alineadas a la derecha con dígitos de ancho fijo, para que
+   sumen visualmente en vez de bailar según la cantidad de dígitos. */
+th.num,
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .badge {
@@ -705,6 +804,10 @@ tbody tr {
 
 .login-card p.hint {
   margin: 0 0 20px;
+}
+
+.login-card button[type="submit"] {
+  width: 100%;
 }
 
 .error-text {
@@ -944,7 +1047,10 @@ tbody tr {
 /* --- Venta nueva (POS) --- */
 .pos-layout {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  /* El carrito (con cantidad/precio/descuento/subtotal por fila) necesita más aire que el buscador
+     de productos (una sola columna de resultados) — antes era al revés y la fila del carrito
+     terminaba con ~45px para el nombre del producto, partido letra por letra. */
+  grid-template-columns: 1fr 1.3fr;
   gap: 16px;
   align-items: start;
 }
@@ -994,12 +1100,16 @@ tbody tr {
 
 .pos-cart-item {
   display: grid;
-  grid-template-columns: 1fr 56px 84px 64px 84px 28px;
+  grid-template-columns: 1fr 52px 76px 56px 76px 24px;
   gap: 8px;
   align-items: center;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+}
+
+.pos-cart-item-info {
+  min-width: 0;
 }
 
 .pos-cart-item-info div:first-child {
@@ -1035,9 +1145,40 @@ tbody tr {
     grid-template-columns: 1fr;
   }
 
+  /* La fila de 6 columnas no entra en un celular — pasa a 2 filas: descripción + quitar arriba,
+     cantidad/precio/descuento/subtotal abajo. Mismo HTML (productos/venta-nueva.js), solo se
+     reubica por grid-area según el orden en que ya vienen esos elementos en el DOM. */
   .pos-cart-item {
-    grid-template-columns: 1fr 48px 72px 56px 72px 24px;
+    grid-template-columns: repeat(4, 1fr) 24px;
+    grid-template-areas:
+      "info info info info quitar"
+      "cant precio desc sub sub";
+    row-gap: 6px;
     font-size: 12px;
+  }
+
+  .pos-cart-item-info {
+    grid-area: info;
+  }
+
+  .pos-cart-item [data-role="cantidad"] {
+    grid-area: cant;
+  }
+
+  .pos-cart-item [data-role="precio"] {
+    grid-area: precio;
+  }
+
+  .pos-cart-item [data-role="descuento"] {
+    grid-area: desc;
+  }
+
+  .pos-cart-item-subtotal {
+    grid-area: sub;
+  }
+
+  .pos-cart-item [data-role="quitar"] {
+    grid-area: quitar;
   }
 }
 

@@ -44,7 +44,7 @@ content.innerHTML = `
       : ""
   }
   <div class="card">
-    <table>
+    <table class="table-clickable">
       <thead>
         <tr>
           ${esAdmin ? '<th style="width:1%"><input type="checkbox" id="check-todos" /></th>' : ""}

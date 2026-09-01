@@ -132,6 +132,42 @@ export function renderShell({ active, titulo, usuario }) {
     });
   });
 
+  // Con la barra colapsada (solo íconos) el acordeón no tiene dónde desplegarse in-line — al pasar
+  // el mouse por un grupo aparece como flyout al costado (mismo patrón que un submenú), para no
+  // perder a qué grupo pertenece cada ícono. .sidebar tiene overflow-x:hidden (para el scroll
+  // vertical) y transform (para el slide-in mobile) — eso convierte a .sidebar en el "containing
+  // block" de cualquier position:fixed adentro y lo recorta igual, así que el flyout se saca del
+  // DOM del sidebar mientras está abierto (mismo truco que attachAutocomplete en autocomplete.js) y
+  // se vuelve a meter en su .nav-group al cerrar, para no romper el acordeón cuando se reexpande.
+  gruposEl.forEach((g) => {
+    const items = g.querySelector(".nav-group-items");
+    // Una vez que el flyout se movió a <body>, ya no es descendiente de "g" — pasar el mouse del
+    // ícono al flyout cruza el borde de "g" y dispararía su mouseleave a mitad de camino. Por eso
+    // cerrar se demora un toque y se cancela si el mouse entró a cualquiera de los dos (el ícono o
+    // el flyout ya movido), no solo a "g".
+    let cerrarTimeout = null;
+    const abrir = () => {
+      if (!sidebarEl.classList.contains("collapsed") || ES_MOBILE()) return;
+      clearTimeout(cerrarTimeout);
+      const rect = g.getBoundingClientRect();
+      document.body.appendChild(items);
+      items.style.top = `${rect.top}px`;
+      items.style.left = `${rect.right + 6}px`;
+      items.classList.add("flyout-open");
+    };
+    const programarCierre = () => {
+      cerrarTimeout = setTimeout(() => {
+        items.classList.remove("flyout-open");
+        items.removeAttribute("style");
+        g.appendChild(items);
+      }, 150);
+    };
+    g.addEventListener("mouseenter", abrir);
+    g.addEventListener("mouseleave", programarCierre);
+    items.addEventListener("mouseenter", () => clearTimeout(cerrarTimeout));
+    items.addEventListener("mouseleave", programarCierre);
+  });
+
   document.getElementById("logout-btn").addEventListener("click", cerrarSesion);
 
   const sidebarEl = document.querySelector(".sidebar");

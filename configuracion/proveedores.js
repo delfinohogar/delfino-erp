@@ -14,7 +14,7 @@ content.innerHTML = `
     <button type="button" id="btn-nuevo" class="primary">+ Nuevo proveedor</button>
   </div>
   <div class="card">
-    <table>
+    <table class="table-clickable">
       <thead>
         <tr>
           <th>Razón social</th>

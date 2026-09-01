@@ -50,7 +50,7 @@ content.innerHTML = `
   </div>
 
   <div class="card">
-    <table>
+    <table class="table-clickable">
       <thead>
         <tr>
           <th>Nombre</th>

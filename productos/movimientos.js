@@ -13,7 +13,7 @@ content.innerHTML = `
     Incluye cambios de catálogo y movimientos de stock (compras, ventas) — derivado del log de auditoría de cada producto.
   </div>
   <div class="card">
-    <table>
+    <table class="table-clickable">
       <thead>
         <tr>
           <th>Fecha</th>
