@@ -72,6 +72,13 @@ export function renderShell({ active, titulo, usuario }) {
             nav("contabilidad-plan-cuentas", "/contabilidad/plan-cuentas.html", "Plan de Cuentas")
         )}
         ${grupo(
+          "facturacion",
+          "Facturación",
+          "recibo",
+          nav("facturacion-dashboard", "/facturacion/dashboard.html", "Comprobantes") +
+            nav("facturacion-nuevo", "/facturacion/nuevo.html", "Nuevo comprobante")
+        )}
+        ${grupo(
           "mercado-pago",
           "Mercado Pago",
           "billetera",

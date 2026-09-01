@@ -9,8 +9,18 @@ export async function obtenerConfigEmpresa() {
   return snap.exists() ? snap.data() : {};
 }
 
-export async function guardarDatosContacto({ nombreFantasia, email, telefono }) {
-  await setDoc(REF(), { nombreFantasia: nombreFantasia.trim(), email: email.trim(), telefono: telefono.trim() }, { merge: true });
+export async function guardarDatosContacto({ nombreFantasia, email, telefono, whatsapp, sitioWeb }) {
+  await setDoc(
+    REF(),
+    {
+      nombreFantasia: nombreFantasia.trim(),
+      email: email.trim(),
+      telefono: telefono.trim(),
+      whatsapp: whatsapp?.trim() || null,
+      sitioWeb: sitioWeb?.trim() || null,
+    },
+    { merge: true }
+  );
 }
 
 export async function guardarLogo(logoDataUrl) {

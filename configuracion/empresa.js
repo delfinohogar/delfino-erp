@@ -44,6 +44,17 @@ content.innerHTML = `
             <input type="text" id="telefono" placeholder="+54 9 11 XXXX-XXXX" />
           </div>
         </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="whatsapp">WhatsApp</label>
+            <input type="text" id="whatsapp" placeholder="+54 9 11 XXXX-XXXX" />
+          </div>
+          <div class="field">
+            <label for="sitioWeb">Sitio web</label>
+            <input type="text" id="sitioWeb" placeholder="www.delfinohogar.com.ar" />
+          </div>
+        </div>
+        <div class="hint" style="margin-bottom:12px">Estos datos aparecen en el encabezado de los comprobantes (Facturación).</div>
         <div class="toolbar" style="margin-top:8px">
           <button type="submit" class="primary">Guardar</button>
         </div>
@@ -115,6 +126,8 @@ const config = await obtenerConfigEmpresa();
 document.getElementById("nombreFantasia").value = config.nombreFantasia || "";
 document.getElementById("email").value = config.email || "";
 document.getElementById("telefono").value = config.telefono || "";
+document.getElementById("whatsapp").value = config.whatsapp || "";
+document.getElementById("sitioWeb").value = config.sitioWeb || "";
 document.getElementById("cuit").value = config.cuit ? formatearCuit(config.cuit) : "";
 document.getElementById("inicioActividades").value = config.inicioActividades || "";
 document.getElementById("iibb").value = config.iibb || "";
@@ -151,6 +164,8 @@ document.getElementById("form-contacto").addEventListener("submit", async (e) =>
     nombreFantasia: document.getElementById("nombreFantasia").value,
     email: document.getElementById("email").value,
     telefono: document.getElementById("telefono").value,
+    whatsapp: document.getElementById("whatsapp").value,
+    sitioWeb: document.getElementById("sitioWeb").value,
   });
   alert("Datos de contacto guardados.");
 });

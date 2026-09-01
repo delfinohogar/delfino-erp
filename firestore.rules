@@ -161,10 +161,28 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Correlativo interno del número de venta (contadores/ventas: { ultimo }).
+    // Correlativo interno del número de venta y de comprobante (contadores/ventas,
+    // contadores/comprobantes: { ultimo }).
     match /contadores/{id} {
       allow read: if estaLogueado();
       allow write: if puedeVender();
+    }
+
+    // Comprobantes internos de facturación (sin validez fiscal, sin ARCA todavía). No se borran
+    // nunca — anular es un update de estado, no un delete. Una vez creado, un comprobante solo
+    // puede tocar los campos de anulación, el flag de PDF generado y los campos fiscales (hoy sin
+    // usar, preparados para cuando exista ARCA) — nunca los productos, el total ni el cliente.
+    match /comprobantes/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if puedeVender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'estado', 'motivoAnulacion', 'fechaAnulacion', 'anuladoPor', 'anuladoPorNombre',
+          'pdfGenerado', 'actualizadoEn',
+          'arcaEstado', 'cae', 'caeVencimiento', 'qr', 'numeroFiscal', 'tipoComprobanteFiscal',
+          'fechaAutorizacion', 'arcaErrorCodigo', 'arcaErrorDescripcion'
+        ]);
+      allow delete: if false;
     }
 
     // Datos generales de la empresa (contacto, logo, datos fiscales) — configuracion/empresa.

@@ -1217,3 +1217,165 @@ details.card[open] summary::before {
     break-inside: avoid;
   }
 }
+
+/* Comprobante (facturación): vista previa en pantalla y también lo que se ve al imprimir. */
+.comprobante {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 30px;
+  max-width: 780px;
+  margin: 0 auto;
+}
+
+.comprobante-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.comprobante-marca {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.comprobante-marca img {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.comprobante-nombre {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.comprobante-tagline {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.comprobante-datos-empresa {
+  text-align: right;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.comprobante-titulo-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.comprobante-titulo {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.comprobante-numero {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.comprobante-banner-fiscal {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: calc(var(--radius) - 0.25rem);
+  padding: 9px 14px;
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+  margin-bottom: 18px;
+}
+
+.comprobante-banner-anulado {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: var(--danger);
+  margin-top: -10px;
+}
+
+.comprobante-seccion {
+  margin-bottom: 16px;
+  font-size: 13.5px;
+}
+
+.comprobante-seccion-titulo {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.comprobante-tabla {
+  margin-bottom: 16px;
+}
+
+.comprobante-totales {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+
+.comprobante-totales-tabla {
+  min-width: 240px;
+  font-size: 13.5px;
+}
+
+.comprobante-totales-tabla > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  color: var(--muted);
+}
+
+.comprobante-total-final {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 8px !important;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent) !important;
+}
+
+.comprobante-forma-pago {
+  font-size: 13.5px;
+}
+
+.comprobante-footer {
+  margin-top: 22px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+@media print {
+  .comprobante {
+    border: none;
+    max-width: none;
+    padding: 0;
+  }
+  .comprobante-tabla thead {
+    display: table-header-group; /* repite el encabezado de la tabla si el comprobante ocupa varias páginas */
+  }
+  tr {
+    break-inside: avoid;
+  }
+}

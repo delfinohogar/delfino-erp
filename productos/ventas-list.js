@@ -25,6 +25,7 @@ content.innerHTML = `
             <th>Entrega</th>
             <th>Total</th>
             <th>Estado</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="tabla-body"></tbody>
@@ -86,6 +87,7 @@ async function cargar() {
       <td>${entregaBadge(v)}</td>
       <td>$${(v.total ?? 0).toLocaleString("es-AR")}</td>
       <td>${estadoBadge(saldo, v.total || 0)}</td>
+      <td><a href="/facturacion/nuevo.html?ventaId=${v.id}"><button type="button" title="Generar comprobante">🧾</button></a></td>
     `;
     tablaBody.appendChild(tr);
   });
