@@ -1,6 +1,7 @@
 import { requireAuth } from "/js/auth.js";
 import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarUsuarios, crearPerfilUsuario, actualizarPerfilUsuario, ROLES } from "/js/usuarios.js";
+import { listarSucursalesActivas } from "/js/sucursales.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -18,6 +19,10 @@ const ROL_LABEL = {
   administrativo: "Administrativo",
   vendedor: "Vendedor",
 };
+
+// La sucursal del usuario decide a qué caja va el efectivo que cobra (ver js/ventas.js) — sin
+// asignar, el sistema cae a la primera sucursal activa y avisa en la pantalla de venta.
+const sucursales = await listarSucursalesActivas();
 
 content.innerHTML = `
   <div class="toolbar">
@@ -46,6 +51,13 @@ content.innerHTML = `
           ${ROLES.map((r) => `<option value="${r}">${ROL_LABEL[r]}</option>`).join("")}
         </select>
       </div>
+      <div class="field">
+        <label for="f-sucursal">Sucursal</label>
+        <select id="f-sucursal">
+          <option value="">Sin asignar (usa la primera sucursal activa al vender)</option>
+          ${sucursales.map((s) => `<option value="${s.id}" data-nombre="${s.nombre}">${s.nombre}</option>`).join("")}
+        </select>
+      </div>
       <div class="toolbar">
         <button type="submit" class="primary">Guardar</button>
         <button type="button" id="btn-cancelar">Cancelar</button>
@@ -60,6 +72,7 @@ content.innerHTML = `
           <th>Nombre</th>
           <th>Email</th>
           <th>Rol</th>
+          <th>Sucursal</th>
         </tr>
       </thead>
       <tbody id="tabla-body"></tbody>
@@ -90,6 +103,7 @@ function abrirFormulario(u) {
   document.getElementById("f-nombre").value = u?.nombre || "";
   document.getElementById("f-email").value = u?.email || "";
   document.getElementById("f-rol").value = u?.rol || "vendedor";
+  document.getElementById("f-sucursal").value = u?.sucursalId || "";
   formCard.style.display = "block";
   document.getElementById(u ? "f-nombre" : "f-uid").focus();
 }
@@ -109,6 +123,7 @@ function pintar(usuarios) {
       <td>${u.nombre || ""}</td>
       <td>${u.email || ""}</td>
       <td>${ROL_LABEL[u.rol] || u.rol}</td>
+      <td>${u.sucursalNombre || '<span class="hint">Sin asignar</span>'}</td>
     `;
     tr.addEventListener("click", () => abrirFormulario(u));
     tablaBody.appendChild(tr);
@@ -125,10 +140,13 @@ document.getElementById("btn-cancelar").addEventListener("click", cerrarFormular
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const sucSel = document.getElementById("f-sucursal");
   const datos = {
     nombre: document.getElementById("f-nombre").value.trim(),
     email: document.getElementById("f-email").value.trim(),
     rol: document.getElementById("f-rol").value,
+    sucursalId: sucSel.value || null,
+    sucursalNombre: sucSel.value ? sucSel.selectedOptions[0].dataset.nombre : null,
   };
   if (editandoUid) {
     await actualizarPerfilUsuario(editandoUid, datos);

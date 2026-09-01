@@ -13,22 +13,57 @@ import { renderizarComprobanteHtml } from "/js/facturacion-preview.js";
 import { descargarPdfComprobante } from "/js/facturacion-pdf.js";
 import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
 import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
-
-const configEmpresa = { ...(await obtenerConfigEmpresa()), ...(await obtenerConfigFacturacion()) };
-const TIPOS_COMPROBANTE_UI = tiposComprobanteDisponibles();
+import { resolverSucursalUsuario } from "/js/sucursales.js";
+import { listarCajasAbiertasPorSucursal } from "/js/cajas.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
+const configEmpresa = { ...(await obtenerConfigEmpresa()), ...(await obtenerConfigFacturacion()) };
+const TIPOS_COMPROBANTE_UI = tiposComprobanteDisponibles();
+
+// Misma resolución que hace crearVenta (js/ventas.js) — se repite acá solo para poder avisar en
+// pantalla y, si hay más de una caja abierta, dejar elegir cuál. La fuente de verdad real es la del
+// backend; esto es nada más para que el cajero no se entere recién después de vender.
+const { sucursal: sucursalVenta, asumida: sucursalSinAsignar } = await resolverSucursalUsuario(usuario);
+const cajasAbiertas = sucursalVenta ? await listarCajasAbiertasPorSucursal(sucursalVenta.id) : [];
+
 const content = renderShell({ active: "venta-nueva", titulo: "Nueva venta", usuario });
 
+const cajaSelectHtml =
+  cajasAbiertas.length > 1
+    ? `<div class="field" style="margin-bottom:14px">
+        <label for="pos-caja">Caja</label>
+        <select id="pos-caja">
+          ${cajasAbiertas.map((c, i) => `<option value="${i}">${c.caja.nombre}</option>`).join("")}
+        </select>
+      </div>`
+    : "";
+
 content.innerHTML = `
+  ${
+    sucursalSinAsignar
+      ? `<div class="card no-imprimir" style="padding:12px 20px; margin-bottom:16px; background:var(--warning-bg); border-color:var(--warning)">
+        <div style="font-weight:600; color:var(--warning)">⚠️ Tu usuario no tiene sucursal asignada</div>
+        <div class="hint">El efectivo de esta venta va a ir a ${sucursalVenta ? sucursalVenta.nombre : "ninguna sucursal (no hay ninguna activa)"}. Pedile a un administrador que te asigne una en Configuración → Usuarios.</div>
+      </div>`
+      : ""
+  }
+  ${
+    sucursalVenta && cajasAbiertas.length === 0
+      ? `<div class="card no-imprimir" style="padding:12px 20px; margin-bottom:16px; background:var(--warning-bg); border-color:var(--warning)">
+        <div style="font-weight:600; color:var(--warning)">⚠️ No hay ninguna caja abierta en ${sucursalVenta.nombre}</div>
+        <div class="hint">El efectivo de esta venta va a quedar sin ubicar en Tesorería hasta que abras una caja.</div>
+      </div>`
+      : ""
+  }
   <div class="pos-layout" id="pos-layout">
     <div class="pos-buscar card">
       <input type="text" id="pos-search" placeholder="Buscar producto por SKU, código o descripción…" autocomplete="off" />
       <div id="pos-resultados" class="pos-resultados"></div>
     </div>
     <div class="pos-carrito card">
+      ${cajaSelectHtml}
       <div class="pos-cliente-row">
         <span class="hint" style="margin:0">Cliente</span>
         <div id="cliente-picker" style="flex:1; max-width:280px"></div>
@@ -360,6 +395,12 @@ continuarBtn.addEventListener("click", async () => {
       subtotal: total,
       total,
       pagos,
+      // Solo se manda cuando el cajero tuvo que elegir entre 2+ cajas abiertas; con una sola (o
+      // ninguna), crearVenta cae al criterio de siempre (ver routearPagoATesoreria en js/ventas.js).
+      cajaSeleccionada: (() => {
+        const select = document.getElementById("pos-caja");
+        return select ? cajasAbiertas[Number(select.value)] : null;
+      })(),
     };
     const resultado = await crearVenta(datos, usuario);
 

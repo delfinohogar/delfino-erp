@@ -20,7 +20,7 @@ import {
   runTransaction,
 } from "./firebase.js";
 import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria } from "./contabilidad.js";
-import { listarSucursalesActivas } from "./sucursales.js";
+import { resolverSucursalUsuario } from "./sucursales.js";
 import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
 import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
 import { crearCuentaPorCobrar } from "./cuentas-por-cobrar.js";
@@ -35,15 +35,17 @@ import { obtenerMedioPagoPorNombre } from "./medios-pago.js";
 // rutea de verdad apenas se lo crea, sin tocar código. Si el medio no existe en el catálogo o no
 // tiene destino, NO se inventa uno: se devuelve ruteado:false con el motivo, y quien llama decide
 // (ver crearVenta: la venta se registra igual, pero queda marcada como pago sin ubicar).
-async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clienteId, clienteNombre, fecha }, usuario) {
+//
+// sucursal y caja ya vienen resueltas (una sola vez por venta, no por cada pago — ver crearVenta):
+// caja es opcional, para cuando el cajero eligió una puntual entre varias abiertas — viene con la
+// misma forma que devuelve listarCajasAbiertasPorSucursal, { caja, sesion }; sin ella, cae al
+// criterio de siempre (la "Principal", o la primera caja abierta de esa sucursal).
+async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clienteId, clienteNombre, fecha, sucursal, caja }, usuario) {
   if (medio === "Pendiente de pago" || monto <= 0) return { ruteado: false, motivo: "Pago a cuenta corriente — no mueve dinero todavía." };
 
   const config = await obtenerMedioPagoPorNombre(medio);
   if (!config) return { ruteado: false, motivo: `El medio "${medio}" no está en Configuración → Medios de pago, así que no se sabe a dónde va la plata.` };
   if (!config.destino) return { ruteado: false, motivo: `"${medio}" no tiene un destino de Tesorería configurado (Configuración → Medios de pago).` };
-
-  const sucursales = await listarSucursalesActivas();
-  const sucursal = sucursales[0] || null;
 
   if (config.destino === "cuentaPorCobrar") {
     // medioCuentaPorCobrar permite que "Crédito" agrupe como "Tarjeta de crédito" en Tesorería; si
@@ -55,16 +57,20 @@ async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clien
 
   if (config.destino === "caja") {
     if (!sucursal) return { ruteado: false, motivo: "No hay ninguna sucursal configurada — no se sabe a qué caja va el efectivo." };
-    const cajas = await listarCajasPorSucursal(sucursal.id);
-    const caja = cajas.find((c) => c.tipo === "Principal" && c.activa !== false) || cajas.find((c) => c.activa !== false);
-    if (!caja) return { ruteado: false, motivo: `${sucursal.nombre} todavía no tiene ninguna caja creada (Tesorería → Cajas).` };
-    const sesion = await sesionAbiertaDeCaja(caja.id);
-    if (!sesion) return { ruteado: false, motivo: `${caja.nombre} (${sucursal.nombre}) está cerrada — abrila para que el efectivo de las ventas se registre ahí.` };
+    let cajaElegida = caja?.caja || null;
+    let sesion = caja?.sesion || null;
+    if (!cajaElegida) {
+      const cajas = await listarCajasPorSucursal(sucursal.id);
+      cajaElegida = cajas.find((c) => c.tipo === "Principal" && c.activa !== false) || cajas.find((c) => c.activa !== false);
+      if (!cajaElegida) return { ruteado: false, motivo: `${sucursal.nombre} todavía no tiene ninguna caja creada (Tesorería → Cajas).` };
+      sesion = await sesionAbiertaDeCaja(cajaElegida.id);
+    }
+    if (!sesion) return { ruteado: false, motivo: `${cajaElegida.nombre} (${sucursal.nombre}) está cerrada — abrila para que el efectivo de las ventas se registre ahí.` };
     await registrarMovimientoCaja(
-      { cajaId: caja.id, sesionId: sesion.id, sucursalId: sucursal.id, tipo: "ingreso", concepto: `Cobro venta #${numeroVenta}`, importe: monto, medio, ventaId, clienteId, clienteNombre, origen: { tipo: "venta", id: ventaId } },
+      { cajaId: cajaElegida.id, sesionId: sesion.id, sucursalId: sucursal.id, tipo: "ingreso", concepto: `Cobro venta #${numeroVenta}`, importe: monto, medio, ventaId, clienteId, clienteNombre, origen: { tipo: "venta", id: ventaId } },
       usuario
     );
-    return { ruteado: true, destino: "caja", id: caja.id };
+    return { ruteado: true, destino: "caja", id: cajaElegida.id };
   }
 
   if (config.destino === "banco") {
@@ -151,6 +157,11 @@ export async function crearVenta(datos, usuario) {
     .filter((p) => p.medio === "Pendiente de pago")
     .reduce((acc, p) => acc + p.monto, 0);
 
+  // Sucursal donde se vende: la del usuario logueado si tiene una asignada; si no, la primera activa
+  // (y queda marcada como "asumida" para que la pantalla avise). Se resuelve UNA vez y se usa tanto
+  // para dejar constancia en la venta como para rutear cada pago a la caja/cuenta correcta.
+  const { sucursal, asumida: sucursalAsumida } = await resolverSucursalUsuario(usuario);
+
   const ventaRef = await addDoc(collection(db, "ventas"), {
     numeroVenta,
     fecha: datos.fecha,
@@ -158,6 +169,8 @@ export async function crearVenta(datos, usuario) {
     clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final",
     vendedorId: usuario.uid,
     vendedorNombre: usuario.nombre || usuario.email,
+    sucursalId: sucursal?.id || null,
+    sucursalNombre: sucursal?.nombre || null,
     items,
     descuentoGlobal: datos.descuentoGlobal || 0,
     subtotal: datos.subtotal,
@@ -202,11 +215,16 @@ export async function crearVenta(datos, usuario) {
   // Va antes del asiento a propósito: el asiento se arma con el resultado REAL del ruteo, para que
   // contabilidad y Tesorería no se puedan contradecir (antes el asiento suponía que todo entraba a
   // Caja, y una venta con tarjeta sobrestimaba el disponible).
+  // La caja puntual la manda la pantalla de Nueva Venta solo cuando había más de una abierta para
+  // elegir; si no, se cae al criterio de siempre dentro de routearPagoATesoreria (la "Principal" de
+  // la sucursal ya resuelta arriba).
+  const cajaSeleccionada = datos.cajaSeleccionada || null;
+
   const routeo = [];
   for (const pago of datos.pagos) {
     if (pago.medio === "Pendiente de pago" || pago.monto <= 0) continue;
     const resultado = await routearPagoATesoreria(
-      { medio: pago.medio, monto: pago.monto, ventaId: ventaRef.id, numeroVenta, clienteId: datos.clienteId, clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final", fecha: datos.fecha },
+      { medio: pago.medio, monto: pago.monto, ventaId: ventaRef.id, numeroVenta, clienteId: datos.clienteId, clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final", fecha: datos.fecha, sucursal, caja: cajaSeleccionada },
       usuario
     );
     routeo.push({ medio: pago.medio, monto: pago.monto, ...resultado });
@@ -242,7 +260,13 @@ export async function crearVenta(datos, usuario) {
     usuario
   );
 
-  return { id: ventaRef.id, numeroVenta, routeoTesoreria: routeo };
+  return {
+    id: ventaRef.id,
+    numeroVenta,
+    routeoTesoreria: routeo,
+    sucursal: sucursal ? { id: sucursal.id, nombre: sucursal.nombre } : null,
+    sucursalAsumida,
+  };
 }
 
 export async function listarVentas(maxResultados = 100) {

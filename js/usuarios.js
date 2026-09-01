@@ -15,12 +15,15 @@ export async function obtenerUsuario(uid) {
 }
 
 // uid: el UID de Firebase Auth (lo copiás de Authentication en Firebase Console después de crear el usuario ahí).
-export async function crearPerfilUsuario({ uid, nombre, email, rol }) {
-  await setDoc(doc(db, "usuarios", uid), { nombre: nombre.trim(), email: email.trim(), rol });
+// sucursalId/sucursalNombre: a qué sucursal pertenece — de acá sale a qué caja va el efectivo que
+// cobra este usuario (ver js/ventas.js routearPagoATesoreria). Opcional: sin asignar, se cae al
+// comportamiento anterior (primera sucursal activa), avisando en la pantalla de venta.
+export async function crearPerfilUsuario({ uid, nombre, email, rol, sucursalId, sucursalNombre }) {
+  await setDoc(doc(db, "usuarios", uid), { nombre: nombre.trim(), email: email.trim(), rol, sucursalId: sucursalId || null, sucursalNombre: sucursalNombre || null });
 }
 
-export async function actualizarPerfilUsuario(uid, { nombre, email, rol }) {
-  await updateDoc(doc(db, "usuarios", uid), { nombre: nombre.trim(), email: email.trim(), rol });
+export async function actualizarPerfilUsuario(uid, { nombre, email, rol, sucursalId, sucursalNombre }) {
+  await updateDoc(doc(db, "usuarios", uid), { nombre: nombre.trim(), email: email.trim(), rol, sucursalId: sucursalId || null, sucursalNombre: sucursalNombre || null });
 }
 
 // Qué tarjetas del Dashboard eligió ver cada usuario (y en qué orden) — viaja con la cuenta, no con

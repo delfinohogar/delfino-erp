@@ -29,7 +29,14 @@ export async function requireAuth() {
   }
 
   const perfil = perfilSnap.data();
-  return { uid: user.uid, email: user.email, nombre: perfil.nombre, rol: perfil.rol };
+  return {
+    uid: user.uid,
+    email: user.email,
+    nombre: perfil.nombre,
+    rol: perfil.rol,
+    sucursalId: perfil.sucursalId || null,
+    sucursalNombre: perfil.sucursalNombre || null,
+  };
 }
 
 export async function cerrarSesion() {

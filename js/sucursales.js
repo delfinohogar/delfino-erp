@@ -46,3 +46,16 @@ export async function sucursalPorDefecto() {
   const activas = await listarSucursalesActivas();
   return activas[0] || null;
 }
+
+// A qué sucursal pertenece la plata que mueve este usuario (venta o cobro manual): la asignada en su
+// perfil (Configuración → Usuarios) si tiene una activa; si no, la primera sucursal activa como venía
+// siendo antes — pero devolviendo asumida:true para que la pantalla pueda avisar, porque con 2+
+// sucursales ese fallback puede mandar la plata al lugar equivocado sin que nadie lo note.
+export async function resolverSucursalUsuario(usuario) {
+  if (usuario.sucursalId) {
+    const sucursal = await obtenerSucursal(usuario.sucursalId);
+    if (sucursal && sucursal.activa !== false) return { sucursal, asumida: false };
+  }
+  const sucursal = await sucursalPorDefecto();
+  return { sucursal, asumida: true };
+}

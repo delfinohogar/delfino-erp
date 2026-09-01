@@ -3,7 +3,7 @@
 // que quedó total o parcialmente "Pendiente de pago".
 import { db, collection, getDocs, addDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
 import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria, normalizarFecha } from "./contabilidad.js";
-import { listarSucursalesActivas } from "./sucursales.js";
+import { resolverSucursalUsuario } from "./sucursales.js";
 import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
 import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
 import { listarMediosPagoActivos, obtenerMedioPagoPorNombre } from "./medios-pago.js";
@@ -100,7 +100,10 @@ async function routearCobroATesoreria(datos, cobroId, usuario) {
     return { ruteado: false, motivo: `Saldar una cuenta corriente con "${datos.medioPago}" todavía no está soportado — usá un medio que entre a caja o banco.` };
   }
 
-  const sucursal = (await listarSucursalesActivas())[0] || null;
+  // Misma sucursal que resolvería una venta de este usuario (Configuración → Usuarios) — antes caía
+  // siempre a la primera sucursal activa, así que un cobro manual de la Sucursal 2 podía terminar en
+  // la caja/banco de la Sucursal 1 sin ningún aviso (mismo bug que routearPagoATesoreria en ventas.js).
+  const { sucursal } = await resolverSucursalUsuario(usuario);
   if (config.destino === "banco") {
     const cuentas = await listarCuentasBancariasActivas();
     const cuenta = (sucursal ? cuentas.find((c) => c.sucursalId === sucursal.id) : null) || cuentas[0];

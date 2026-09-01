@@ -41,6 +41,14 @@ export async function obtenerCaja(id) {
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
+// Las cajas de una sucursal que están abiertas AHORA — para el selector de Nueva Venta/Cobro manual
+// (si hay más de una, el cajero elige a cuál va el efectivo; si hay una sola, se usa directo).
+export async function listarCajasAbiertasPorSucursal(sucursalId) {
+  const cajas = (await listarCajasPorSucursal(sucursalId)).filter((c) => c.activa !== false);
+  const conSesion = await Promise.all(cajas.map(async (caja) => ({ caja, sesion: await sesionAbiertaDeCaja(caja.id) })));
+  return conSesion.filter((c) => c.sesion);
+}
+
 // --- Sesiones (apertura/cierre) ---------------------------------------------------------------
 
 export async function sesionAbiertaDeCaja(cajaId) {
