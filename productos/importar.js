@@ -107,7 +107,7 @@ function pintarPreview({ productos, excluidos, sinSku, cotizacionDolar, errorCot
           <thead>
             <tr>
               <th>SKU</th><th>Descripción</th><th>Categoría / Subcategoría</th><th>Marca</th>
-              <th class="num">Precio</th><th class="num">Contado</th><th class="num">Costo neto</th><th class="num">Stock</th><th></th>
+              <th class="num">Precio (Lista Contado)</th><th class="num">Costo neto</th><th class="num">Stock</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -119,8 +119,7 @@ function pintarPreview({ productos, excluidos, sinSku, cotizacionDolar, errorCot
                 <td>${p.descripcion}</td>
                 <td>${p.categoriaNombre}${p.subcategoriaNombre ? " / " + p.subcategoriaNombre : ""}</td>
                 <td>${p.marcaNombre || "-"}</td>
-                <td class="num">${formatMonto(p.precioVenta)}</td>
-                <td class="num">${formatMonto(p.precioContado)}</td>
+                <td class="num">${formatMonto(p.precioVenta)}${p.revisarPrecio ? `<div class="hint mt-0">Lista de Precios: ${formatMonto(p.precioListaReferencia)}</div>` : ""}</td>
                 <td class="num">${formatMonto(p.costoReferencia)}${p.costoMoneda === "USD" ? ` <span class="hint mt-0">(USD ${p.costoOriginal})</span>` : ""}</td>
                 <td class="num">${p.stockTotal}</td>
                 <td>${p.revisarPrecio ? '<span class="badge warning">Revisar precio</span>' : ""}</td>

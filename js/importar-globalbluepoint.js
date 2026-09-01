@@ -11,7 +11,10 @@
 //     sacarles el IVA.
 //   - El stock se toma solo de "Depo Central" (se confirmó Depo Central === AStk en todo el archivo
 //     real, así que no se pierde nada real al no repartir por depósito).
-//   - "Lista Contado" se guarda como override de una lista de precios nueva llamada "Contado".
+//   - El precio de venta es "Lista Contado", no "Lista de Precios" — el dueño del negocio aclaró que
+//     esa segunda lista no se usa para vender de verdad. "Lista de Precios" solo se usa como
+//     referencia interna para detectar precios viejos (ver revisarPrecio), no se guarda en ningún
+//     lado.
 //   - 4 líneas del Excel no son productos (financiación/flete/descuentos/notas de crédito modeladas
 //     como ítems falsos en el ERP viejo) — se excluyen por SKU, no se importan.
 //   - Precios con una relación Lista Contado / Lista de Precios muy alejada de 1 (<0.5 o >1.5) casi
@@ -85,19 +88,22 @@ export async function prepararImportacion(filas) {
       continue;
     }
 
-    const precioVenta = parsePrecioArs(fila["Lista de Precios"]);
-    const precioContado = parsePrecioArs(fila["Lista Contado"]);
+    // El precio de venta real es "Lista Contado" — "Lista de Precios" no se usa para vender, queda
+    // solo como referencia interna acá abajo para detectar precios viejos.
+    const precioVenta = parsePrecioArs(fila["Lista Contado"]);
+    const precioListaReferencia = parsePrecioArs(fila["Lista de Precios"]);
     const iva = parseFloat(fila.tax_percentage) || 0;
     const { monto: costoOriginal, moneda: costoMoneda } = parseCosto(fila["Lista de Costos"]);
     const costoTipoCambio = costoMoneda === "USD" ? cotizacion?.valor || null : null;
     const costoBrutoArs = costoMoneda === "USD" ? costoOriginal * (costoTipoCambio || 0) : costoOriginal;
     const costoReferencia = iva > 0 ? Math.round((costoBrutoArs / (1 + iva / 100)) * 100) / 100 : Math.round(costoBrutoArs * 100) / 100;
 
-    // Si Lista Contado se aleja demasiado de Lista de Precios, el precio casi seguro quedó viejo
-    // (visto en la auditoría: ventiladores/mouses a $2.000 en medio de un catálogo de $50.000+). Se
-    // importa con stock 0 para que no se pueda vender hasta que alguien lo revise a mano.
-    const ratio = precioVenta > 0 ? precioContado / precioVenta : 1;
-    const revisarPrecio = precioVenta > 0 && precioContado > 0 && (ratio < 0.5 || ratio > 1.5);
+    // Si Lista Contado (el precio que se importa) se aleja demasiado de Lista de Precios, el precio
+    // casi seguro quedó viejo (visto en la auditoría: ventiladores/mouses a $2.000 en medio de un
+    // catálogo de $50.000+). Se importa con stock 0 para que no se pueda vender hasta que alguien lo
+    // revise a mano.
+    const ratio = precioListaReferencia > 0 ? precioVenta / precioListaReferencia : 1;
+    const revisarPrecio = precioListaReferencia > 0 && precioVenta > 0 && (ratio < 0.5 || ratio > 1.5);
 
     productos.push({
       sku,
@@ -112,7 +118,7 @@ export async function prepararImportacion(filas) {
       costoTipoCambio,
       costoReferencia,
       precioVenta,
-      precioContado,
+      precioListaReferencia,
       stockTotal: revisarPrecio ? 0 : Number(fila["Depo Central"]) || 0,
       revisarPrecio,
     });
@@ -121,31 +127,23 @@ export async function prepararImportacion(filas) {
   return { productos, excluidos, sinSku, cotizacionDolar: cotizacion, errorCotizacion };
 }
 
-async function mapaPorNombre(coleccion, extraWhere = []) {
-  const snap = await getDocs(query(collection(db, coleccion), ...extraWhere));
-  const mapa = new Map();
-  snap.docs.forEach((d) => mapa.set((d.data().nombreLower || d.data().nombre || "").toLowerCase(), d.id));
-  return mapa;
-}
-
 function enLotes(array, tamano) {
   const lotes = [];
   for (let i = 0; i < array.length; i += tamano) lotes.push(array.slice(i, i + tamano));
   return lotes;
 }
 
-// Crea (o reutiliza) categorías, subcategorías, marcas y la lista de precios "Contado"; después crea
-// o actualiza cada producto en lotes. Devuelve { creados, actualizados } para el resumen final.
+// Crea (o reutiliza) categorías, subcategorías y marcas; después crea o actualiza cada producto en
+// lotes. Devuelve { creados, actualizados } para el resumen final.
 // onProgreso(paso, hecho, total) — para la barra de progreso de la pantalla.
 export async function confirmarImportacion(productos, usuario, onProgreso = () => {}) {
   onProgreso("Leyendo categorías y marcas existentes…", 0, 1);
 
-  const [categoriasSnap, subcategoriasSnap, marcasSnap, productosSnap, listasSnap] = await Promise.all([
+  const [categoriasSnap, subcategoriasSnap, marcasSnap, productosSnap] = await Promise.all([
     getDocs(query(collection(db, "categorias"), where("nivel", "==", "categoria"))),
     getDocs(query(collection(db, "categorias"), where("nivel", "==", "subcategoria"))),
     getDocs(collection(db, "marcas")),
     getDocs(collection(db, "productos")),
-    getDocs(collection(db, "listasPrecios")),
   ]);
 
   const categoriaPorNombre = new Map(categoriasSnap.docs.map((d) => [d.data().nombreLower, d.id]));
@@ -154,7 +152,6 @@ export async function confirmarImportacion(productos, usuario, onProgreso = () =
   const subcategoriaPorClave = new Map(subcategoriasSnap.docs.map((d) => [`${d.data().parentId}::${d.data().nombreLower}`, d.id]));
   const marcaPorNombre = new Map(marcasSnap.docs.map((d) => [d.data().nombreLower, d.id]));
   const productoPorSku = new Map(productosSnap.docs.map((d) => [d.data().sku, d.id]));
-  let listaContadoId = listasSnap.docs.find((d) => d.data().nombre === "Contado")?.id || null;
 
   // --- 1) categorías y subcategorías nuevas ---
   const categoriasFaltantes = new Map();
@@ -230,14 +227,7 @@ export async function confirmarImportacion(productos, usuario, onProgreso = () =
     if (enLote > 0) await lote.commit();
   }
 
-  // --- 3) lista de precios "Contado" ---
-  if (!listaContadoId) {
-    const ref = doc(collection(db, "listasPrecios"));
-    await writeBatch(db).set(ref, { nombre: "Contado", reglaMargen: 0, reglaRedondeo: "sin_redondeo", activa: true }).commit();
-    listaContadoId = ref.id;
-  }
-
-  // --- 4) productos ---
+  // --- 3) productos ---
   const ahora = serverTimestamp();
   let creados = 0;
   let actualizados = 0;
@@ -286,10 +276,6 @@ export async function confirmarImportacion(productos, usuario, onProgreso = () =
         batch.set(doc(db, "productos", productoId), { ...datosProducto, creadoPor: usuario.uid, creadoEn: ahora });
         productoPorSku.set(p.sku, productoId);
         creados++;
-      }
-
-      if (p.precioContado > 0) {
-        batch.set(doc(db, "productos", productoId, "precios", listaContadoId), { precio: p.precioContado }, { merge: true });
       }
     }
     await batch.commit();
