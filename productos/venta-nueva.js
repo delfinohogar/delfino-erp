@@ -257,6 +257,12 @@ function agregarAlCarrito(producto) {
   pintarCarrito();
 }
 
+function miniatura(p) {
+  const url = p.imagenes && p.imagenes[0];
+  if (url) return `<img src="${url}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex-shrink:0" />`;
+  return `<div style="width:36px;height:36px;border-radius:8px;background:var(--muted-bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;flex-shrink:0">—</div>`;
+}
+
 let resultadosActuales = [];
 function pintarResultados(productos, titulo) {
   resultadosActuales = productos;
@@ -287,7 +293,8 @@ function pintarResultados(productos, titulo) {
     const div = document.createElement("div");
     div.className = "pos-result-item";
     div.innerHTML = `
-      <div>
+      ${miniatura(p)}
+      <div style="flex:1; min-width:0">
         <div>${p.descripcion || ""}</div>
         <div class="hint">${p.sku || ""}${sinStock ? ' · <span style="color:var(--danger)">Sin stock</span>' : ""}${refPrecio}</div>
       </div>
