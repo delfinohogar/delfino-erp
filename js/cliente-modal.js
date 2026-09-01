@@ -3,8 +3,11 @@ import { soloDigitos, formatearCuit, validarCuit, cuitsPosiblesDesdeDni } from "
 import { mostrarCentralDeudores } from "./bcra-modal.js";
 import { capitalizarDireccion } from "./texto.js";
 
-// Modal para crear (o editar, si se pasa clienteExistente) un cliente: Razón Social + CUIT/DNI,
-// con botón "Consultar ARCA" que autocompleta el resto, y "Central de Deudores" (BCRA).
+// Modal para crear (o editar, si se pasa clienteExistente) un cliente. El documento va primero
+// (con "Buscar en ARCA" al lado) porque encontrar el CUIT/DNI completa la razón social sola —
+// escribir el nombre a mano es el camino lento, no el default. El domicilio es opcional y queda
+// colapsado como una chip con "Editar" (igual con el que trae ARCA: se ofrece como punto de partida
+// para el domicilio de entrega, pero se puede corregir o borrar, nunca se fuerza).
 // Devuelve { razonSocial, cuit, datosArca } o null si se cancela.
 export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
   return new Promise((resolve) => {
@@ -18,19 +21,18 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
         <div class="section-title">${esEdicion ? "Editar cliente" : "Nuevo cliente"}</div>
         <form id="cliente-modal-form">
           <div class="field">
-            <label for="cm-razonSocial">Nombre / Razón social</label>
-            <input type="text" id="cm-razonSocial" value="${clienteExistente?.razonSocial || razonSocialInicial || ""}" required />
-          </div>
-          <div class="field">
             <label for="cm-cuit">CUIT / DNI</label>
-            <input type="text" id="cm-cuit" placeholder="30-XXXXXXXX-X" value="${clienteExistente?.cuit || ""}" required />
-            <div class="toolbar" style="margin-top:6px">
-              <button type="button" id="cm-consultar-arca">🔎 Consultar ARCA</button>
-              <button type="button" id="cm-central-deudores">🏦 Central de Deudores</button>
+            <div class="stack-row">
+              <input type="text" id="cm-cuit" placeholder="Ingresá un DNI o CUIT" value="${clienteExistente?.cuit || ""}" style="flex:1" required />
+              <button type="button" id="cm-consultar-arca">🔎 Buscar en ARCA</button>
             </div>
             <div class="hint" id="cm-cuit-validacion"></div>
             <div class="hint" id="cm-dni-sugerencias"></div>
             <div class="hint" id="cm-arca-estado"></div>
+          </div>
+          <div class="field">
+            <label for="cm-razonSocial">Nombre / Razón social</label>
+            <input type="text" id="cm-razonSocial" value="${clienteExistente?.razonSocial || razonSocialInicial || ""}" required />
           </div>
           <div id="cm-arca-preview" style="display:${clienteExistente?.condicionIva ? "block" : "none"}" class="hint">
             <div id="cm-arca-preview-content">${
@@ -40,8 +42,9 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
             }</div>
           </div>
           <div class="field">
-            <label for="cm-domicilio-entrega">Domicilio de entrega</label>
-            <input type="text" id="cm-domicilio-entrega" value="${clienteExistente?.domicilioEntrega || ""}" placeholder="Calle, número, localidad…" />
+            <label>Domicilio de entrega <span class="hint mt-0" style="display:inline">(opcional)</span></label>
+            <div id="cm-domicilio-resumen"></div>
+            <input type="text" id="cm-domicilio-entrega" value="${clienteExistente?.domicilioEntrega || ""}" placeholder="Calle, número, localidad…" style="display:none" />
           </div>
           <div class="field-row">
             <div class="field">
@@ -55,6 +58,7 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
           </div>
           <div class="toolbar" style="margin-top:8px">
             <button type="submit" class="primary">${esEdicion ? "Guardar cambios" : "Crear"}</button>
+            <button type="button" id="cm-central-deudores">🏦 Central de Deudores</button>
             <button type="button" id="cm-cancelar">Cancelar</button>
           </div>
         </form>
@@ -72,13 +76,40 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
     const previewContentEl = overlay.querySelector("#cm-arca-preview-content");
     const consultarBtn = overlay.querySelector("#cm-consultar-arca");
     const domicilioEntregaInput = overlay.querySelector("#cm-domicilio-entrega");
+    const domicilioResumenEl = overlay.querySelector("#cm-domicilio-resumen");
 
+    // El domicilio arranca colapsado — como chip de solo lectura si ya hay algo cargado (a mano o
+    // sugerido por ARCA), o como "+ Agregar domicilio" si está vacío. Nunca obliga a mirar un campo
+    // que no hace falta tocar.
+    let domicilioEditando = false;
+    function pintarDomicilio() {
+      const valor = domicilioEntregaInput.value.trim();
+      if (domicilioEditando) {
+        domicilioResumenEl.style.display = "none";
+        domicilioEntregaInput.style.display = "block";
+        domicilioEntregaInput.focus();
+        return;
+      }
+      domicilioEntregaInput.style.display = "none";
+      domicilioResumenEl.style.display = "flex";
+      domicilioResumenEl.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--muted-bg); border-radius:8px; padding:8px 10px;";
+      domicilioResumenEl.innerHTML = valor
+        ? `<span style="font-size:13px">${valor}</span><button type="button" id="cm-domicilio-toggle" class="link-btn" style="flex-shrink:0">✏️ Editar</button>`
+        : `<button type="button" id="cm-domicilio-toggle" class="link-btn">+ Agregar domicilio</button>`;
+      domicilioResumenEl.querySelector("#cm-domicilio-toggle").addEventListener("click", () => {
+        domicilioEditando = true;
+        pintarDomicilio();
+      });
+    }
     domicilioEntregaInput.addEventListener("blur", () => {
       domicilioEntregaInput.value = capitalizarDireccion(domicilioEntregaInput.value.trim());
+      domicilioEditando = false;
+      pintarDomicilio();
     });
+    pintarDomicilio();
 
-    razonSocialInput.focus();
-    razonSocialInput.select();
+    cuitInput.focus();
+    cuitInput.select();
 
     function actualizarCuit() {
       const digitos = soloDigitos(cuitInput.value);
@@ -136,6 +167,18 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
         ${datos.codigoPostal ? ` (CP ${datos.codigoPostal})` : ""}
       `;
       previewEl.style.display = "block";
+
+      // El domicilio fiscal de ARCA es solo una sugerencia para el de entrega — nunca pisa uno que
+      // el vendedor ya haya cargado a mano, y sigue siendo editable/borrable desde la chip de arriba.
+      if (datos.domicilioFiscal && !domicilioEntregaInput.value.trim()) {
+        // Todo en un solo capitalizarDireccion() para que quede igual la primera vez que al volver
+        // a tocarlo (blur re-capitaliza el string completo — si "CP" se agregaba aparte quedaba bien
+        // solo la primera vez y pasaba a "Cp" en cuanto se editaba una vez).
+        const partes = [datos.domicilioFiscal, datos.provincia, datos.codigoPostal ? `CP ${datos.codigoPostal}` : ""].filter(Boolean).join(", ");
+        domicilioEntregaInput.value = capitalizarDireccion(partes);
+        domicilioEditando = false;
+        pintarDomicilio();
+      }
     }
 
     consultarBtn.addEventListener("click", async () => {
@@ -198,7 +241,7 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
 
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      const domicilioEntregaNuevo = overlay.querySelector("#cm-domicilio-entrega").value.trim();
+      const domicilioEntregaNuevo = domicilioEntregaInput.value.trim();
       cerrar({
         razonSocial: razonSocialInput.value.trim(),
         cuit: cuitInput.value.trim(),
