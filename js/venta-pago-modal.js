@@ -26,8 +26,8 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
         <div id="vp-resto" style="font-size:14px; font-weight:600; margin:12px 0"></div>
         <div class="error-text" id="vp-error" style="display:none"></div>
         <div class="toolbar" style="margin-top:8px">
-          <button type="button" class="primary" id="vp-confirmar">Confirmar venta</button>
-          <button type="button" id="vp-cancelar">Cancelar</button>
+          <button type="button" class="primary" id="vp-confirmar">Confirmar venta <span class="hint" style="margin:0; color:inherit; opacity:0.75">Enter</span></button>
+          <button type="button" id="vp-cancelar">Cancelar <span class="hint mt-0">Esc</span></button>
         </div>
       </div>
     `;
@@ -97,16 +97,12 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
     });
 
     function cerrar(resultado) {
+      document.removeEventListener("keydown", onKeydown);
       overlay.remove();
       resolve(resultado);
     }
 
-    overlay.querySelector("#vp-cancelar").addEventListener("click", () => cerrar(null));
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) cerrar(null);
-    });
-
-    overlay.querySelector("#vp-confirmar").addEventListener("click", () => {
+    function confirmar() {
       errorEl.style.display = "none";
       const pagos = Array.from(lineasEl.querySelectorAll("[data-role=linea]"))
         .map((l) => ({
@@ -127,6 +123,26 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
         return;
       }
       cerrar(pagos);
+    }
+
+    // Esc cancela desde cualquier lado del modal — mismo criterio que "Precio unitario" y
+    // "Confirmar venta" en La Pyme. Enter confirma solo parado en un campo de monto (que es donde
+    // tiene sentido "escribí el importe y confirmá"); en los botones (Cancelar, quitar, agregar
+    // medio) Enter tiene que seguir haciendo lo que ese botón dice, no confirmar la venta.
+    function onKeydown(e) {
+      if (e.key === "Escape") cerrar(null);
+      if (e.key === "Enter" && e.target.tagName === "INPUT") {
+        e.preventDefault();
+        confirmar();
+      }
+    }
+    document.addEventListener("keydown", onKeydown);
+
+    overlay.querySelector("#vp-cancelar").addEventListener("click", () => cerrar(null));
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cerrar(null);
     });
+
+    overlay.querySelector("#vp-confirmar").addEventListener("click", confirmar);
   });
 }

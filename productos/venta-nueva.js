@@ -6,6 +6,9 @@ import { actualizarCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { initClientePicker } from "/js/cliente-picker.js";
 import { pedirMedioPagoVenta } from "/js/venta-pago-modal.js";
+import { mostrarDetalleCliente } from "/js/cliente-detalle-modal.js";
+import { ultimosPreciosPorProducto } from "/js/cuenta-corriente.js";
+import { listarVentasPorCliente } from "/js/ventas.js";
 import { crearComprobante, comprobanteDesdeVenta, tiposComprobanteDisponibles } from "/js/facturacion.js";
 import { obtenerConfigEmpresa } from "/js/configuracion-empresa.js";
 import { obtenerConfigFacturacion } from "/js/facturacion-config.js";
@@ -67,6 +70,7 @@ content.innerHTML = `
       <div class="pos-cliente-row">
         <span class="hint mt-0">Cliente</span>
         <div id="cliente-picker" style="flex:1; max-width:280px"></div>
+        <button type="button" id="btn-ver-cliente" class="link-btn" style="display:none">Ver</button>
         <button type="button" id="btn-editar-cliente" class="link-btn" style="display:none">Editar</button>
         <button type="button" id="btn-quitar-cliente" class="link-btn" style="display:none">Quitar</button>
       </div>
@@ -106,6 +110,7 @@ const carritoItemsEl = document.getElementById("pos-carrito-items");
 const totalEl = document.getElementById("pos-total");
 const continuarBtn = document.getElementById("pos-continuar");
 const errorEl = document.getElementById("pos-error");
+const btnVerCliente = document.getElementById("btn-ver-cliente");
 const btnQuitarCliente = document.getElementById("btn-quitar-cliente");
 const btnEditarCliente = document.getElementById("btn-editar-cliente");
 const tipoEntregaSelect = document.getElementById("pos-tipo-entrega");
@@ -114,18 +119,30 @@ const notaEntregaInput = document.getElementById("pos-nota-entrega");
 
 let carrito = []; // { productoId, productoSku, productoDescripcion, cantidad, precioUnitario, descuentoPct }
 let clienteSeleccionado = null;
+// Precio → productoId de la última vez que se le vendió algo a ESTE cliente (se recalcula al elegir
+// cliente). Se muestra junto al resultado de búsqueda como referencia — igual que "Última venta a
+// este cliente" en La Pyme — sin bloquear el agregado al carrito con un modal aparte.
+let preciosCliente = new Map();
+
+async function cargarPreciosCliente(cliente) {
+  preciosCliente = cliente ? ultimosPreciosPorProducto(await listarVentasPorCliente(cliente.id)) : new Map();
+}
 
 const clientePicker = initClientePicker(document.getElementById("cliente-picker"), {
   placeholder: "Consumidor final",
   onSelect: (cliente) => {
     clienteSeleccionado = cliente;
+    btnVerCliente.style.display = cliente ? "inline-block" : "none";
     btnQuitarCliente.style.display = cliente ? "inline-block" : "none";
     btnEditarCliente.style.display = cliente ? "inline-block" : "none";
     if (cliente?.domicilioEntrega && !domicilioEntregaInput.value) {
       domicilioEntregaInput.value = cliente.domicilioEntrega;
     }
+    cargarPreciosCliente(cliente);
   },
 });
+
+btnVerCliente.addEventListener("click", () => mostrarDetalleCliente(clienteSeleccionado));
 
 function actualizarCamposEntrega() {
   const tipo = tipoEntregaSelect.value;
@@ -235,7 +252,9 @@ function agregarAlCarrito(producto) {
   pintarCarrito();
 }
 
+let resultadosActuales = [];
 function pintarResultados(productos) {
+  resultadosActuales = productos;
   resultadosEl.innerHTML = "";
   if (productos.length === 0) {
     resultadosEl.innerHTML = '<div class="hint" style="padding:12px 8px">Sin resultados.</div>';
@@ -243,12 +262,22 @@ function pintarResultados(productos) {
   }
   productos.forEach((p) => {
     const sinStock = (p.stockTotal ?? 0) <= 0;
+    // Referencia de precio, no un bloqueo: a diferencia de La Pyme (que abre un modal aparte antes
+    // de agregar), acá se agrega directo — el precio anterior solo se muestra al lado, en la fila
+    // del carrito, por si conviene ajustarlo (ver pintarCarrito).
+    const precioCliente = preciosCliente.get(p.id);
+    const refPrecio =
+      precioCliente && precioCliente.precio !== p.precioVenta
+        ? `<span class="hint" style="margin:0"> · a este cliente: $${precioCliente.precio.toLocaleString("es-AR")}</span>`
+        : p.ultimoPrecioVenta && p.ultimoPrecioVenta !== p.precioVenta
+          ? `<span class="hint" style="margin:0"> · última venta: $${p.ultimoPrecioVenta.toLocaleString("es-AR")}</span>`
+          : "";
     const div = document.createElement("div");
     div.className = "pos-result-item";
     div.innerHTML = `
       <div>
         <div>${p.descripcion || ""}</div>
-        <div class="hint">${p.sku || ""}${sinStock ? ' · <span style="color:var(--danger)">Sin stock</span>' : ""}</div>
+        <div class="hint">${p.sku || ""}${sinStock ? ' · <span style="color:var(--danger)">Sin stock</span>' : ""}${refPrecio}</div>
       </div>
       <div style="font-weight:600">$${(p.precioVenta ?? 0).toLocaleString("es-AR")}</div>
     `;
@@ -262,6 +291,7 @@ searchInput.addEventListener("input", () => {
   clearTimeout(debounceTimer);
   const texto = searchInput.value.trim();
   if (!texto) {
+    resultadosActuales = [];
     resultadosEl.innerHTML = "";
     return;
   }
@@ -269,6 +299,15 @@ searchInput.addEventListener("input", () => {
     const productos = await buscarProductos(texto, 15);
     pintarResultados(productos);
   }, 200);
+});
+
+// Enter agrega el primer resultado sin soltar el teclado — mismo espíritu que el escaneo de
+// código de barras de La Pyme: escanear/tipear el código exacto suele dejar un solo resultado.
+searchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && resultadosActuales.length > 0) {
+    e.preventDefault();
+    agregarAlCarrito(resultadosActuales[0]);
+  }
 });
 
 function abrirModalEmail(comprobante) {

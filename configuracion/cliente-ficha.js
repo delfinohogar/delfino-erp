@@ -6,9 +6,7 @@ import { consultarPadronArca } from "/js/arca.js";
 import { mostrarCentralDeudores } from "/js/bcra-modal.js";
 import { urlMapa } from "/js/motor-mapas.js";
 import { pedirNormalizacionDireccion } from "/js/normalizar-direccion-modal.js";
-import { listarVentasPorCliente } from "/js/ventas.js";
-import { listarCobrosPorCliente } from "/js/cobros.js";
-import { listarComprobantesPorCliente } from "/js/facturacion.js";
+import { calcularCuentaCorriente } from "/js/cuenta-corriente.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -133,66 +131,8 @@ function formatMonto(v) {
   return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
 }
 
-// Movimientos de la cuenta corriente: ventas (Débito) + cobros (Crédito) + notas de crédito
-// (Crédito, no van atadas a una venta — se relacionan por comprobanteRelacionadoId). El comprobante
-// de cada venta sale de un solo listado por cliente (listarComprobantesPorCliente), no se pide venta
-// por venta — y ahí mismo vienen las notas de crédito, que no tienen ventaId propio.
 async function cargarCuentaCorriente() {
-  const [ventas, cobros, comprobantes] = await Promise.all([
-    listarVentasPorCliente(clienteId),
-    listarCobrosPorCliente(clienteId),
-    listarComprobantesPorCliente(clienteId),
-  ]);
-
-  const comprobantePorVenta = new Map(comprobantes.filter((c) => c.ventaId).map((c) => [c.ventaId, c]));
-  const notasCredito = comprobantes.filter((c) => c.tipoComprobanteCodigo?.startsWith("NOTA_CREDITO") && c.estado === "EMITIDA");
-
-  const movimientos = [
-    ...ventas.map((v) => {
-      const comp = comprobantePorVenta.get(v.id);
-      return {
-        fecha: v.fecha,
-        tipo: "Factura",
-        comprobanteId: comp?.id || null,
-        comprobanteNumero: comp?.numeroCompleto || null,
-        concepto: "Venta",
-        debe: v.total || 0,
-        haber: 0,
-        ventaId: v.id,
-      };
-    }),
-    ...cobros.map((c) => ({
-      fecha: c.fecha,
-      tipo: "Pago",
-      comprobanteId: null,
-      comprobanteNumero: null,
-      concepto: `Pago (${c.medioPago || "-"}) — venta #${c.numeroVenta ?? ""}`,
-      debe: 0,
-      haber: c.monto || 0,
-      ventaId: c.ventaId,
-    })),
-    ...notasCredito.map((nc) => ({
-      fecha: nc.fechaEmision,
-      tipo: "Nota de crédito",
-      comprobanteId: nc.id,
-      comprobanteNumero: nc.numeroCompleto,
-      concepto: nc.observaciones || "Nota de crédito",
-      debe: 0,
-      haber: nc.total || 0,
-      ventaId: null,
-    })),
-  ];
-
-  function fechaOrden(fecha) {
-    if (!fecha) return 0;
-    return fecha?.toDate ? fecha.toDate().getTime() : new Date(fecha).getTime();
-  }
-  movimientos.sort((a, b) => fechaOrden(a.fecha) - fechaOrden(b.fecha));
-
-  const totalFacturado = ventas.reduce((acc, v) => acc + (v.total || 0), 0);
-  const totalPagado = cobros.reduce((acc, c) => acc + (c.monto || 0), 0);
-  const totalNC = notasCredito.reduce((acc, nc) => acc + (nc.total || 0), 0);
-  const saldoPendiente = Math.round((totalFacturado - totalNC - totalPagado) * 100) / 100;
+  const { movimientos, totalFacturado, totalPagado, totalNC, saldoPendiente } = await calcularCuentaCorriente(clienteId);
 
   document.getElementById("cc-stats").innerHTML = `
     <div><div class="hint mt-0">Saldo anterior</div><div style="font-weight:600">${formatMonto(0)}</div></div>

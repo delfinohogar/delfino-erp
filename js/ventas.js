@@ -140,7 +140,15 @@ export async function crearVenta(datos, usuario) {
           `Stock insuficiente para ${item.productoSku || ""} ${item.productoDescripcion || ""} (disponible: ${stockAnterior}).`
         );
       }
-      tx.update(productoRef, { stockTotal: stockNuevo, modificadoPor: usuario.uid, modificadoEn: ahora });
+      // ultimoPrecioVenta queda en el producto para que Nueva Venta pueda mostrar "última venta: $X"
+      // como referencia al buscarlo, sin tener que salir a consultar ventas viejas en cada tipeo
+      // (ver pintarResultados en productos/venta-nueva.js).
+      tx.update(productoRef, {
+        stockTotal: stockNuevo,
+        ultimoPrecioVenta: item.precioUnitario,
+        modificadoPor: usuario.uid,
+        modificadoEn: ahora,
+      });
       tx.set(doc(collection(db, "productos", item.productoId, "logAuditoria")), {
         campo: "stockTotal",
         valorAnterior: stockAnterior,
