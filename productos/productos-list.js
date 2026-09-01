@@ -53,6 +53,7 @@ content.innerHTML = `
           <th>Descripción</th>
           <th>Stock</th>
           <th>Costo s/IVA</th>
+          <th>Precio de venta</th>
           <th>Estado</th>
         </tr>
       </thead>
@@ -129,6 +130,7 @@ function pintarProductos(productos) {
       <td>${p.descripcion || ""}</td>
       <td>${p.stockTotal ?? 0}</td>
       <td>${p.costoReferencia != null ? p.costoReferencia.toLocaleString("es-AR") : "-"}</td>
+      <td>${p.precioVenta != null ? "$" + p.precioVenta.toLocaleString("es-AR") : "-"}</td>
       <td>${estadoBadge(p.estado)}</td>
     `;
     tr.addEventListener("click", (e) => {
