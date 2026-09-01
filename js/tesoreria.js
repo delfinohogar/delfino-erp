@@ -7,6 +7,9 @@ import { listarCuentasPorCobrarPendientes, MEDIOS_CUENTA_POR_COBRAR, estaVencida
 import { listarGastos } from "./gastos.js";
 import { listarCompras } from "./compras.js";
 import { listarPagos } from "./pagos.js";
+import { listarVentasConPagoSinUbicar } from "./ventas.js";
+import { listarCobrosConPagoSinUbicar } from "./cobros.js";
+import { mapaResolucionesPagoSinUbicar } from "./resoluciones-pago-sin-ubicar.js";
 import { db, collection, getDocs, query } from "./firebase.js";
 
 const HOY = () => new Date().toISOString().slice(0, 10);
@@ -112,18 +115,24 @@ export async function posicionPorSucursal() {
 
 // Centro de Pendientes: todo lo que requiere una acción humana, junto en una sola lista.
 export async function centroDePendientes() {
-  const [sesionesAbiertas, movBancariosPendientes, cuentasPorCobrar] = await Promise.all([
+  const [sesionesAbiertas, movBancariosPendientes, cuentasPorCobrar, ventasSinUbicar, cobrosSinUbicar, resoluciones] = await Promise.all([
     listarSesionesAbiertas(),
     listarMovimientosBancariosPendientes(),
     listarCuentasPorCobrarPendientes(),
+    listarVentasConPagoSinUbicar(),
+    listarCobrosConPagoSinUbicar(),
+    mapaResolucionesPagoSinUbicar(),
   ]);
   const hoy = HOY();
+  // Ya marcado como resuelto a mano (ver tesoreria/pagos-sin-ubicar.js) — no cuenta como pendiente.
+  const sinResolver = (tipo) => (item) => !resoluciones.has(`${tipo}_${item.id}`);
   return {
     cajasSinCerrar: sesionesAbiertas,
     movimientosBancariosPendientes: movBancariosPendientes,
     cuentasPorCobrarVencidas: cuentasPorCobrar.filter((c) => estaVencida(c, hoy)),
     cuentasPorCobrarProximasAVencer: cuentasPorCobrar.filter((c) => estaProximaAVencer(c, 7, hoy)),
     cuentasPorCobrarPorMedio: Object.fromEntries(MEDIOS_CUENTA_POR_COBRAR.map((m) => [m, cuentasPorCobrar.filter((c) => c.medio === m)])),
+    pagosSinUbicar: ventasSinUbicar.filter(sinResolver("venta")).length + cobrosSinUbicar.filter(sinResolver("cobro")).length,
   };
 }
 

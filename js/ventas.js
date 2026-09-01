@@ -12,6 +12,7 @@ import {
   getDoc,
   getDocs,
   addDoc,
+  setDoc,
   query,
   where,
   orderBy,
@@ -162,7 +163,38 @@ export async function crearVenta(datos, usuario) {
   // para dejar constancia en la venta como para rutear cada pago a la caja/cuenta correcta.
   const { sucursal, asumida: sucursalAsumida } = await resolverSucursalUsuario(usuario);
 
-  const ventaRef = await addDoc(collection(db, "ventas"), {
+  // El ID se genera ANTES de escribir la venta (Firestore permite armar la referencia sin escribir
+  // todavía) para poder rutear cada pago a Tesorería primero y guardar el resultado en la venta misma
+  // en un solo write — la venta es inmutable (firestore.rules: allow update: if false), así que el
+  // resultado del ruteo tiene que quedar adentro del alta o se pierde para siempre apenas se cierra
+  // la pantalla (ver tesoreria/pagos-sin-ubicar.js, que lista tieneSinUbicar==true).
+  const ventaRef = doc(collection(db, "ventas"));
+
+  // Tesorería PRIMERO: cada pago que no quedó "Pendiente de pago" busca dónde termina esa plata
+  // (caja, banco, o una cuenta por cobrar si todavía no está disponible) — ver routearPagoATesoreria.
+  // Un pago sin dónde rutear (ej. caja cerrada) NUNCA bloquea la venta — solo queda sin reflejar en
+  // Tesorería, y se informa en el resultado para que la pantalla lo pueda avisar.
+  //
+  // Va antes del asiento a propósito: el asiento se arma con el resultado REAL del ruteo, para que
+  // contabilidad y Tesorería no se puedan contradecir (antes el asiento suponía que todo entraba a
+  // Caja, y una venta con tarjeta sobrestimaba el disponible).
+  // La caja puntual la manda la pantalla de Nueva Venta solo cuando había más de una abierta para
+  // elegir; si no, se cae al criterio de siempre dentro de routearPagoATesoreria (la "Principal" de
+  // la sucursal ya resuelta arriba).
+  const cajaSeleccionada = datos.cajaSeleccionada || null;
+
+  const routeo = [];
+  for (const pago of datos.pagos) {
+    if (pago.medio === "Pendiente de pago" || pago.monto <= 0) continue;
+    const resultado = await routearPagoATesoreria(
+      { medio: pago.medio, monto: pago.monto, ventaId: ventaRef.id, numeroVenta, clienteId: datos.clienteId, clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final", fecha: datos.fecha, sucursal, caja: cajaSeleccionada },
+      usuario
+    );
+    routeo.push({ medio: pago.medio, monto: pago.monto, ...resultado });
+  }
+  const tieneSinUbicar = routeo.some((r) => !r.ruteado);
+
+  await setDoc(ventaRef, {
     numeroVenta,
     fecha: datos.fecha,
     clienteId: datos.clienteId || null,
@@ -182,6 +214,12 @@ export async function crearVenta(datos, usuario) {
     notaEntrega: datos.notaEntrega || null,
     // "Retira ahora" se resuelve en el momento — el resto queda pendiente para que Logística lo tome.
     estadoEntrega: datos.tipoEntrega && datos.tipoEntrega !== "Retira ahora" ? "pendiente" : "entregado",
+    // Ruteo a Tesorería, guardado tal cual quedó: si algún pago no se pudo ubicar (caja cerrada, medio
+    // sin destino configurado), tieneSinUbicar queda en true para que el Centro de Pendientes lo pueda
+    // encontrar con una sola query — sin esto, el aviso solo vivía en memoria y se perdía al cerrar la
+    // pantalla de confirmación.
+    routeoTesoreria: routeo,
+    tieneSinUbicar,
     creadoPor: usuario.uid,
     creadoEn: ahora,
   });
@@ -205,29 +243,6 @@ export async function crearVenta(datos, usuario) {
         creadoEn: ahora,
       });
     }
-  }
-
-  // Tesorería PRIMERO: cada pago que no quedó "Pendiente de pago" busca dónde termina esa plata
-  // (caja, banco, o una cuenta por cobrar si todavía no está disponible) — ver routearPagoATesoreria.
-  // Un pago sin dónde rutear (ej. caja cerrada) NUNCA bloquea la venta — solo queda sin reflejar en
-  // Tesorería, y se informa en el resultado para que la pantalla lo pueda avisar.
-  //
-  // Va antes del asiento a propósito: el asiento se arma con el resultado REAL del ruteo, para que
-  // contabilidad y Tesorería no se puedan contradecir (antes el asiento suponía que todo entraba a
-  // Caja, y una venta con tarjeta sobrestimaba el disponible).
-  // La caja puntual la manda la pantalla de Nueva Venta solo cuando había más de una abierta para
-  // elegir; si no, se cae al criterio de siempre dentro de routearPagoATesoreria (la "Principal" de
-  // la sucursal ya resuelta arriba).
-  const cajaSeleccionada = datos.cajaSeleccionada || null;
-
-  const routeo = [];
-  for (const pago of datos.pagos) {
-    if (pago.medio === "Pendiente de pago" || pago.monto <= 0) continue;
-    const resultado = await routearPagoATesoreria(
-      { medio: pago.medio, monto: pago.monto, ventaId: ventaRef.id, numeroVenta, clienteId: datos.clienteId, clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final", fecha: datos.fecha, sucursal, caja: cajaSeleccionada },
-      usuario
-    );
-    routeo.push({ medio: pago.medio, monto: pago.monto, ...resultado });
   }
 
   // Asiento contable: el debe se reparte según a dónde fue realmente cada pago (Caja y Bancos si
@@ -282,4 +297,12 @@ export async function listarVentasPorCliente(clienteId) {
 export async function obtenerVenta(id) {
   const snap = await getDoc(doc(db, "ventas", id));
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+// Ventas con al menos un pago que Tesorería no pudo ubicar (ver tieneSinUbicar en crearVenta) — para
+// el Centro de Pendientes y la pantalla tesoreria/pagos-sin-ubicar.js. Se ordena en memoria (no hay
+// orderBy en la query) para no depender de un índice compuesto nuevo — la lista esperable es chica.
+export async function listarVentasConPagoSinUbicar() {
+  const snap = await getDocs(query(collection(db, "ventas"), where("tieneSinUbicar", "==", true)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.numeroVenta || 0) - (a.numeroVenta || 0));
 }

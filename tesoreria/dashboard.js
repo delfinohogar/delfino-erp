@@ -23,7 +23,8 @@ const [posicion, porSucursal, pendientes] = await Promise.all([posicionTesoreria
 const totalPendientesAccion =
   pendientes.cajasSinCerrar.length +
   pendientes.movimientosBancariosPendientes.length +
-  pendientes.cuentasPorCobrarVencidas.length;
+  pendientes.cuentasPorCobrarVencidas.length +
+  pendientes.pagosSinUbicar;
 
 content.innerHTML = `
   <div class="dashboard-grid" style="margin-bottom:16px">
@@ -89,6 +90,11 @@ content.innerHTML = `
         ? `<div class="hint">Sin pendientes. 🟢</div>`
         : `
       ${
+        pendientes.pagosSinUbicar > 0
+          ? `<div style="margin-bottom:10px"><strong style="color:var(--danger)">Pagos sin ubicar (${pendientes.pagosSinUbicar})</strong> — plata que se cobró pero Tesorería no supo dónde poner · <a href="/tesoreria/pagos-sin-ubicar.html">Resolver</a></div>`
+          : ""
+      }
+      ${
         pendientes.cajasSinCerrar.length > 0
           ? `<div style="margin-bottom:10px"><strong>Cajas sin cerrar (${pendientes.cajasSinCerrar.length})</strong>${pendientes.cajasSinCerrar
               .map((s) => `<div class="hint">— ${s.cajaNombre} (${s.sucursalNombre}), abierta desde ${formatFechaHora(s.fechaApertura)} · <a href="/tesoreria/caja-ficha.html?id=${s.cajaId}">Ver</a></div>`)
@@ -122,5 +128,6 @@ content.innerHTML = `
     <a href="/tesoreria/transferencias.html"><button type="button">🔁 Transferencias</button></a>
     <a href="/tesoreria/movimientos.html"><button type="button">📋 Movimientos</button></a>
     <a href="/tesoreria/conciliacion.html"><button type="button">✅ Conciliación</button></a>
+    <a href="/tesoreria/pagos-sin-ubicar.html"><button type="button">⚠️ Pagos sin ubicar</button></a>
   </div>
 `;

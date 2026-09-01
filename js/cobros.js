@@ -1,7 +1,7 @@
 // Cobros a cliente: la contraparte de pagosProveedores. La mayoría se generan solos al confirmar una
 // venta (ver ventas.js) — este módulo también permite registrar un cobro después, contra una venta
 // que quedó total o parcialmente "Pendiente de pago".
-import { db, collection, getDocs, addDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
+import { db, collection, doc, getDocs, setDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
 import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria, normalizarFecha } from "./contabilidad.js";
 import { resolverSucursalUsuario } from "./sucursales.js";
 import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
@@ -28,7 +28,15 @@ export async function crearCobro(datos, usuario) {
   // filtros por fecha de Tesorería, que comparan strings (ver js/tesoreria.js).
   const fecha = normalizarFecha(datos.fecha);
 
-  const ref = await addDoc(collection(db, "cobros"), {
+  // Mismo criterio que crearVenta en ventas.js: el ID se genera antes de escribir para poder rutear
+  // primero y guardar el resultado en el cobro mismo — cobros también es inmutable (allow update:
+  // if false), así que si no queda acá, el aviso de "sin ubicar" se pierde para siempre.
+  const ref = doc(collection(db, "cobros"));
+
+  // Rutear primero: el asiento se arma con el destino real, no suponiendo que todo entra a Caja.
+  const routeo = await routearCobroATesoreria({ ...datos, fecha }, ref.id, usuario);
+
+  await setDoc(ref, {
     clienteId: datos.clienteId,
     clienteNombre: datos.clienteNombre,
     ventaId: datos.ventaId,
@@ -38,12 +46,11 @@ export async function crearCobro(datos, usuario) {
     medioPago: datos.medioPago,
     referencia: datos.referencia || "",
     notas: datos.notas || "",
+    routeoTesoreria: routeo,
+    tieneSinUbicar: !routeo.ruteado,
     usuario: usuario.uid,
     creadoEn: serverTimestamp(),
   });
-
-  // Rutear primero: el asiento se arma con el destino real, no suponiendo que todo entra a Caja.
-  const routeo = await routearCobroATesoreria({ ...datos, fecha }, ref.id, usuario);
 
   // Un cobro que no se pudo ubicar queda en Deudores por Ventas (sigue siendo un crédito a resolver)
   // en vez de fingir que entró a Caja.
@@ -141,4 +148,10 @@ export async function listarCobrosPorCliente(clienteId) {
 export async function listarCobrosPorVenta(ventaId) {
   const snap = await getDocs(query(collection(db, "cobros"), where("ventaId", "==", ventaId)));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// Cobros manuales que Tesorería no pudo ubicar — misma idea que listarVentasConPagoSinUbicar.
+export async function listarCobrosConPagoSinUbicar() {
+  const snap = await getDocs(query(collection(db, "cobros"), where("tieneSinUbicar", "==", true)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.creadoEn?.seconds || 0) - (a.creadoEn?.seconds || 0));
 }

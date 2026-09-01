@@ -161,6 +161,16 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Deja constancia de que un pago que Tesorería no pudo ubicar solo (venta/cobro con
+    // tieneSinUbicar) ya se resolvió a mano — la venta/cobro en sí no se toca (ver
+    // js/resoluciones-pago-sin-ubicar.js). "Resolver de nuevo" simplemente pisa el doc, por eso
+    // update también queda habilitado.
+    match /resolucionesPagoSinUbicar/{id} {
+      allow read: if estaLogueado();
+      allow create, update: if puedeVender();
+      allow delete: if false;
+    }
+
     // Correlativo interno del número de venta y de comprobante (contadores/ventas,
     // contadores/comprobantes: { ultimo }).
     match /contadores/{id} {
