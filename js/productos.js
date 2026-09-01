@@ -211,6 +211,15 @@ export async function buscarProductos(texto, maxResultados = 20) {
   return resultados.slice(0, maxResultados);
 }
 
+// Para que el buscador de Nueva Venta no arranque vacío — ultimaVentaEn lo pisa crearVenta (ver
+// js/ventas.js) cada vez que se vende ese producto, así que esto siempre refleja lo que de verdad
+// se está vendiendo, no una lista fija a mano. Los productos que nunca se vendieron no tienen ese
+// campo y quedan afuera solos (orderBy los excluye), no hace falta filtrarlos aparte.
+export async function listarProductosVendidosRecientemente(maxResultados = 8) {
+  const snap = await getDocs(query(collection(db, "productos"), orderBy("ultimaVentaEn", "desc"), limit(maxResultados)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 export async function listarProductos(maxResultados = 50) {
   const snap = await getDocs(query(collection(db, "productos"), orderBy("descripcion"), limit(maxResultados)));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));

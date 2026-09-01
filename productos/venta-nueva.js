@@ -1,6 +1,6 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { buscarProductos } from "/js/productos.js";
+import { buscarProductos, listarProductosVendidosRecientemente } from "/js/productos.js";
 import { crearVenta, TIPOS_ENTREGA } from "/js/ventas.js";
 import { actualizarCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
@@ -247,18 +247,25 @@ function agregarAlCarrito(producto) {
     });
   }
   searchInput.value = "";
-  resultadosEl.innerHTML = "";
+  mostrarRecientes();
   searchInput.focus();
   pintarCarrito();
 }
 
 let resultadosActuales = [];
-function pintarResultados(productos) {
+function pintarResultados(productos, titulo) {
   resultadosActuales = productos;
   resultadosEl.innerHTML = "";
   if (productos.length === 0) {
-    resultadosEl.innerHTML = '<div class="hint" style="padding:12px 8px">Sin resultados.</div>';
+    resultadosEl.innerHTML = titulo ? "" : '<div class="hint" style="padding:12px 8px">Sin resultados.</div>';
     return;
+  }
+  if (titulo) {
+    const tituloEl = document.createElement("div");
+    tituloEl.className = "hint";
+    tituloEl.style.cssText = "padding:8px 8px 4px; text-transform:uppercase; letter-spacing:0.03em; font-size:11px";
+    tituloEl.textContent = titulo;
+    resultadosEl.appendChild(tituloEl);
   }
   productos.forEach((p) => {
     const sinStock = (p.stockTotal ?? 0) <= 0;
@@ -286,13 +293,29 @@ function pintarResultados(productos) {
   });
 }
 
+// Igual que "Vendidos recientemente" en La Pyme: con el buscador vacío no queda en blanco, muestra
+// lo último que se vendió — así el vendedor puede arrancar tocando la lista en vez de tener que
+// tipear siempre, para lo que se repite seguido (mismos 2-3 productos la mayoría de las ventas).
+let productosRecientes = [];
+function mostrarRecientes() {
+  if (productosRecientes.length === 0) {
+    resultadosActuales = [];
+    resultadosEl.innerHTML = "";
+    return;
+  }
+  pintarResultados(productosRecientes, "Vendidos recientemente");
+}
+listarProductosVendidosRecientemente().then((productos) => {
+  productosRecientes = productos;
+  if (!searchInput.value.trim()) mostrarRecientes();
+});
+
 let debounceTimer = null;
 searchInput.addEventListener("input", () => {
   clearTimeout(debounceTimer);
   const texto = searchInput.value.trim();
   if (!texto) {
-    resultadosActuales = [];
-    resultadosEl.innerHTML = "";
+    mostrarRecientes();
     return;
   }
   debounceTimer = setTimeout(async () => {

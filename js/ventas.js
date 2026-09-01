@@ -141,11 +141,13 @@ export async function crearVenta(datos, usuario) {
         );
       }
       // ultimoPrecioVenta queda en el producto para que Nueva Venta pueda mostrar "última venta: $X"
-      // como referencia al buscarlo, sin tener que salir a consultar ventas viejas en cada tipeo
-      // (ver pintarResultados en productos/venta-nueva.js).
+      // como referencia al buscarlo, y ultimaVentaEn es lo que ordena "vendidos recientemente" (la
+      // lista con la que arranca el buscador, antes de tipear nada) — sin tener que salir a
+      // consultar ventas viejas en cada tipeo (ver productos/venta-nueva.js).
       tx.update(productoRef, {
         stockTotal: stockNuevo,
         ultimoPrecioVenta: item.precioUnitario,
+        ultimaVentaEn: ahora,
         modificadoPor: usuario.uid,
         modificadoEn: ahora,
       });
