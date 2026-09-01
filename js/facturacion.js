@@ -278,6 +278,13 @@ export async function listarComprobantesPorVenta(ventaId) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// Para la cuenta corriente del cliente: TODOS sus comprobantes, incluidas las notas de crédito
+// (que no tienen ventaId propio — se relacionan por comprobanteRelacionadoId, no por venta).
+export async function listarComprobantesPorCliente(clienteId) {
+  const snap = await getDocs(query(collection(db, "comprobantes"), where("clienteId", "==", clienteId)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 export async function listarComprobantes({ desde, hasta, maxResultados = 200 } = {}) {
   let clausulas = [orderBy("fechaEmision", "desc"), limit(maxResultados)];
   if (desde) clausulas.unshift(where("fechaEmision", ">=", desde));

@@ -6,6 +6,9 @@ import { consultarPadronArca } from "/js/arca.js";
 import { mostrarCentralDeudores } from "/js/bcra-modal.js";
 import { urlMapa } from "/js/motor-mapas.js";
 import { pedirNormalizacionDireccion } from "/js/normalizar-direccion-modal.js";
+import { listarVentasPorCliente } from "/js/ventas.js";
+import { listarCobrosPorCliente } from "/js/cobros.js";
+import { listarComprobantesPorCliente } from "/js/facturacion.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -64,9 +67,29 @@ content.innerHTML = `
     </div>
   </div>
 
-  <div class="card" style="padding:20px">
-    <div class="section-title" style="border:none; margin:0; padding:0">Cuenta corriente</div>
-    <div class="hint" style="margin-top:8px">Todavía no hay ventas registradas a este cliente — esto se completa cuando exista el módulo de Ventas.</div>
+  <div class="card" id="cuenta-corriente" style="padding:20px; margin-bottom:16px">
+    <div class="section-title">Cuenta corriente</div>
+    <div class="dashboard-grid" id="cc-stats" style="margin-top:4px"></div>
+  </div>
+
+  <div class="card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Tipo</th>
+            <th>Comprobante</th>
+            <th>Concepto</th>
+            <th style="text-align:right">Débito</th>
+            <th style="text-align:right">Crédito</th>
+            <th style="text-align:right">Saldo</th>
+          </tr>
+        </thead>
+        <tbody id="cc-tabla-body"></tbody>
+      </table>
+    </div>
+    <div id="cc-empty-state" class="empty-state" style="display:none">Este cliente todavía no tiene ventas ni cobros registrados.</div>
   </div>
 `;
 
@@ -106,12 +129,113 @@ function pintarCliente(c) {
   }
 }
 
+function formatMonto(v) {
+  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
+}
+
+// Movimientos de la cuenta corriente: ventas (Débito) + cobros (Crédito) + notas de crédito
+// (Crédito, no van atadas a una venta — se relacionan por comprobanteRelacionadoId). El comprobante
+// de cada venta sale de un solo listado por cliente (listarComprobantesPorCliente), no se pide venta
+// por venta — y ahí mismo vienen las notas de crédito, que no tienen ventaId propio.
+async function cargarCuentaCorriente() {
+  const [ventas, cobros, comprobantes] = await Promise.all([
+    listarVentasPorCliente(clienteId),
+    listarCobrosPorCliente(clienteId),
+    listarComprobantesPorCliente(clienteId),
+  ]);
+
+  const comprobantePorVenta = new Map(comprobantes.filter((c) => c.ventaId).map((c) => [c.ventaId, c]));
+  const notasCredito = comprobantes.filter((c) => c.tipoComprobanteCodigo?.startsWith("NOTA_CREDITO") && c.estado === "EMITIDA");
+
+  const movimientos = [
+    ...ventas.map((v) => {
+      const comp = comprobantePorVenta.get(v.id);
+      return {
+        fecha: v.fecha,
+        tipo: "Factura",
+        comprobanteId: comp?.id || null,
+        comprobanteNumero: comp?.numeroCompleto || null,
+        concepto: "Venta",
+        debe: v.total || 0,
+        haber: 0,
+        ventaId: v.id,
+      };
+    }),
+    ...cobros.map((c) => ({
+      fecha: c.fecha,
+      tipo: "Pago",
+      comprobanteId: null,
+      comprobanteNumero: null,
+      concepto: `Pago (${c.medioPago || "-"}) — venta #${c.numeroVenta ?? ""}`,
+      debe: 0,
+      haber: c.monto || 0,
+      ventaId: c.ventaId,
+    })),
+    ...notasCredito.map((nc) => ({
+      fecha: nc.fechaEmision,
+      tipo: "Nota de crédito",
+      comprobanteId: nc.id,
+      comprobanteNumero: nc.numeroCompleto,
+      concepto: nc.observaciones || "Nota de crédito",
+      debe: 0,
+      haber: nc.total || 0,
+      ventaId: null,
+    })),
+  ];
+
+  function fechaOrden(fecha) {
+    if (!fecha) return 0;
+    return fecha?.toDate ? fecha.toDate().getTime() : new Date(fecha).getTime();
+  }
+  movimientos.sort((a, b) => fechaOrden(a.fecha) - fechaOrden(b.fecha));
+
+  const totalFacturado = ventas.reduce((acc, v) => acc + (v.total || 0), 0);
+  const totalPagado = cobros.reduce((acc, c) => acc + (c.monto || 0), 0);
+  const totalNC = notasCredito.reduce((acc, nc) => acc + (nc.total || 0), 0);
+  const saldoPendiente = Math.round((totalFacturado - totalNC - totalPagado) * 100) / 100;
+
+  document.getElementById("cc-stats").innerHTML = `
+    <div><div class="hint" style="margin:0">Saldo anterior</div><div style="font-weight:600">${formatMonto(0)}</div></div>
+    <div><div class="hint" style="margin:0">Total facturado</div><div style="font-weight:600">${formatMonto(totalFacturado)}</div></div>
+    <div><div class="hint" style="margin:0">Total pagado</div><div style="font-weight:600">${formatMonto(totalPagado)}</div></div>
+    <div><div class="hint" style="margin:0">Notas de crédito</div><div style="font-weight:600">${formatMonto(totalNC)}</div></div>
+    <div><div class="hint" style="margin:0">Saldo pendiente</div><div style="font-weight:700; color:${saldoPendiente > 0.01 ? "var(--danger)" : "var(--success)"}">${formatMonto(saldoPendiente)}</div></div>
+  `;
+
+  const tbody = document.getElementById("cc-tabla-body");
+  const emptyState = document.getElementById("cc-empty-state");
+  emptyState.style.display = movimientos.length === 0 ? "block" : "none";
+
+  let saldo = 0;
+  tbody.innerHTML = "";
+  movimientos.forEach((m) => {
+    saldo += m.debe - m.haber;
+    const tr = document.createElement("tr");
+    const destino = m.comprobanteId ? `/facturacion/ficha.html?id=${m.comprobanteId}` : m.ventaId ? `/productos/venta-ficha.html?id=${m.ventaId}` : null;
+    if (destino) {
+      tr.style.cursor = "pointer";
+      tr.addEventListener("click", () => (location.href = destino));
+    }
+    tr.innerHTML = `
+      <td>${formatFecha(m.fecha)}</td>
+      <td>${m.tipo}</td>
+      <td>${m.comprobanteNumero || (m.tipo === "Factura" ? '<span class="hint">Sin emitir</span>' : "-")}</td>
+      <td>${m.concepto}</td>
+      <td style="text-align:right">${m.debe ? formatMonto(m.debe) : ""}</td>
+      <td style="text-align:right">${m.haber ? formatMonto(m.haber) : ""}</td>
+      <td style="text-align:right">${formatMonto(saldo)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 let cliente = await obtenerCliente(clienteId);
 if (!cliente) {
   content.innerHTML = `<div class="card empty-state">No se encontró el cliente.</div>`;
   throw new Error("cliente no encontrado");
 }
 pintarCliente(cliente);
+cargarCuentaCorriente();
 
 document.getElementById("btn-editar").addEventListener("click", async () => {
   const datos = await pedirClienteModal(null, cliente);

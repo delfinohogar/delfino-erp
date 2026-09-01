@@ -217,3 +217,10 @@ export function descargarPdfComprobante(comprobante, configEmpresa) {
   const doc = generarPdfComprobante(comprobante, configEmpresa);
   doc.save(nombreArchivoComprobante(comprobante));
 }
+
+// "Ver PDF" — abre el mismo PDF en una pestaña nueva en vez de descargarlo, para previsualizar antes
+// de mandarlo. Mismo generador que descargarPdfComprobante, solo cambia el output().
+export function verPdfComprobante(comprobante, configEmpresa) {
+  const doc = generarPdfComprobante(comprobante, configEmpresa);
+  window.open(doc.output("bloburl"), "_blank");
+}

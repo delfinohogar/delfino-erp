@@ -46,6 +46,11 @@ async function cargar() {
   tablaBody.innerHTML = "";
   cobros.forEach((c) => {
     const tr = document.createElement("tr");
+    if (c.ventaId) {
+      tr.style.cursor = "pointer";
+      tr.title = "Ver comprobante / venta asociada";
+      tr.addEventListener("click", () => (location.href = `/productos/venta-ficha.html?id=${c.ventaId}`));
+    }
     tr.innerHTML = `
       <td>${formatFecha(c.fecha)}</td>
       <td>${c.clienteNombre || ""}</td>
