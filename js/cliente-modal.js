@@ -48,7 +48,7 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
           <div class="field-row">
             <div class="field">
               <label for="cm-whatsapp">WhatsApp</label>
-              <input type="text" id="cm-whatsapp" value="${clienteExistente?.whatsapp || ""}" placeholder="+54 9 11 XXXX-XXXX" />
+              <input type="text" id="cm-whatsapp" value="${clienteExistente?.whatsapp || ""}" placeholder="11 XXXX-XXXX" />
             </div>
             <div class="field">
               <label for="cm-email">Email</label>

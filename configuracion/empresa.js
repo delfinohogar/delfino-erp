@@ -41,13 +41,13 @@ content.innerHTML = `
           </div>
           <div class="field">
             <label for="telefono">Teléfono</label>
-            <input type="text" id="telefono" placeholder="+54 9 11 XXXX-XXXX" />
+            <input type="text" id="telefono" placeholder="11 XXXX-XXXX" />
           </div>
         </div>
         <div class="field-row">
           <div class="field">
             <label for="whatsapp">WhatsApp</label>
-            <input type="text" id="whatsapp" placeholder="+54 9 11 XXXX-XXXX" />
+            <input type="text" id="whatsapp" placeholder="11 XXXX-XXXX" />
           </div>
           <div class="field">
             <label for="sitioWeb">Sitio web</label>
