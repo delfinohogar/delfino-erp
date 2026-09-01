@@ -525,7 +525,12 @@ exports.chatConsulta = onCall({ region: "southamerica-east1", secrets: [anthropi
   for (let vuelta = 0; vuelta < 6; vuelta++) {
     const respuesta = await anthropic.messages.create({
       model: "claude-sonnet-5",
-      max_tokens: 1024,
+      // claude-sonnet-5 piensa antes de responder (bloques "thinking"), y ese razonamiento también
+      // consume max_tokens. Con 1024 y una pregunta que exige sumar muchas filas (ej. "cuánto suma
+      // vender todo el stock de aires"), el modelo se quedaba sin presupuesto pensando y cortaba
+      // antes de escribir la respuesta — volvía contenido vacío ("No obtuve respuesta.") sin ningún
+      // error. Con más margen entra el pensamiento largo y la respuesta final.
+      max_tokens: 4096,
       system:
         "Sos el asistente de datos del ERP de Delfino Hogar (retail de electrodomésticos). Respondé en español " +
         "rioplatense, corto y concreto, basándote solo en los datos que te devuelven las herramientas — nunca " +
@@ -540,7 +545,11 @@ exports.chatConsulta = onCall({ region: "southamerica-east1", secrets: [anthropi
     });
 
     if (respuesta.stop_reason !== "tool_use") {
-      const texto = respuesta.content.find((b) => b.type === "text")?.text || "";
+      // Si no hay bloque de texto (ej. se cortó pensando y no llegó a escribir la respuesta), avisar
+      // en vez de devolver vacío — así queda claro que fue un corte, no "la IA no tiene nada para decir".
+      const texto =
+        respuesta.content.find((b) => b.type === "text")?.text ||
+        "Se me cortó la respuesta antes de terminar (motivo: " + respuesta.stop_reason + "). Probá de nuevo o con una pregunta más acotada.";
       return { respuesta: texto, historial: [...mensajes, { role: "assistant", content: respuesta.content }] };
     }
 
