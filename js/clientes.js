@@ -103,3 +103,12 @@ export async function obtenerCliente(id) {
   const snap = await getDoc(doc(db, "clientes", id));
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
+
+// Para evitar altas duplicadas: crearCliente no valida nada solo, así que quien da de alta un
+// cliente (ej. "+ Agregar cliente" en Nueva Venta) tiene que chequear esto antes de llamarla.
+export async function buscarClientePorCuit(cuit) {
+  const limpio = (cuit || "").trim();
+  if (!limpio) return null;
+  const snap = await getDocs(query(collection(db, "clientes"), where("cuit", "==", limpio), limit(1)));
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+}

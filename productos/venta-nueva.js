@@ -2,7 +2,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarProductosActivos, filtrarProductosLocal, listarProductosVendidosRecientemente } from "/js/productos.js";
 import { crearVenta, TIPOS_ENTREGA } from "/js/ventas.js";
-import { actualizarCliente } from "/js/clientes.js";
+import { actualizarCliente, crearCliente, buscarClientePorCuit } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { initClientePicker } from "/js/cliente-picker.js";
 import { pedirMedioPagoVenta } from "/js/venta-pago-modal.js";
@@ -147,7 +147,28 @@ const clientePicker = initClientePicker(document.getElementById("cliente-picker"
 });
 
 btnVerCliente.addEventListener("click", () => mostrarDetalleCliente(clienteSeleccionado));
-document.getElementById("btn-agregar-cliente").addEventListener("click", () => clientePicker.abrirPanel());
+
+// Va directo a la pantalla de alta (no al buscador) — el nombre del botón es "Agregar", no "Elegir".
+// Antes de crear, chequea por CUIT/DNI: si ya existe, ofrece usar ese cliente en vez de duplicarlo
+// (crearCliente no valida nada por sí sola).
+document.getElementById("btn-agregar-cliente").addEventListener("click", async () => {
+  const datos = await pedirClienteModal("");
+  if (!datos) return;
+
+  const existente = await buscarClientePorCuit(datos.cuit);
+  if (existente) {
+    const usarExistente = confirm(
+      `Ya hay un cliente con ese CUIT/DNI: "${existente.razonSocial}".\n\n¿Usar ese cliente en vez de crear uno nuevo?`
+    );
+    if (usarExistente) {
+      clientePicker.seleccionarDirecto(existente);
+      return;
+    }
+  }
+
+  const nuevo = await crearCliente(datos.razonSocial, datos.cuit, datos.datosArca, datos.datosContacto);
+  clientePicker.seleccionarDirecto(nuevo);
+});
 
 function actualizarCamposEntrega() {
   const tipo = tipoEntregaSelect.value;

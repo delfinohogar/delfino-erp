@@ -2,7 +2,7 @@
 // el elegido y, al abrirse, un panel con buscador (por nombre o CUIT/DNI), "+ Crear nuevo cliente"
 // fijo arriba, y la lista. A diferencia del de proveedor, el cliente es opcional (ventas sin cliente
 // son "Consumidor final") — por eso suma limpiarSeleccion().
-import { listarClientesTodos, crearCliente } from "./clientes.js";
+import { listarClientesTodos, crearCliente, buscarClientePorCuit } from "./clientes.js";
 import { pedirClienteModal } from "./cliente-modal.js";
 
 export function initClientePicker(container, { onSelect, seleccionActual = null, placeholder = "Elegir cliente…" } = {}) {
@@ -90,7 +90,21 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
     cerrar();
     const datos = await pedirClienteModal(searchInput.value.trim());
     if (!datos) return;
-    const nuevo = await crearCliente(datos.razonSocial, datos.cuit, datos.datosArca);
+
+    // crearCliente no valida nada por sí sola — antes de duplicar, se chequea si ese CUIT/DNI
+    // ya está cargado y se ofrece usar ese cliente en vez de crear uno nuevo.
+    const existente = await buscarClientePorCuit(datos.cuit);
+    if (existente) {
+      const usarExistente = confirm(
+        `Ya hay un cliente con ese CUIT/DNI: "${existente.razonSocial}".\n\n¿Usar ese cliente en vez de crear uno nuevo?`
+      );
+      if (usarExistente) {
+        elegir(existente);
+        return;
+      }
+    }
+
+    const nuevo = await crearCliente(datos.razonSocial, datos.cuit, datos.datosArca, datos.datosContacto);
     cargados = false;
     elegir(nuevo);
   });
