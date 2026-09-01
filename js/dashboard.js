@@ -11,18 +11,33 @@ import {
   CATEGORIAS_REPORTES,
   reporteResumenVentas,
   reporteVentasPorDia,
+  reporteVentasDetalle,
   reporteProductosMasVendidos,
   reporteMejoresClientes,
   reporteValorizacionStock,
   reporteStockCritico,
   reporteFacturasPorVencer,
   reportePosicionIva,
+  reporteFormasDePago,
+  reporteVentasPorCategoria,
+  reporteRentabilidadPorProducto,
+  reporteClientesDetalle,
 } from "./reportes.js";
 
 export { CATEGORIAS_REPORTES };
 
-const PERIODOS = ["Hoy", "Esta semana", "Este mes"];
+const PERIODOS = ["Hoy", "Ayer", "Esta semana", "Este mes", "Mes anterior", "Personalizado"];
 export { PERIODOS };
+
+function primerDiaDelMes(fechaStr) {
+  return fechaStr.slice(0, 8) + "01";
+}
+
+function mesAnterior(fechaStr) {
+  const d = new Date(fechaStr + "T00:00:00Z");
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return fechaISO(d);
+}
 
 function fechaISO(date) {
   return date.toISOString().slice(0, 10);
@@ -36,11 +51,21 @@ function sumarDias(fechaStr, dias) {
 
 // Rango del período elegido y el rango equivalente inmediatamente anterior, para poder comparar
 // ("esta semana" vs "la semana pasada", etc.) — todo en fechas YYYY-MM-DD, mismo formato que fecha
-// en ventas/compras.
-export function rangoPeriodo(periodo) {
+// en ventas/compras. "Personalizado" ignora los presets y usa el {desde,hasta} que se le pase.
+export function rangoPeriodo(periodo, personalizado) {
   const hoy = fechaISO(new Date());
+
+  if (periodo === "Personalizado" && personalizado?.desde && personalizado?.hasta) {
+    const { desde, hasta } = personalizado;
+    const dias = Math.round((new Date(hasta + "T00:00:00Z") - new Date(desde + "T00:00:00Z")) / 86400000) + 1;
+    return { desde, hasta, desdeAnterior: sumarDias(desde, -dias), hastaAnterior: sumarDias(desde, -1) };
+  }
   if (periodo === "Hoy") {
     return { desde: hoy, hasta: hoy, desdeAnterior: sumarDias(hoy, -1), hastaAnterior: sumarDias(hoy, -1) };
+  }
+  if (periodo === "Ayer") {
+    const ayer = sumarDias(hoy, -1);
+    return { desde: ayer, hasta: ayer, desdeAnterior: sumarDias(ayer, -1), hastaAnterior: sumarDias(ayer, -1) };
   }
   if (periodo === "Esta semana") {
     const d = new Date(hoy + "T00:00:00Z");
@@ -48,11 +73,17 @@ export function rangoPeriodo(periodo) {
     const desde = sumarDias(hoy, -diaSemana);
     return { desde, hasta: hoy, desdeAnterior: sumarDias(desde, -7), hastaAnterior: sumarDias(hoy, -7) };
   }
+  if (periodo === "Mes anterior") {
+    const primerDiaEsteMes = primerDiaDelMes(hoy);
+    const ultimoDiaMesAnterior = sumarDias(primerDiaEsteMes, -1);
+    const primerDiaMesAnterior = primerDiaDelMes(ultimoDiaMesAnterior);
+    const finDosMesesAtras = sumarDias(primerDiaMesAnterior, -1);
+    const inicioDosMesesAtras = primerDiaDelMes(finDosMesesAtras);
+    return { desde: primerDiaMesAnterior, hasta: ultimoDiaMesAnterior, desdeAnterior: inicioDosMesesAtras, hastaAnterior: finDosMesesAtras };
+  }
   // "Este mes"
-  const desde = hoy.slice(0, 8) + "01";
-  const mesAnteriorDate = new Date(desde + "T00:00:00Z");
-  mesAnteriorDate.setUTCMonth(mesAnteriorDate.getUTCMonth() - 1);
-  const desdeAnterior = fechaISO(mesAnteriorDate);
+  const desde = primerDiaDelMes(hoy);
+  const desdeAnterior = mesAnterior(desde);
   const diasTranscurridos = (new Date(hoy + "T00:00:00Z") - new Date(desde + "T00:00:00Z")) / 86400000;
   const hastaAnterior = sumarDias(desdeAnterior, diasTranscurridos);
   return { desde, hasta: hoy, desdeAnterior, hastaAnterior };
@@ -134,5 +165,29 @@ export const RESUMENES_DASHBOARD = {
   "posicion-iva": async ({ desde, hasta }) => {
     const pos = await reportePosicionIva(desde, hasta);
     return { valor: formatMonto(pos.saldoAFavorEstimado) };
+  },
+  "ventas-detalle": async ({ desde, hasta }) => {
+    const lista = await reporteVentasDetalle(desde, hasta);
+    return { valor: String(lista.length), sub: "operaciones en el período" };
+  },
+  "formas-pago": async ({ desde, hasta }) => {
+    const lista = await reporteFormasDePago(desde, hasta);
+    return lista.length ? { valor: lista[0].medio, sub: `${lista[0].porcentaje}% de las ventas` } : { valor: "Sin ventas" };
+  },
+  "ventas-por-categoria": async ({ desde, hasta }) => {
+    const lista = await reporteVentasPorCategoria(desde, hasta);
+    return lista.length ? { valor: lista[0].categoriaNombre, sub: formatMonto(lista[0].ventas) } : { valor: "Sin ventas" };
+  },
+  "rentabilidad-productos": async ({ desde, hasta }) => {
+    const lista = await reporteRentabilidadPorProducto(desde, hasta, 1);
+    return lista.length ? { valor: lista[0].productoDescripcion, sub: `${formatMonto(lista[0].ganancia)} de ganancia` } : { valor: "Sin ventas" };
+  },
+  "rentabilidad-categorias": async ({ desde, hasta }) => {
+    const lista = await reporteVentasPorCategoria(desde, hasta);
+    return lista.length ? { valor: lista[0].categoriaNombre, sub: `${formatMonto(lista[0].ganancia)} de ganancia` } : { valor: "Sin ventas" };
+  },
+  "clientes-detalle": async ({ desde, hasta }) => {
+    const lista = await reporteClientesDetalle(desde, hasta);
+    return { valor: String(lista.length), sub: "clientes con compras en el período" };
   },
 };

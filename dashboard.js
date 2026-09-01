@@ -12,7 +12,9 @@ const content = renderShell({ active: "dashboard", titulo: "Dashboard", usuario 
 content.innerHTML = `
   <div class="toolbar">
     <select id="periodo-select">
-      ${PERIODOS.map((p) => `<option ${p === "Este mes" ? "selected" : ""}>${p}</option>`).join("")}
+      ${PERIODOS.filter((p) => p !== "Personalizado")
+        .map((p) => `<option ${p === "Este mes" ? "selected" : ""}>${p}</option>`)
+        .join("")}
     </select>
     <button type="button" id="btn-personalizar">Personalizar</button>
     <a href="/reportes.html"><button type="button">Ver reportes</button></a>

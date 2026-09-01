@@ -495,6 +495,7 @@ input[type="text"],
 input[type="number"],
 input[type="email"],
 input[type="password"],
+input[type="date"],
 select,
 textarea {
   font-family: inherit;
@@ -1149,5 +1150,70 @@ tbody tr {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Motor de reportes: barra de exportar, buscador de tabla y sección de comparación. */
+.reporte-exportar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.reporte-exportar button {
+  font-size: 13px;
+}
+
+.reporte-buscar {
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 12px;
+}
+
+details.card summary {
+  list-style: none;
+}
+
+details.card summary::-webkit-details-marker {
+  display: none;
+}
+
+details.card summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+details.card[open] summary::before {
+  content: "▾ ";
+}
+
+/* Impresión: solo el contenido del reporte, sin sidebar/topbar/controles. */
+@media print {
+  .sidebar,
+  .sidebar-backdrop,
+  .sidebar-toggle,
+  .topbar-search,
+  .topbar-right,
+  .toolbar,
+  .no-imprimir,
+  #chat-ia-fab,
+  .chat-ia-panel {
+    display: none !important;
+  }
+
+  .main {
+    margin-left: 0 !important;
+    padding: 0 !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .card {
+    border: 1px solid #ccc !important;
+    break-inside: avoid;
   }
 }

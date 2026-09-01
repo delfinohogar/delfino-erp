@@ -10,9 +10,9 @@ export const CATEGORIAS_REPORTES = [
     categoria: "Ventas",
     reportes: [
       { id: "resumen-ventas", titulo: "Resumen de ventas", descripcion: "Total, cantidad y evolución diaria del período." },
+      { id: "ventas-detalle", titulo: "Detalle de ventas", descripcion: "Listado completo de ventas del período, con margen y forma de pago." },
       { id: "productos-mas-vendidos", titulo: "Productos más vendidos", descripcion: "Ranking por unidades vendidas." },
       { id: "mejores-clientes", titulo: "Mejores clientes", descripcion: "Clientes con mayor facturación del período." },
-      { id: "rentabilidad", titulo: "Rentabilidad bruta", descripcion: "Margen real: precio de venta menos costo al momento de vender." },
     ],
   },
   {
@@ -23,11 +23,43 @@ export const CATEGORIAS_REPORTES = [
     ],
   },
   {
+    categoria: "Clientes",
+    reportes: [
+      { id: "clientes-detalle", titulo: "Clientes", descripcion: "Cantidad de compras, total comprado, ticket promedio y última compra." },
+    ],
+  },
+  {
     categoria: "Financieros",
     reportes: [
       { id: "cuenta-corriente-clientes", titulo: "Cuenta corriente de clientes", descripcion: "Saldo a cobrar por cliente.", href: "/productos/cuenta-corriente-clientes.html" },
       { id: "cuenta-corriente-proveedores", titulo: "Cuenta corriente de proveedores", descripcion: "Saldo adeudado por proveedor.", href: "/productos/cuenta-corriente.html" },
       { id: "facturas-vencer", titulo: "Facturas por vencer", descripcion: "Facturas de compra con saldo pendiente, ordenadas por vencimiento." },
+    ],
+  },
+  {
+    categoria: "Rentabilidad",
+    reportes: [
+      { id: "rentabilidad", titulo: "Rentabilidad bruta", descripcion: "Margen real: precio de venta menos costo al momento de vender." },
+      { id: "rentabilidad-productos", titulo: "Rentabilidad por producto", descripcion: "Ventas, costo, ganancia y margen de cada producto vendido." },
+      { id: "rentabilidad-categorias", titulo: "Rentabilidad por categoría", descripcion: "Ventas, costo, ganancia y margen agrupados por categoría." },
+    ],
+  },
+  {
+    categoria: "Categorías",
+    reportes: [
+      { id: "ventas-por-categoria", titulo: "Ventas por categoría", descripcion: "Unidades y facturación de cada categoría en el período." },
+    ],
+  },
+  {
+    categoria: "Formas de pago",
+    reportes: [
+      { id: "formas-pago", titulo: "Formas de pago", descripcion: "Cantidad de operaciones e importe cobrado por cada medio de pago." },
+    ],
+  },
+  {
+    categoria: "Logística",
+    reportes: [
+      { id: "fletes", titulo: "Fletes / entregas", descripcion: "Recorridos, costos y flete cobrado — requiere el módulo de Reparto." },
     ],
   },
   {
@@ -235,4 +267,150 @@ export async function reporteProductosMasVendidos(desde, hasta, top = 8) {
   return Object.values(porProducto)
     .sort((a, b) => b.cantidad - a.cantidad)
     .slice(0, top);
+}
+
+// Un producto vendido puede haber sido dado de baja o cambiado de categoría después — se trae el
+// catálogo completo una sola vez (mismo criterio que reporteValorizacionStock/reporteStockCritico)
+// para no hacer un pedido por cada ítem vendido.
+async function mapaProductos() {
+  const snap = await getDocs(collection(db, "productos"));
+  const mapa = new Map();
+  snap.docs.forEach((d) => mapa.set(d.id, d.data()));
+  return mapa;
+}
+
+async function mapaCategorias() {
+  const snap = await getDocs(collection(db, "categorias"));
+  const mapa = new Map();
+  snap.docs.forEach((d) => mapa.set(d.id, d.data().nombre));
+  return mapa;
+}
+
+// Listado completo de ventas del período, una fila por venta, con costo/margen/forma de pago —
+// la tabla de detalle que pide el reporte de ventas (no solo los totales de reporteResumenVentas).
+export async function reporteVentasDetalle(desde, hasta) {
+  const ventas = await ventasEnRango(desde, hasta);
+  return ventas
+    .map((v) => {
+      const costo = (v.items || []).reduce((acc, it) => acc + (it.costoUnitario || 0) * (it.cantidad || 0), 0);
+      const productos = (v.items || []).map((it) => `${it.cantidad}x ${it.productoDescripcion}`).join(", ");
+      const formaPago = (v.pagos || []).map((p) => p.medio).join(", ") || "-";
+      return {
+        fecha: v.fecha,
+        numeroVenta: v.numeroVenta,
+        clienteNombre: v.clienteNombre || "Consumidor final",
+        productos,
+        total: v.total || 0,
+        costo: Math.round(costo * 100) / 100,
+        margen: Math.round(((v.total || 0) - costo) * 100) / 100,
+        formaPago,
+      };
+    })
+    .sort((a, b) => (a.fecha || "").localeCompare(b.fecha || ""));
+}
+
+// Cantidad de operaciones, importe y % sobre el total vendido, por cada medio de pago usado
+// (incluye "Pendiente de pago" como un medio más — es lo que efectivamente se registró al vender).
+export async function reporteFormasDePago(desde, hasta) {
+  const ventas = await ventasEnRango(desde, hasta);
+  const totalVentas = ventas.reduce((acc, v) => acc + (v.total || 0), 0);
+  const porMedio = {};
+  ventas.forEach((v) => {
+    (v.pagos || []).forEach((p) => {
+      if (!porMedio[p.medio]) porMedio[p.medio] = { medio: p.medio, cantidad: 0, importe: 0 };
+      porMedio[p.medio].cantidad += 1;
+      porMedio[p.medio].importe += p.monto || 0;
+    });
+  });
+  return Object.values(porMedio)
+    .map((m) => ({
+      ...m,
+      importe: Math.round(m.importe * 100) / 100,
+      porcentaje: totalVentas > 0 ? Math.round((m.importe / totalVentas) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.importe - a.importe);
+}
+
+// Unidades, facturación, costo, ganancia y margen agrupados por categoría de producto (la categoría
+// ACTUAL del producto, no la que tenía al momento de venderse — mismo criterio que valorización de
+// stock, que también usa el estado actual del catálogo).
+export async function reporteVentasPorCategoria(desde, hasta) {
+  const [ventas, productos, categorias] = await Promise.all([ventasEnRango(desde, hasta), mapaProductos(), mapaCategorias()]);
+  const porCategoria = {};
+  ventas.forEach((v) => {
+    (v.items || []).forEach((it) => {
+      const producto = productos.get(it.productoId);
+      const categoriaNombre = producto?.categoriaId ? categorias.get(producto.categoriaId) || "Sin categoría" : "Sin categoría";
+      if (!porCategoria[categoriaNombre]) porCategoria[categoriaNombre] = { categoriaNombre, unidades: 0, ventas: 0, costo: 0 };
+      porCategoria[categoriaNombre].unidades += it.cantidad || 0;
+      porCategoria[categoriaNombre].ventas += it.subtotal || 0;
+      porCategoria[categoriaNombre].costo += (it.costoUnitario || 0) * (it.cantidad || 0);
+    });
+  });
+  return Object.values(porCategoria)
+    .map((c) => ({
+      categoriaNombre: c.categoriaNombre,
+      unidades: c.unidades,
+      ventas: Math.round(c.ventas * 100) / 100,
+      costo: Math.round(c.costo * 100) / 100,
+      ganancia: Math.round((c.ventas - c.costo) * 100) / 100,
+      margenPct: c.ventas > 0 ? Math.round(((c.ventas - c.costo) / c.ventas) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.ventas - a.ventas);
+}
+
+export async function reporteRentabilidadPorProducto(desde, hasta, top = 30) {
+  const ventas = await ventasEnRango(desde, hasta);
+  const porProducto = {};
+  ventas.forEach((v) => {
+    (v.items || []).forEach((it) => {
+      if (!porProducto[it.productoId]) porProducto[it.productoId] = { productoDescripcion: it.productoDescripcion, ventas: 0, costo: 0 };
+      porProducto[it.productoId].ventas += it.subtotal || 0;
+      porProducto[it.productoId].costo += (it.costoUnitario || 0) * (it.cantidad || 0);
+    });
+  });
+  return Object.values(porProducto)
+    .map((p) => ({
+      productoDescripcion: p.productoDescripcion,
+      ventas: Math.round(p.ventas * 100) / 100,
+      costo: Math.round(p.costo * 100) / 100,
+      ganancia: Math.round((p.ventas - p.costo) * 100) / 100,
+      margenPct: p.ventas > 0 ? Math.round(((p.ventas - p.costo) / p.ventas) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.ganancia - a.ganancia)
+    .slice(0, top);
+}
+
+// Cantidad de compras, total comprado, ticket promedio y fecha de la última compra, por cliente —
+// "Consumidor final" queda agrupado en una sola fila, igual que en reporteMejoresClientes.
+export async function reporteClientesDetalle(desde, hasta) {
+  const ventas = await ventasEnRango(desde, hasta);
+  const porCliente = {};
+  ventas.forEach((v) => {
+    const key = v.clienteId || "consumidor-final";
+    if (!porCliente[key]) porCliente[key] = { clienteNombre: v.clienteNombre || "Consumidor final", cantidadCompras: 0, totalComprado: 0, ultimaCompra: null };
+    porCliente[key].cantidadCompras += 1;
+    porCliente[key].totalComprado += v.total || 0;
+    if (!porCliente[key].ultimaCompra || v.fecha > porCliente[key].ultimaCompra) porCliente[key].ultimaCompra = v.fecha;
+  });
+  return Object.values(porCliente)
+    .map((c) => ({
+      ...c,
+      totalComprado: Math.round(c.totalComprado * 100) / 100,
+      ticketPromedio: c.cantidadCompras > 0 ? Math.round((c.totalComprado / c.cantidadCompras) * 100) / 100 : 0,
+    }))
+    .sort((a, b) => b.totalComprado - a.totalComprado);
+}
+
+// Fletes/entregas: el ERP todavía no tiene ningún módulo de Reparto que registre recorridos, km,
+// horas, boletas o flete cobrado — no hay de dónde sacar estos números sin inventarlos. Se deja el
+// reporte enganchado al catálogo (aparece en Reportes/Dashboard) pero devuelve explícitamente que
+// faltan los datos, para cuando ese módulo exista.
+export async function reporteFletes() {
+  return {
+    disponible: false,
+    motivo:
+      "Todavía no existe un módulo de Reparto/Logística que registre recorridos, kilómetros, horas, " +
+      "boletas o flete cobrado. Este reporte se completa solo cuando esos datos se empiecen a cargar.",
+  };
 }
