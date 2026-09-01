@@ -69,6 +69,7 @@ export const ICONOS_NAV = {
   "tesoreria-transferencias": "intercambio",
   "tesoreria-movimientos": "lista",
   "tesoreria-conciliacion": "portapapeles",
+  configuracion: "edificio",
 };
 
 export function icono(nombre) {

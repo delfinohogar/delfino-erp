@@ -17,7 +17,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "config-empresa", titulo: "Empresa", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Empresa", usuario });
 
 content.innerHTML = `
   <div class="tabs">

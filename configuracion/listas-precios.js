@@ -5,7 +5,7 @@ import { listarListasPrecios, crearListaPrecio, actualizarListaPrecio } from "/j
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "config-precios", titulo: "Listas de Precios", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Listas de Precios", usuario });
 
 content.innerHTML = `
   <div class="toolbar">

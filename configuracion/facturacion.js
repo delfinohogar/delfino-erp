@@ -19,7 +19,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "config-facturacion", titulo: "Facturación", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Facturación", usuario });
 
 const [configEmpresa, configFacturacion, sucursales] = await Promise.all([
   obtenerConfigEmpresa(),

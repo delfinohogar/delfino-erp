@@ -11,7 +11,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("solo administrador");
 }
 
-const content = renderShell({ active: "config-usuarios", titulo: "Usuarios", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Usuarios", usuario });
 
 const ROL_LABEL = {
   administrador: "Administrador",

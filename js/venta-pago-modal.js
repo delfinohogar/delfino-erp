@@ -2,11 +2,18 @@
 // (mismo concepto que "Dividir entre varios medios" de La Pyme). "Pendiente de pago" (a cuenta
 // corriente) solo aparece si hay un cliente elegido — no tiene sentido dejarle una deuda a
 // "Consumidor final". Devuelve el array de pagos, o null si se cancela.
-import { MEDIOS_PAGO_VENTA } from "./ventas.js";
+// Los medios disponibles salen de Configuración → Tesorería → Medios de pago — activar/desactivar
+// uno ahí cambia lo que ve el vendedor acá, sin tocar código (ver js/medios-pago.js).
+import { listarMediosPagoActivos, MEDIOS_DE_SISTEMA } from "./medios-pago.js";
 
-export function pedirMedioPagoVenta(total, clienteSeleccionado) {
+export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
+  const mediosActivos = await listarMediosPagoActivos();
+  // Antes de que un administrador entre a Configuración → Medios de pago por primera vez (lo que
+  // siembra la colección real), un vendedor tiene que poder vender igual — cae a la misma lista de
+  // siempre en memoria, sin escribir nada (sembrar la colección es admin-only, ver firestore.rules).
+  const nombres = mediosActivos.length > 0 ? mediosActivos.map((m) => m.nombre) : MEDIOS_DE_SISTEMA.map((m) => m.nombre);
   return new Promise((resolve) => {
-    const medios = MEDIOS_PAGO_VENTA.filter((m) => m !== "Pendiente de pago" || clienteSeleccionado);
+    const medios = [...nombres, ...(clienteSeleccionado ? ["Pendiente de pago"] : [])];
 
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";

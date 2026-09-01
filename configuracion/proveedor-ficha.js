@@ -11,7 +11,7 @@ const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const proveedorId = new URLSearchParams(location.search).get("id");
-const content = renderShell({ active: "config-proveedores", titulo: "Ficha de proveedor", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Ficha de proveedor", usuario });
 
 if (!proveedorId) {
   content.innerHTML = `<div class="card empty-state">Falta el proveedor.</div>`;

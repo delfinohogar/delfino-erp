@@ -6,7 +6,7 @@ import { listarMarcas, crearMarca, renombrarMarca } from "/js/catalogo.js";
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "config-marcas", titulo: "Marcas", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Marcas", usuario });
 
 content.innerHTML = `
   <div class="toolbar">

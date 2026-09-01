@@ -28,7 +28,12 @@ import { crearCuentaPorCobrar } from "./cuentas-por-cobrar.js";
 // Débito y Transferencia van a Banco (acreditación same-day, se tratan como disponible ya). Crédito,
 // Mercado Pago, GoCuotas y Boston Cred generan una Cuenta por Cobrar — el dinero no está disponible
 // todavía, solo prometido (ver js/cuentas-por-cobrar.js). Efectivo va a la Caja de la sucursal.
-export const MEDIOS_PAGO_VENTA = ["Efectivo", "Débito", "Transferencia", "Crédito", "Mercado Pago", "GoCuotas", "Boston Cred", "Otro", "Pendiente de pago"];
+// La lista de medios que ve el vendedor al cobrar ya no vive acá — es Configuración → Tesorería →
+// Medios de pago (ver js/medios-pago.js), para poder activar/desactivar sin tocar código. Este switch
+// de a dónde va cada uno sigue fijo acá: es el que de verdad mueve la plata, y generalizarlo para que
+// lo maneje cada medio configurado es un cambio de arquitectura aparte, todavía no hecho (ver nota en
+// js/medios-pago.js) — un medio nuevo que se cree ahí queda activo para cobrar pero sin ruteo real
+// hasta que se sume acá explícitamente.
 const MEDIOS_A_CUENTA_POR_COBRAR = { "Crédito": "Tarjeta de crédito", "Mercado Pago": "Mercado Pago", GoCuotas: "GoCuotas", "Boston Cred": "Boston Cred" };
 
 // Dónde termina la plata de un pago de venta, según el medio — el corazón de la integración con

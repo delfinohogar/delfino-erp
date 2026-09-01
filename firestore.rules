@@ -235,6 +235,13 @@ service cloud.firestore {
     // caso de movimientos bancarios, marcar como conciliados. El saldo de cada caja/cuenta se calcula
     // siempre a partir de estos movimientos (ver js/cajas.js, js/bancos.js) — nunca se guarda un saldo.
 
+    // Catálogo de medios de pago (Efectivo, Mercado Pago...) — separado de las cuentas de Tesorería.
+    // Lectura abierta porque el selector de pago de Nueva Venta lo necesita para cualquiera que venda.
+    match /mediosPago/{id} {
+      allow read: if estaLogueado();
+      allow write: if esAdministrador();
+    }
+
     match /cajas/{id} {
       allow read: if estaLogueado();
       allow write: if esAdministrador();

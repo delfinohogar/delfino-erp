@@ -42,6 +42,7 @@ export function renderShell({ active, titulo, usuario }) {
             nav("cuenta-corriente-clientes", "/productos/cuenta-corriente-clientes.html", "Cuenta corriente") +
             nav("cobros", "/productos/cobros.html", "Cobros")
         )}
+        ${nav("config-clientes", "/configuracion/clientes.html", "Clientes")}
         ${grupo(
           "productos",
           "Productos",
@@ -91,27 +92,7 @@ export function renderShell({ active, titulo, usuario }) {
             nav("tesoreria-movimientos", "/tesoreria/movimientos.html", "Movimientos") +
             nav("tesoreria-conciliacion", "/tesoreria/conciliacion.html", "Conciliación")
         )}
-        ${grupo(
-          "mercado-pago",
-          "Mercado Pago",
-          "billetera",
-          nav("mp-centro-pruebas", "/mercado-pago/centro-pruebas.html", "Centro de pruebas") +
-            (usuario?.rol === "administrador" ? nav("config-mercado-pago", "/configuracion/mercado-pago.html", "Configuración") : "")
-        )}
-        ${grupo(
-          "configuracion",
-          "Configuración",
-          "edificio",
-          (usuario?.rol === "administrador" ? nav("config-empresa", "/configuracion/empresa.html", "Empresa") : "") +
-            (usuario?.rol === "administrador" ? nav("config-sucursales", "/configuracion/sucursales.html", "Sucursales") : "") +
-            (usuario?.rol === "administrador" ? nav("config-facturacion", "/configuracion/facturacion.html", "Facturación") : "") +
-            nav("config-categorias", "/configuracion/categorias.html", "Categorías") +
-            nav("config-marcas", "/configuracion/marcas.html", "Marcas") +
-            nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores") +
-            nav("config-clientes", "/configuracion/clientes.html", "Clientes") +
-            nav("config-precios", "/configuracion/listas-precios.html", "Listas de Precios") +
-            (usuario?.rol === "administrador" ? nav("config-usuarios", "/configuracion/usuarios.html", "Usuarios") : "")
-        )}
+        ${nav("configuracion", "/configuracion/index.html", "Configuración")}
       </aside>
       <div class="sidebar-backdrop"></div>
       <div class="main">

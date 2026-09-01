@@ -6,7 +6,7 @@ import { listarCategoriasPorNivel } from "/js/catalogo.js";
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "config-categorias", titulo: "Categorías", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Categorías", usuario });
 
 content.innerHTML = `
   <div class="card" style="padding:20px">

@@ -6,7 +6,7 @@ import { listarProveedoresTodos, crearProveedor } from "/js/catalogo.js";
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "config-proveedores", titulo: "Proveedores", usuario });
+const content = renderShell({ active: "configuracion", titulo: "Proveedores", usuario });
 
 content.innerHTML = `
   <div class="toolbar">
