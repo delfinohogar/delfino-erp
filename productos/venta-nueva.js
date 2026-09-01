@@ -1,6 +1,6 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { buscarProductos, listarProductosVendidosRecientemente } from "/js/productos.js";
+import { listarProductosActivos, filtrarProductosLocal, listarProductosVendidosRecientemente } from "/js/productos.js";
 import { crearVenta, TIPOS_ENTREGA } from "/js/ventas.js";
 import { actualizarCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
@@ -30,6 +30,10 @@ const TIPOS_COMPROBANTE_UI = tiposComprobanteDisponibles();
 // backend; esto es nada más para que el cajero no se entere recién después de vender.
 const { sucursal: sucursalVenta, asumida: sucursalSinAsignar } = await resolverSucursalUsuario(usuario);
 const cajasAbiertas = sucursalVenta ? await listarCajasAbiertasPorSucursal(sucursalVenta.id) : [];
+
+// Todo el catálogo activo se trae una sola vez al entrar a la pantalla — el buscador de acá abajo
+// filtra esta lista en memoria (igual que La Pyme), no dispara una consulta a Firestore por letra.
+const catalogoVenta = await listarProductosActivos();
 
 const content = renderShell({ active: "venta-nueva", titulo: "Nueva venta", usuario });
 
@@ -310,18 +314,13 @@ listarProductosVendidosRecientemente().then((productos) => {
   if (!searchInput.value.trim()) mostrarRecientes();
 });
 
-let debounceTimer = null;
 searchInput.addEventListener("input", () => {
-  clearTimeout(debounceTimer);
   const texto = searchInput.value.trim();
   if (!texto) {
     mostrarRecientes();
     return;
   }
-  debounceTimer = setTimeout(async () => {
-    const productos = await buscarProductos(texto, 15);
-    pintarResultados(productos);
-  }, 200);
+  pintarResultados(filtrarProductosLocal(catalogoVenta, texto, 15));
 });
 
 // Enter agrega el primer resultado sin soltar el teclado — mismo espíritu que el escaneo de
