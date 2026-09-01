@@ -254,6 +254,11 @@ export async function confirmarImportacion(productos, usuario, onProgreso = () =
         costoOriginal: p.costoOriginal,
         costoTipoCambio: p.costoTipoCambio,
         costoReferencia: p.costoReferencia,
+        costoModo: "ultimo",
+        // Manual, no "por margen": el precio ya viene fijo de Lista Contado — si quedara en "margen",
+        // productos/productos-form.js lo recalcula (y pisa) apenas se abre la ficha para editar otra
+        // cosa (ver recalcularPrecio ahí), perdiendo el precio real importado.
+        modoPrecio: "manual",
         precioVenta: p.precioVenta,
         stockTotal: p.stockTotal,
         stockReservado: 0,
