@@ -14,12 +14,28 @@ const admin = require("firebase-admin");
 const { consultarPersonaA13, consultarPersonaA5 } = require("./arcaWsaa");
 
 admin.initializeApp();
+// Evita que un campo "undefined" (en vez de null) tumbe un write entero — mejor que falte el campo
+// a que se caiga toda la operación por un detalle de serialización.
+admin.firestore().settings({ ignoreUndefinedProperties: true });
 
 // Botón de chat con la IA (consultas de solo-lectura sobre los datos del ERP).
 exports.chatConsulta = require("./chatIa").chatConsulta;
 
 // Lee un PDF/foto de factura de compra y devuelve los campos para precargar "Nueva compra".
 exports.extraerFactura = require("./extraerFactura").extraerFactura;
+
+// Cargar credenciales (secrets) desde una pantalla del ERP en vez de la terminal.
+exports.guardarSecretoAdmin = require("./secretosAdmin").guardarSecretoAdmin;
+
+// Integración de Mercado Pago Point (entorno de pruebas) — ver mercadoPago.js para el detalle.
+const mercadoPago = require("./mercadoPago");
+exports.mpProbarConexion = mercadoPago.mpProbarConexion;
+exports.mpListarTerminales = mercadoPago.mpListarTerminales;
+exports.mpCrearOrdenPrueba = mercadoPago.mpCrearOrdenPrueba;
+exports.mpSimularEventoOrden = mercadoPago.mpSimularEventoOrden;
+exports.mpConsultarPago = mercadoPago.mpConsultarPago;
+exports.mpCrearDevolucion = mercadoPago.mpCrearDevolucion;
+exports.mpWebhook = mercadoPago.mpWebhook;
 
 const afipCert = defineSecret("AFIP_CERT");
 const afipKey = defineSecret("AFIP_KEY");

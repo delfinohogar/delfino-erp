@@ -72,6 +72,13 @@ export function renderShell({ active, titulo, usuario }) {
             nav("contabilidad-plan-cuentas", "/contabilidad/plan-cuentas.html", "Plan de Cuentas")
         )}
         ${grupo(
+          "mercado-pago",
+          "Mercado Pago",
+          "billetera",
+          nav("mp-centro-pruebas", "/mercado-pago/centro-pruebas.html", "Centro de pruebas") +
+            (usuario?.rol === "administrador" ? nav("config-mercado-pago", "/configuracion/mercado-pago.html", "Configuración") : "")
+        )}
+        ${grupo(
           "configuracion",
           "Configuración",
           "edificio",

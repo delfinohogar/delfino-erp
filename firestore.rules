@@ -187,5 +187,28 @@ service cloud.firestore {
       allow create: if puedeVender();
       allow update, delete: if false;
     }
+
+    // Mercado Pago (entorno de pruebas): todo lo escribe el backend (Cloud Functions, con el Admin
+    // SDK, que no pasa por estas reglas) — desde el cliente solo se puede leer, nunca escribir
+    // directamente. Así el navegador no puede fabricar un "pago aprobado" ni tocar el log.
+    match /pagosMercadoPago/{id} {
+      allow read: if estaLogueado();
+      allow write: if false;
+    }
+
+    match /devolucionesMercadoPago/{id} {
+      allow read: if estaLogueado();
+      allow write: if false;
+    }
+
+    match /logIntegracionMercadoPago/{id} {
+      allow read: if estaLogueado();
+      allow write: if false;
+    }
+
+    match /webhooksMercadoPagoProcesados/{id} {
+      allow read: if false;
+      allow write: if false;
+    }
   }
 }

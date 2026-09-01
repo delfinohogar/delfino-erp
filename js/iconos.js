@@ -54,6 +54,8 @@ export const ICONOS_NAV = {
   "contabilidad-libro-mayor": "libro",
   "contabilidad-sumas-saldos": "balanza",
   "contabilidad-estado-resultados": "grafico",
+  "config-mercado-pago": "tarjeta",
+  "mp-centro-pruebas": "billetera",
 };
 
 export function icono(nombre) {
