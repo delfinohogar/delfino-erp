@@ -72,8 +72,8 @@ content.innerHTML = `
     <div class="pos-carrito card">
       ${cajaSelectHtml}
       <div class="pos-cliente-row">
-        <span class="hint mt-0">Cliente</span>
-        <div id="cliente-picker" style="flex:1; max-width:280px"></div>
+        <button type="button" id="btn-agregar-cliente" class="link-btn">+ Agregar cliente</button>
+        <div id="cliente-picker" style="flex:1; max-width:280px; margin-left:auto"></div>
         <button type="button" id="btn-ver-cliente" class="link-btn" style="display:none">Ver</button>
         <button type="button" id="btn-editar-cliente" class="link-btn" style="display:none">Editar</button>
         <button type="button" id="btn-quitar-cliente" class="link-btn" style="display:none">Quitar</button>
@@ -147,6 +147,7 @@ const clientePicker = initClientePicker(document.getElementById("cliente-picker"
 });
 
 btnVerCliente.addEventListener("click", () => mostrarDetalleCliente(clienteSeleccionado));
+document.getElementById("btn-agregar-cliente").addEventListener("click", () => clientePicker.abrirPanel());
 
 function actualizarCamposEntrega() {
   const tipo = tipoEntregaSelect.value;

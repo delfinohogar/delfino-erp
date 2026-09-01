@@ -109,5 +109,8 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
       label.textContent = placeholder;
       onSelect(null);
     },
+    abrirPanel() {
+      if (!abierto) abrir();
+    },
   };
 }
