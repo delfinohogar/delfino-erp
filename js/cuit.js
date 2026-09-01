@@ -35,9 +35,11 @@ export function validarCuit(valor) {
   return dv !== null && dv === Number(digitos[10]);
 }
 
+// Hasta 8 dígitos podría terminar siendo un DNI (7-8 dígitos, sin guion en Argentina) — recién se le
+// pone el primer guion pasado ese largo, cuando ya solo puede tratarse de un CUIT en camino a 11.
 export function formatearCuit(valor) {
   const d = soloDigitos(valor).slice(0, 11);
-  if (d.length <= 2) return d;
+  if (d.length <= 8) return d;
   if (d.length <= 10) return `${d.slice(0, 2)}-${d.slice(2)}`;
   return `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}`;
 }
