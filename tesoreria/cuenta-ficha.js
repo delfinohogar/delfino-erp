@@ -37,7 +37,7 @@ async function pintar() {
       <button type="button" id="btn-movimiento">+ Registrar movimiento</button>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div style="font-size:20px; font-weight:700">${cuenta.bancoNombre} — ${cuenta.nombre}</div>
       <div class="hint">${cuenta.alias || ""} ${cuenta.cbu ? `· CBU ${cuenta.cbu}` : ""} ${cuenta.sucursalNombre ? `· ${cuenta.sucursalNombre}` : ""}</div>
       <div style="font-size:26px; font-weight:700; margin-top:12px">${formatMonto(saldo)}</div>
@@ -47,7 +47,7 @@ async function pintar() {
     <div class="card">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Fecha</th><th>Concepto</th><th>Referencia</th><th style="text-align:right">Importe</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Concepto</th><th>Referencia</th><th class="num">Importe</th><th>Estado</th><th></th></tr></thead>
           <tbody id="tabla-body"></tbody>
         </table>
       </div>
@@ -66,7 +66,7 @@ async function pintar() {
       <td>${formatFecha(m.fecha)}</td>
       <td>${m.tipo === "ingreso" ? "🟢" : "🔴"} ${m.concepto}${m.ventaId ? ` · <a href="/productos/venta-ficha.html?id=${m.ventaId}">Ver venta</a>` : ""}</td>
       <td>${m.referencia || "-"}</td>
-      <td style="text-align:right">${m.tipo === "ingreso" ? "" : "-"}${formatMonto(m.importe)}</td>
+      <td class="num">${m.tipo === "ingreso" ? "" : "-"}${formatMonto(m.importe)}</td>
       <td>${m.estado === "conciliado" ? '<span class="badge success">Conciliado</span>' : m.estado === "anulado" ? '<span class="badge danger">Anulado</span>' : '<span class="badge warning">Pendiente</span>'}</td>
       <td>${m.estado === "pendiente" ? `<button type="button" data-conciliar="${m.id}">✅ Conciliar</button>` : ""}</td>
     </tr>

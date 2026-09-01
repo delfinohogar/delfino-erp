@@ -19,7 +19,7 @@ if (!proveedorId) {
 }
 
 content.innerHTML = `
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px">
       <div>
         <div id="f-razonSocial" style="font-size:20px; font-weight:600"></div>
@@ -35,7 +35,7 @@ content.innerHTML = `
     <div class="hint error-text" id="f-error" style="display:none; margin-top:8px"></div>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Datos ARCA</div>
     <div class="field-row">
       <div class="field"><label>Condición IVA</label><div id="d-condicionIva">-</div></div>

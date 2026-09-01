@@ -36,7 +36,7 @@ content.innerHTML = `
   </div>
 
   <div id="tab-tipos" class="tab-panel">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Catálogo de tipos de comprobante</div>
       <div class="hint" style="margin-bottom:12px; max-width:64ch">
         Los internos ya se pueden emitir desde Ventas. Los que requieren ARCA están preparados en la
@@ -62,7 +62,7 @@ content.innerHTML = `
   </div>
 
   <div id="tab-puntos" class="tab-panel" style="display:none">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Puntos de venta</div>
       <div class="hint" style="margin-bottom:12px; max-width:64ch">
         Cada sucursal tiene su propio punto de venta y su propia numeración de comprobantes — nunca
@@ -128,27 +128,27 @@ content.innerHTML = `
       </div>
       <div class="dashboard-grid" style="margin-bottom:16px">
         <div>
-          <div class="hint" style="margin:0">Estado</div>
+          <div class="hint mt-0">Estado</div>
           <div style="font-weight:600">🔴 ARCA desactivado</div>
         </div>
         <div>
-          <div class="hint" style="margin:0">Ambiente</div>
+          <div class="hint mt-0">Ambiente</div>
           <div style="font-weight:600">🧪 Testing (preparado, no conectado)</div>
         </div>
         <div>
-          <div class="hint" style="margin:0">Servicio</div>
+          <div class="hint mt-0">Servicio</div>
           <div style="font-weight:600">WSFEv1 (a confirmar contra doc. oficial)</div>
         </div>
         <div>
-          <div class="hint" style="margin:0">CUIT</div>
+          <div class="hint mt-0">CUIT</div>
           <div style="font-weight:600">${configEmpresa.cuit || "Sin configurar (Configuración → Empresa)"}</div>
         </div>
         <div>
-          <div class="hint" style="margin:0">Certificado TEST</div>
+          <div class="hint mt-0">Certificado TEST</div>
           <div style="font-weight:600">No configurado</div>
         </div>
         <div>
-          <div class="hint" style="margin:0">Certificado producción</div>
+          <div class="hint mt-0">Certificado producción</div>
           <div style="font-weight:600">No configurado</div>
         </div>
       </div>

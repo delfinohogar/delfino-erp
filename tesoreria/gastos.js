@@ -26,7 +26,7 @@ content.innerHTML = `
     <a href="/tesoreria/dashboard.html" class="link-btn">← Tesorería</a>
     <button type="button" id="btn-nuevo" class="primary">+ Registrar gasto</button>
   </div>
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="field-row">
       <div class="field"><label for="f-desde">Desde</label><input type="date" id="f-desde" value="${INICIO_MES}" /></div>
       <div class="field"><label for="f-hasta">Hasta</label><input type="date" id="f-hasta" value="${HOY}" /></div>
@@ -35,7 +35,7 @@ content.innerHTML = `
   <div class="card">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Fecha</th><th>Categoría</th><th>Concepto</th><th>Sucursal</th><th>Destino</th><th style="text-align:right">Importe</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Categoría</th><th>Concepto</th><th>Sucursal</th><th>Destino</th><th class="num">Importe</th><th></th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>
     </div>
@@ -60,7 +60,7 @@ async function cargar() {
       <td>${g.concepto}${g.proveedorNombre ? ` — ${g.proveedorNombre}` : ""}</td>
       <td>${g.sucursalNombre || "-"}</td>
       <td>${g.destinoTipo === "caja" ? "🧾" : "🏦"} ${g.destinoNombre}</td>
-      <td style="text-align:right">${formatMonto(g.importe)}</td>
+      <td class="num">${formatMonto(g.importe)}</td>
       <td>${g.estado !== "anulado" && usuario.rol === "administrador" ? `<button type="button" class="danger" data-anular="${g.id}">Anular</button>` : ""}</td>
     </tr>
   `

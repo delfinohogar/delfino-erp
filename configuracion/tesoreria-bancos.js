@@ -35,7 +35,7 @@ content.innerHTML = `
   <div class="card">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Banco</th><th>Cuenta</th><th>Alias/CBU</th><th>Sucursal</th><th>Estado</th><th style="text-align:right">Saldo</th><th></th></tr></thead>
+        <thead><tr><th>Banco</th><th>Cuenta</th><th>Alias/CBU</th><th>Sucursal</th><th>Estado</th><th class="num">Saldo</th><th></th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>
     </div>
@@ -59,7 +59,7 @@ async function cargar() {
       <td>${cuenta.alias || cuenta.cbu || cuenta.numeroCuenta || "-"}</td>
       <td>${cuenta.sucursalNombre || "-"}</td>
       <td>${cuenta.activa !== false ? '<span class="badge success">Activa</span>' : '<span class="badge muted">Inactiva</span>'}</td>
-      <td style="text-align:right">${formatMonto(saldo)}</td>
+      <td class="num">${formatMonto(saldo)}</td>
       <td><button type="button" data-toggle="${cuenta.id}" data-activa="${cuenta.activa !== false}">${cuenta.activa !== false ? "Desactivar" : "Activar"}</button></td>
     </tr>
   `

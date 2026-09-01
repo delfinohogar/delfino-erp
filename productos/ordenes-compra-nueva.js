@@ -13,7 +13,7 @@ const content = renderShell({ active: "ordenes-compra", titulo: "Nueva orden de 
 
 content.innerHTML = `
   <form id="form-orden">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Datos del pedido</div>
       <div class="field-row">
         <div class="field">
@@ -35,7 +35,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Productos</div>
       <div class="table-scroll">
         <table>

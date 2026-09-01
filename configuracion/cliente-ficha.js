@@ -22,7 +22,7 @@ if (!clienteId) {
 }
 
 content.innerHTML = `
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px">
       <div>
         <div id="f-razonSocial" style="font-size:20px; font-weight:600"></div>
@@ -38,7 +38,7 @@ content.innerHTML = `
     <div class="hint error-text" id="f-error" style="display:none; margin-top:8px"></div>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Datos ARCA</div>
     <div class="field-row">
       <div class="field"><label>Condición IVA</label><div id="d-condicionIva">-</div></div>
@@ -51,7 +51,7 @@ content.innerHTML = `
     <div class="hint" id="d-fecha"></div>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Contacto</div>
     <div class="field-row">
       <div class="field"><label>WhatsApp</label><div id="d-whatsapp">-</div></div>
@@ -67,7 +67,7 @@ content.innerHTML = `
     </div>
   </div>
 
-  <div class="card" id="cuenta-corriente" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16" id="cuenta-corriente">
     <div class="section-title">Cuenta corriente</div>
     <div class="dashboard-grid" id="cc-stats" style="margin-top:4px"></div>
   </div>
@@ -81,9 +81,9 @@ content.innerHTML = `
             <th>Tipo</th>
             <th>Comprobante</th>
             <th>Concepto</th>
-            <th style="text-align:right">Débito</th>
-            <th style="text-align:right">Crédito</th>
-            <th style="text-align:right">Saldo</th>
+            <th class="num">Débito</th>
+            <th class="num">Crédito</th>
+            <th class="num">Saldo</th>
           </tr>
         </thead>
         <tbody id="cc-tabla-body"></tbody>
@@ -195,11 +195,11 @@ async function cargarCuentaCorriente() {
   const saldoPendiente = Math.round((totalFacturado - totalNC - totalPagado) * 100) / 100;
 
   document.getElementById("cc-stats").innerHTML = `
-    <div><div class="hint" style="margin:0">Saldo anterior</div><div style="font-weight:600">${formatMonto(0)}</div></div>
-    <div><div class="hint" style="margin:0">Total facturado</div><div style="font-weight:600">${formatMonto(totalFacturado)}</div></div>
-    <div><div class="hint" style="margin:0">Total pagado</div><div style="font-weight:600">${formatMonto(totalPagado)}</div></div>
-    <div><div class="hint" style="margin:0">Notas de crédito</div><div style="font-weight:600">${formatMonto(totalNC)}</div></div>
-    <div><div class="hint" style="margin:0">Saldo pendiente</div><div style="font-weight:700; color:${saldoPendiente > 0.01 ? "var(--danger)" : "var(--success)"}">${formatMonto(saldoPendiente)}</div></div>
+    <div><div class="hint mt-0">Saldo anterior</div><div style="font-weight:600">${formatMonto(0)}</div></div>
+    <div><div class="hint mt-0">Total facturado</div><div style="font-weight:600">${formatMonto(totalFacturado)}</div></div>
+    <div><div class="hint mt-0">Total pagado</div><div style="font-weight:600">${formatMonto(totalPagado)}</div></div>
+    <div><div class="hint mt-0">Notas de crédito</div><div style="font-weight:600">${formatMonto(totalNC)}</div></div>
+    <div><div class="hint mt-0">Saldo pendiente</div><div style="font-weight:700; color:${saldoPendiente > 0.01 ? "var(--danger)" : "var(--success)"}">${formatMonto(saldoPendiente)}</div></div>
   `;
 
   const tbody = document.getElementById("cc-tabla-body");
@@ -220,9 +220,9 @@ async function cargarCuentaCorriente() {
       <td>${m.tipo}</td>
       <td>${m.comprobanteNumero || (m.tipo === "Factura" ? '<span class="hint">Sin emitir</span>' : "-")}</td>
       <td>${m.concepto}</td>
-      <td style="text-align:right">${m.debe ? formatMonto(m.debe) : ""}</td>
-      <td style="text-align:right">${m.haber ? formatMonto(m.haber) : ""}</td>
-      <td style="text-align:right">${formatMonto(saldo)}</td>
+      <td class="num">${m.debe ? formatMonto(m.debe) : ""}</td>
+      <td class="num">${m.haber ? formatMonto(m.haber) : ""}</td>
+      <td class="num">${formatMonto(saldo)}</td>
     `;
     tbody.appendChild(tr);
   });

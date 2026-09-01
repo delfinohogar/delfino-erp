@@ -77,7 +77,7 @@ export function renderizarComprobanteHtml(comprobante, configEmpresaYFacturacion
       <div class="table-scroll">
         <table class="comprobante-tabla">
           <thead>
-            <tr><th>Código</th><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio unitario</th><th style="text-align:right">Desc.</th><th style="text-align:right">Subtotal</th></tr>
+            <tr><th>Código</th><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio unitario</th><th class="num">Desc.</th><th class="num">Subtotal</th></tr>
           </thead>
           <tbody>
             ${comprobante.items
@@ -86,10 +86,10 @@ export function renderizarComprobanteHtml(comprobante, configEmpresaYFacturacion
               <tr>
                 <td>${it.productoSku || "-"}</td>
                 <td>${it.productoDescripcion}</td>
-                <td style="text-align:right">${it.cantidad}</td>
-                <td style="text-align:right">${formatMonto(it.precioUnitario)}</td>
-                <td style="text-align:right">${it.descuentoPct ? it.descuentoPct + "%" : "-"}</td>
-                <td style="text-align:right">${formatMonto(it.subtotal)}</td>
+                <td class="num">${it.cantidad}</td>
+                <td class="num">${formatMonto(it.precioUnitario)}</td>
+                <td class="num">${it.descuentoPct ? it.descuentoPct + "%" : "-"}</td>
+                <td class="num">${formatMonto(it.subtotal)}</td>
               </tr>
             `
               )

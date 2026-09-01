@@ -29,51 +29,51 @@ const totalPendientesAccion =
 content.innerHTML = `
   <div class="dashboard-grid" style="margin-bottom:16px">
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">💰 Disponible</div>
+      <div class="hint mt-0">💰 Disponible</div>
       <div class="dashboard-card-valor">${formatMonto(posicion.disponible.total)}</div>
       <div class="hint">Caja ${formatMonto(posicion.disponible.efectivo)} · Bancos ${formatMonto(posicion.disponible.bancos)}</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">🟡 Por acreditar</div>
+      <div class="hint mt-0">🟡 Por acreditar</div>
       <div class="dashboard-card-valor">${formatMonto(posicion.porAcreditar.total)}</div>
       <div class="hint">MP ${formatMonto(posicion.porAcreditar.mercadoPago)} · Tarjetas ${formatMonto(posicion.porAcreditar.tarjetas)} · GoCuotas ${formatMonto(posicion.porAcreditar.gocuotas)} · Boston ${formatMonto(posicion.porAcreditar.bostonCred)}</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">💸 Gastos del mes</div>
+      <div class="hint mt-0">💸 Gastos del mes</div>
       <div class="dashboard-card-valor">${formatMonto(posicion.gastosDelMes)}</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">⚖️ Diferencias de caja (mes)</div>
+      <div class="hint mt-0">⚖️ Diferencias de caja (mes)</div>
       <div class="dashboard-card-valor" style="color:${posicion.diferenciasCaja > 0 ? "var(--warning)" : "inherit"}">${formatMonto(posicion.diferenciasCaja)}</div>
       <div class="hint">${posicion.diferenciasCajaCantidad} cierre(s) con diferencia</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">🏦 Movimientos sin conciliar</div>
+      <div class="hint mt-0">🏦 Movimientos sin conciliar</div>
       <div class="dashboard-card-valor">${posicion.movimientosPendientesConciliar}</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">📈 Posición proyectada</div>
+      <div class="hint mt-0">📈 Posición proyectada</div>
       <div class="dashboard-card-valor" style="color:${posicion.posicionProyectada >= 0 ? "var(--success)" : "var(--danger)"}">${formatMonto(posicion.posicionProyectada)}</div>
       <div class="hint">Disponible + por acreditar − comprometido con proveedores (${formatMonto(posicion.egresosComprometidos)})</div>
     </div>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Por sucursal</div>
     ${
       porSucursal.length === 0
         ? `<div class="hint">Todavía no hay cajas cargadas — <a href="/tesoreria/cajas.html">crear la primera</a>.</div>`
         : `<div class="table-scroll"><table>
-        <thead><tr><th>Sucursal</th><th style="text-align:right">Caja</th><th style="text-align:right">Bancos</th><th style="text-align:right">Por acreditar</th></tr></thead>
+        <thead><tr><th>Sucursal</th><th class="num">Caja</th><th class="num">Bancos</th><th class="num">Por acreditar</th></tr></thead>
         <tbody>
           ${porSucursal
             .map(
               (s) => `
             <tr>
               <td>${s.sucursalNombre || "Sin sucursal"}</td>
-              <td style="text-align:right">${formatMonto(s.disponible.efectivo)}</td>
-              <td style="text-align:right">${formatMonto(s.disponible.bancos)}</td>
-              <td style="text-align:right">${formatMonto(s.porAcreditar.total)}</td>
+              <td class="num">${formatMonto(s.disponible.efectivo)}</td>
+              <td class="num">${formatMonto(s.disponible.bancos)}</td>
+              <td class="num">${formatMonto(s.porAcreditar.total)}</td>
             </tr>
           `
             )
@@ -83,7 +83,7 @@ content.innerHTML = `
     }
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">⚠️ Pendientes de Tesorería ${totalPendientesAccion > 0 ? `<span class="badge warning">${totalPendientesAccion}</span>` : ""}</div>
     ${
       totalPendientesAccion === 0 && pendientes.cuentasPorCobrarProximasAVencer.length === 0

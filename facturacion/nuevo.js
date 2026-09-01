@@ -56,7 +56,7 @@ function renderizarFormulario() {
       </div>
       <div class="pos-carrito card">
         <div class="pos-cliente-row">
-          <span class="hint" style="margin:0">Cliente</span>
+          <span class="hint mt-0">Cliente</span>
           <div id="cliente-picker" style="flex:1; max-width:280px"></div>
         </div>
         <div class="field" style="margin-bottom:14px">

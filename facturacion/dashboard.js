@@ -16,19 +16,19 @@ const INICIO_MES = HOY.slice(0, 8) + "01";
 content.innerHTML = `
   <div class="dashboard-grid" style="margin-bottom:16px">
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Comprobantes este mes</div>
+      <div class="hint mt-0">Comprobantes este mes</div>
       <div class="dashboard-card-valor" id="kpi-cantidad-mes">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Comprobantes hoy</div>
+      <div class="hint mt-0">Comprobantes hoy</div>
       <div class="dashboard-card-valor" id="kpi-cantidad-hoy">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Facturado hoy</div>
+      <div class="hint mt-0">Facturado hoy</div>
       <div class="dashboard-card-valor" id="kpi-total-hoy">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Facturado este mes</div>
+      <div class="hint mt-0">Facturado este mes</div>
       <div class="dashboard-card-valor" id="kpi-total-mes">—</div>
     </div>
   </div>
@@ -37,7 +37,7 @@ content.innerHTML = `
     <a href="/facturacion/nuevo.html"><button type="button" class="primary">+ Nuevo comprobante</button></a>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Filtros</div>
     <div class="field-row">
       <div class="field">
@@ -89,7 +89,7 @@ content.innerHTML = `
             <th>Cliente</th>
             <th>Venta</th>
             <th>Forma de pago</th>
-            <th style="text-align:right">Total</th>
+            <th class="num">Total</th>
             <th>Estado</th>
           </tr>
         </thead>
@@ -148,7 +148,7 @@ function aplicarFiltrosYPintar() {
       <td>${c.clienteNombre || "Consumidor final"}</td>
       <td>${c.ventaId ? '<span class="badge muted">Venta</span>' : "-"}</td>
       <td>${c.formaPago || "-"}</td>
-      <td style="text-align:right">${formatMonto(c.total)}</td>
+      <td class="num">${formatMonto(c.total)}</td>
       <td>${badgeEstado(c.estado)}</td>
     </tr>
   `

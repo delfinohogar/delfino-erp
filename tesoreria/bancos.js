@@ -21,7 +21,7 @@ content.innerHTML = `
   <div class="card">
     <div class="table-scroll">
       <table class="table-clickable">
-        <thead><tr><th>Banco</th><th>Cuenta</th><th>Alias/CBU</th><th>Sucursal</th><th style="text-align:right">Saldo</th><th></th></tr></thead>
+        <thead><tr><th>Banco</th><th>Cuenta</th><th>Alias/CBU</th><th>Sucursal</th><th class="num">Saldo</th><th></th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>
     </div>
@@ -44,7 +44,7 @@ async function cargar() {
       <td>${cuenta.nombre}</td>
       <td>${cuenta.alias || cuenta.cbu || cuenta.numeroCuenta || "-"}</td>
       <td>${cuenta.sucursalNombre || "-"}</td>
-      <td style="text-align:right">${formatMonto(saldo)}</td>
+      <td class="num">${formatMonto(saldo)}</td>
       <td><a href="/tesoreria/cuenta-ficha.html?id=${cuenta.id}"><button type="button">Ver</button></a></td>
     </tr>
   `

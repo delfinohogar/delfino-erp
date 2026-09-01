@@ -38,7 +38,7 @@ content.innerHTML = `
   <div class="card">
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Concepto</th><th style="text-align:right">Importe</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Concepto</th><th class="num">Importe</th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>
     </div>
@@ -60,7 +60,7 @@ async function cargar() {
       <td>${t.origen.tipo === "caja" ? "🧾" : "🏦"} ${t.origen.nombre}</td>
       <td>${t.destino.tipo === "caja" ? "🧾" : "🏦"} ${t.destino.nombre}</td>
       <td>${t.concepto}</td>
-      <td style="text-align:right">${formatMonto(t.importe)}</td>
+      <td class="num">${formatMonto(t.importe)}</td>
     </tr>
   `
     )

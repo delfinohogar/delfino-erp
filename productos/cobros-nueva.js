@@ -18,7 +18,7 @@ content.innerHTML = `
       <div id="cliente-picker"></div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Ventas</div>
       <div id="sin-cliente" class="hint">Elegí un cliente para ver sus ventas.</div>
       <div class="table-scroll">

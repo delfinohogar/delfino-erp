@@ -34,7 +34,7 @@ content.innerHTML = `
     cuentas.length === 0
       ? `<div class="empty-state">Todavía no hay cuentas bancarias cargadas. <a href="/tesoreria/bancos.html">Crear una</a></div>`
       : `
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="field">
         <label for="f-cuenta">Cuenta</label>
         <select id="f-cuenta">${cuentas.map((c) => `<option value="${c.id}">${c.bancoNombre} — ${c.nombre}</option>`).join("")}</select>
@@ -43,7 +43,7 @@ content.innerHTML = `
     <div class="card">
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Fecha</th><th>Concepto</th><th>Referencia</th><th style="text-align:right">Importe</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Concepto</th><th>Referencia</th><th class="num">Importe</th><th>Estado</th><th></th></tr></thead>
           <tbody id="tabla-body"></tbody>
         </table>
       </div>
@@ -70,7 +70,7 @@ async function cargar() {
       <td>${formatFecha(m.fecha)}</td>
       <td>${m.tipo === "ingreso" ? "🟢" : "🔴"} ${m.concepto}</td>
       <td><input type="text" data-ref="${m.id}" placeholder="Ej. N° de operación del banco" style="width:160px" /></td>
-      <td style="text-align:right">${formatMonto(m.importe)}</td>
+      <td class="num">${formatMonto(m.importe)}</td>
       <td>🟡 Pendiente</td>
       <td><button type="button" data-conciliar="${m.id}">🟢 Marcar conciliado</button></td>
     </tr>

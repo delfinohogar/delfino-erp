@@ -32,7 +32,7 @@ const content = renderShell({
 
 content.innerHTML = `
   <form id="form-producto">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Identificación</div>
       <div class="field-row">
         <div class="field">
@@ -68,7 +68,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Proveedor</div>
       <div class="field-row">
         <div class="field autocomplete" id="wrapper-proveedor">
@@ -84,7 +84,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Precio y costo</div>
       <div class="field-row">
         <div class="field">
@@ -158,7 +158,7 @@ content.innerHTML = `
       <div class="hint" style="margin-top:8px">Los precios manuales por lista se editan desde <a href="/productos/precios.html">Productos → Precios</a>.</div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Stock</div>
       <div class="field-row">
         <div class="field">
@@ -181,7 +181,7 @@ content.innerHTML = `
       <div class="hint">El stock no se edita acá: sube con las compras y baja con las ventas (módulos futuros). Solo el mínimo de alerta es editable desde la ficha. Depósito único hoy (Casa Central) — el modelo ya soporta multidepósito a futuro.</div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Comercial</div>
       <div class="field-row">
         <div class="field">
@@ -206,7 +206,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div id="auditoria-section" style="display:none" class="card" style="padding:20px; margin-bottom:16px">
+    <div id="auditoria-section" style="display:none" class="card mb-16">
       <div class="section-title">Auditoría</div>
       <div id="log-auditoria"></div>
     </div>

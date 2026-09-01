@@ -66,7 +66,7 @@ content.innerHTML = `
       <div class="hint" style="margin-bottom:12px">Aparece arriba de todo, junto a la marca del sistema. PNG o JPG.</div>
       <div style="display:flex; align-items:center; gap:16px">
         <div id="logo-preview" style="width:64px; height:64px; border-radius:8px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; background:var(--muted-bg)">
-          <span class="hint" style="margin:0">Sin logo</span>
+          <span class="hint mt-0">Sin logo</span>
         </div>
         <input type="file" id="logo-input" accept="image/png,image/jpeg" />
       </div>
@@ -136,7 +136,7 @@ const logoPreview = document.getElementById("logo-preview");
 function pintarLogo(dataUrl) {
   logoPreview.innerHTML = dataUrl
     ? `<img src="${dataUrl}" alt="Logo" style="width:100%; height:100%; object-fit:contain" />`
-    : `<span class="hint" style="margin:0">Sin logo</span>`;
+    : `<span class="hint mt-0">Sin logo</span>`;
 }
 pintarLogo(config.logoDataUrl);
 

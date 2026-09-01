@@ -26,7 +26,7 @@ content.innerHTML = `
           Confirmando la recepción de una orden de compra — revisá los datos de la factura y los
           productos (ya vinculados) antes de guardar. Esto va a sumar stock y actualizar costos.
         </div>`
-      : `<div class="card" style="padding:20px; margin-bottom:16px">
+      : `<div class="card mb-16">
           <div class="section-title">Cargar factura con IA</div>
           <div class="hint" style="margin-bottom:8px">
             Subí el PDF o la foto de la factura y la IA completa los campos — siempre revisá antes de guardar
@@ -41,7 +41,7 @@ content.innerHTML = `
   }
 
   <form id="form-compra">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Comprobante</div>
       <div class="field-row">
         <div class="field">
@@ -75,7 +75,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Productos</div>
       <div class="table-scroll">
         <table>

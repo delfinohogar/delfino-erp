@@ -91,16 +91,16 @@ function pintar() {
     <div class="card no-imprimir" style="padding:16px 20px; margin-bottom:16px">
       <div class="section-title">🧾 Información del comprobante</div>
       <div class="dashboard-grid">
-        <div><div class="hint" style="margin:0">Tipo</div><div style="font-weight:600">${comprobante.tipoComprobante}</div></div>
-        <div><div class="hint" style="margin:0">Letra</div><div style="font-weight:600">${comprobante.letra || "-"}</div></div>
-        <div><div class="hint" style="margin:0">Punto de venta</div><div style="font-weight:600">${comprobante.puntoVenta || "-"}</div></div>
-        <div><div class="hint" style="margin:0">Número</div><div style="font-weight:600">${comprobante.numeroCompleto || "Sin emitir"}</div></div>
-        <div><div class="hint" style="margin:0">Fecha</div><div style="font-weight:600">${formatFecha(comprobante.fechaEmision)}</div></div>
-        <div><div class="hint" style="margin:0">Estado</div><div style="font-weight:600">${comprobante.estado === "ANULADA" ? "Anulada" : comprobante.estado === "BORRADOR" ? "Borrador" : "Emitida"}</div></div>
-        <div><div class="hint" style="margin:0">Sucursal</div><div style="font-weight:600">${comprobante.sucursalNombre || "-"}</div></div>
-        ${venta ? `<div><div class="hint" style="margin:0">Vendedor</div><div style="font-weight:600">${venta.vendedorNombre || "-"}</div></div>` : ""}
-        ${venta ? `<div><div class="hint" style="margin:0">Venta asociada</div><div style="font-weight:600"><a href="/productos/venta-ficha.html?id=${venta.id}">Venta #${venta.numeroVenta ?? ""}</a></div></div>` : ""}
-        ${comprobante.clienteId ? `<div><div class="hint" style="margin:0">Cliente</div><div style="font-weight:600"><a href="/configuracion/cliente-ficha.html?id=${comprobante.clienteId}#cuenta-corriente">Ver cuenta corriente →</a></div></div>` : ""}
+        <div><div class="hint mt-0">Tipo</div><div style="font-weight:600">${comprobante.tipoComprobante}</div></div>
+        <div><div class="hint mt-0">Letra</div><div style="font-weight:600">${comprobante.letra || "-"}</div></div>
+        <div><div class="hint mt-0">Punto de venta</div><div style="font-weight:600">${comprobante.puntoVenta || "-"}</div></div>
+        <div><div class="hint mt-0">Número</div><div style="font-weight:600">${comprobante.numeroCompleto || "Sin emitir"}</div></div>
+        <div><div class="hint mt-0">Fecha</div><div style="font-weight:600">${formatFecha(comprobante.fechaEmision)}</div></div>
+        <div><div class="hint mt-0">Estado</div><div style="font-weight:600">${comprobante.estado === "ANULADA" ? "Anulada" : comprobante.estado === "BORRADOR" ? "Borrador" : "Emitida"}</div></div>
+        <div><div class="hint mt-0">Sucursal</div><div style="font-weight:600">${comprobante.sucursalNombre || "-"}</div></div>
+        ${venta ? `<div><div class="hint mt-0">Vendedor</div><div style="font-weight:600">${venta.vendedorNombre || "-"}</div></div>` : ""}
+        ${venta ? `<div><div class="hint mt-0">Venta asociada</div><div style="font-weight:600"><a href="/productos/venta-ficha.html?id=${venta.id}">Venta #${venta.numeroVenta ?? ""}</a></div></div>` : ""}
+        ${comprobante.clienteId ? `<div><div class="hint mt-0">Cliente</div><div style="font-weight:600"><a href="/configuracion/cliente-ficha.html?id=${comprobante.clienteId}#cuenta-corriente">Ver cuenta corriente →</a></div></div>` : ""}
       </div>
       ${
         comprobante.cae
@@ -122,7 +122,7 @@ function pintar() {
         <div class="hint" style="margin-bottom:6px">Pagos asociados</div>
         <div class="table-scroll">
           <table>
-            <thead><tr><th>Fecha</th><th>Medio</th><th style="text-align:right">Importe</th><th>Estado</th><th>Referencia</th></tr></thead>
+            <thead><tr><th>Fecha</th><th>Medio</th><th class="num">Importe</th><th>Estado</th><th>Referencia</th></tr></thead>
             <tbody>
               ${pagos
                 .map(
@@ -130,7 +130,7 @@ function pintar() {
                 <tr>
                   <td>${formatFecha(p.fecha)}</td>
                   <td>${p.medio}</td>
-                  <td style="text-align:right">${formatMonto(p.monto)}</td>
+                  <td class="num">${formatMonto(p.monto)}</td>
                   <td><span class="badge success">Confirmado</span></td>
                   <td>${p.referencia}</td>
                 </tr>
@@ -151,16 +151,16 @@ function pintar() {
     <div class="card no-imprimir" style="padding:16px 20px; margin-bottom:16px">
       <div class="section-title">Ficha</div>
       <div class="dashboard-grid">
-        <div><div class="hint" style="margin:0">Generado por</div><div style="font-weight:600">${comprobante.creadoPorNombre || "-"}</div></div>
-        <div><div class="hint" style="margin:0">Fecha de creación</div><div style="font-weight:600">${formatFechaHora(comprobante.creadoEn)}</div></div>
+        <div><div class="hint mt-0">Generado por</div><div style="font-weight:600">${comprobante.creadoPorNombre || "-"}</div></div>
+        <div><div class="hint mt-0">Fecha de creación</div><div style="font-weight:600">${formatFechaHora(comprobante.creadoEn)}</div></div>
         ${
           comprobante.comprobanteRelacionadoId
-            ? `<div><div class="hint" style="margin:0">${comprobante.tipoComprobanteCodigo?.startsWith("NOTA_CREDITO") ? "Nota de crédito de" : "Comprobante relacionado"}</div><div style="font-weight:600"><a href="/facturacion/ficha.html?id=${comprobante.comprobanteRelacionadoId}">Ver</a></div></div>`
+            ? `<div><div class="hint mt-0">${comprobante.tipoComprobanteCodigo?.startsWith("NOTA_CREDITO") ? "Nota de crédito de" : "Comprobante relacionado"}</div><div style="font-weight:600"><a href="/facturacion/ficha.html?id=${comprobante.comprobanteRelacionadoId}">Ver</a></div></div>`
             : ""
         }
         ${
           comprobante.estado === "ANULADA"
-            ? `<div><div class="hint" style="margin:0">Anulado por</div><div style="font-weight:600">${comprobante.anuladoPorNombre || "-"} — ${formatFechaHora(comprobante.fechaAnulacion)}</div></div>`
+            ? `<div><div class="hint mt-0">Anulado por</div><div style="font-weight:600">${comprobante.anuladoPorNombre || "-"} — ${formatFechaHora(comprobante.fechaAnulacion)}</div></div>`
             : ""
         }
       </div>

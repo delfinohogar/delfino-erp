@@ -28,7 +28,7 @@ content.innerHTML = `
     <a href="/tesoreria/dashboard.html" class="link-btn">← Tesorería</a>
   </div>
   <div id="resumen" class="dashboard-grid" style="margin-bottom:16px"></div>
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="field">
       <label for="f-medio">Medio</label>
       <select id="f-medio">
@@ -41,7 +41,7 @@ content.innerHTML = `
     <div class="table-scroll">
       <table>
         <thead>
-          <tr><th>Medio</th><th>Fecha</th><th>Cliente</th><th style="text-align:right">Bruto</th><th style="text-align:right">Comisión</th><th style="text-align:right">Neto</th><th>Prevista</th><th>Estado</th><th></th></tr>
+          <tr><th>Medio</th><th>Fecha</th><th>Cliente</th><th class="num">Bruto</th><th class="num">Comisión</th><th class="num">Neto</th><th>Prevista</th><th>Estado</th><th></th></tr>
         </thead>
         <tbody id="tabla-body"></tbody>
       </table>
@@ -59,7 +59,7 @@ async function pintarResumen() {
   const pendientes = todas.filter((c) => c.estado !== "cobrado");
   resumenEl.innerHTML = MEDIOS_CUENTA_POR_COBRAR.map((m) => {
     const total = pendientes.filter((c) => c.medio === m).reduce((acc, c) => acc + (c.saldoPendiente || 0), 0);
-    return `<div class="card dashboard-card"><div class="hint" style="margin:0">${m}</div><div class="dashboard-card-valor">${formatMonto(total)}</div></div>`;
+    return `<div class="card dashboard-card"><div class="hint mt-0">${m}</div><div class="dashboard-card-valor">${formatMonto(total)}</div></div>`;
   }).join("");
 }
 
@@ -74,9 +74,9 @@ async function cargar() {
       <td>${c.medio}</td>
       <td>${formatFecha(c.fecha)}</td>
       <td>${c.clienteNombre}${c.ventaId ? ` · <a href="/productos/venta-ficha.html?id=${c.ventaId}">Ver venta</a>` : ""}</td>
-      <td style="text-align:right">${formatMonto(c.importeBruto)}</td>
-      <td style="text-align:right">${c.comision != null ? formatMonto(c.comision) : '<span class="hint">No disponible</span>'}</td>
-      <td style="text-align:right">${c.importeNeto != null ? formatMonto(c.importeNeto) : `${formatMonto(c.importeBruto)} (sin comisión conocida)`}</td>
+      <td class="num">${formatMonto(c.importeBruto)}</td>
+      <td class="num">${c.comision != null ? formatMonto(c.comision) : '<span class="hint">No disponible</span>'}</td>
+      <td class="num">${c.importeNeto != null ? formatMonto(c.importeNeto) : `${formatMonto(c.importeBruto)} (sin comisión conocida)`}</td>
       <td>${c.fechaPrevista ? formatFecha(c.fechaPrevista) : '<span class="hint">No disponible</span>'}</td>
       <td>${badgeEstado(c)}</td>
       <td>${c.estado !== "cobrado" ? `<button type="button" data-cobrar="${c.id}">💰 Registrar cobro</button>` : ""}</td>

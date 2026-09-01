@@ -16,7 +16,7 @@ content.innerHTML = `
       <div id="proveedor-picker"></div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Facturas</div>
       <div id="sin-proveedor" class="hint">Elegí un proveedor para ver sus facturas.</div>
       <div class="table-scroll">

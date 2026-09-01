@@ -107,7 +107,7 @@ export function renderShell({ active, titulo, usuario }) {
           <div class="topbar-right">
             <button type="button" id="topbar-ia-btn" class="icon-btn" title="Preguntale a la IA" aria-label="Preguntale a la IA">✨</button>
             <div id="theme-picker-container"></div>
-            <span class="hint" style="margin:0">${usuario?.nombre || usuario?.email || ""}</span>
+            <span class="hint mt-0">${usuario?.nombre || usuario?.email || ""}</span>
             <button id="logout-btn">Salir</button>
           </div>
         </div>

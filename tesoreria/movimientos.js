@@ -35,7 +35,7 @@ content.innerHTML = `
     <a href="/tesoreria/dashboard.html" class="link-btn">← Tesorería</a>
     <button type="button" id="btn-csv">⬇️ Exportar CSV</button>
   </div>
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="field-row">
       <div class="field"><label for="f-desde">Desde</label><input type="date" id="f-desde" value="${INICIO_MES}" /></div>
       <div class="field"><label for="f-hasta">Hasta</label><input type="date" id="f-hasta" value="${HOY}" /></div>
@@ -52,7 +52,7 @@ content.innerHTML = `
   <div class="card">
     <div class="table-scroll">
       <table class="table-clickable">
-        <thead><tr><th></th><th>Fecha</th><th>Lugar</th><th>Tipo</th><th>Concepto</th><th>Medio</th><th style="text-align:right">Importe</th><th>Estado</th></tr></thead>
+        <thead><tr><th></th><th>Fecha</th><th>Lugar</th><th>Tipo</th><th>Concepto</th><th>Medio</th><th class="num">Importe</th><th>Estado</th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>
     </div>
@@ -108,7 +108,7 @@ async function cargar() {
       <td>${m.tipo === "ingreso" ? "🟢 Ingreso" : "🔴 Egreso"}</td>
       <td>${m.concepto}</td>
       <td>${m.medio || "-"}</td>
-      <td style="text-align:right">${formatMonto(m.importe)}</td>
+      <td class="num">${formatMonto(m.importe)}</td>
       <td>${m.estado === "conciliado" ? '<span class="badge success">Conciliado</span>' : m.estado === "anulado" ? '<span class="badge danger">Anulado</span>' : m.origenTipo === "banco" ? '<span class="badge warning">Pendiente</span>' : '<span class="badge muted">Registrado</span>'}</td>
     </tr>
     <tr class="detalle-row" data-detalle="${i}" style="display:none"><td></td><td colspan="7" id="detalle-${i}"></td></tr>

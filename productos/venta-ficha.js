@@ -95,7 +95,7 @@ function tarjetaComprobante() {
   if (!comprobante) {
     return `
       <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
-        <span class="hint" style="margin:0">Todavía no tiene comprobante.</span>
+        <span class="hint mt-0">Todavía no tiene comprobante.</span>
         <a href="/facturacion/nuevo.html?ventaId=${venta.id}"><button type="button">🧾 Generar comprobante</button></a>
       </div>
     `;
@@ -119,7 +119,7 @@ content.innerHTML = `
     <a href="/productos/ventas.html" class="link-btn">← Ventas</a>
   </div>
 
-  <div class="card no-imprimir" style="padding:20px; margin-bottom:16px">
+  <div class="card no-imprimir mb-16">
     <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px">
       <div>
         <div style="font-size:26px; font-weight:700">${formatMonto(venta.total)}</div>
@@ -146,7 +146,7 @@ content.innerHTML = `
         <div class="table-scroll">
           <table>
             <thead>
-              <tr><th>Descripción</th><th style="text-align:right">Cant.</th><th style="text-align:right">Precio unit.</th><th style="text-align:right">Subtotal</th></tr>
+              <tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio unit.</th><th class="num">Subtotal</th></tr>
             </thead>
             <tbody>
               ${(venta.items || [])
@@ -154,9 +154,9 @@ content.innerHTML = `
                   (it) => `
                 <tr>
                   <td>${it.productoDescripcion}${it.productoSku ? `<div class="hint">${it.productoSku}</div>` : ""}</td>
-                  <td style="text-align:right">${it.cantidad}</td>
-                  <td style="text-align:right">${formatMonto(it.precioUnitario)}</td>
-                  <td style="text-align:right">${formatMonto(it.subtotal)}</td>
+                  <td class="num">${it.cantidad}</td>
+                  <td class="num">${formatMonto(it.precioUnitario)}</td>
+                  <td class="num">${formatMonto(it.subtotal)}</td>
                 </tr>
               `
                 )
@@ -203,15 +203,15 @@ content.innerHTML = `
               <div style="margin-bottom:14px">
                 <div class="hint" style="margin-bottom:6px">Asiento #${a.numero} — ${a.descripcion}</div>
                 <table>
-                  <thead><tr><th>Cuenta</th><th style="text-align:right">Debe</th><th style="text-align:right">Haber</th></tr></thead>
+                  <thead><tr><th>Cuenta</th><th class="num">Debe</th><th class="num">Haber</th></tr></thead>
                   <tbody>
                     ${a.movimientos
                       .map(
                         (m) => `
                       <tr>
                         <td>${NOMBRE_CUENTA.get(m.cuenta) || m.cuenta}</td>
-                        <td style="text-align:right">${m.debe ? formatMonto(m.debe) : ""}</td>
-                        <td style="text-align:right">${m.haber ? formatMonto(m.haber) : ""}</td>
+                        <td class="num">${m.debe ? formatMonto(m.debe) : ""}</td>
+                        <td class="num">${m.haber ? formatMonto(m.haber) : ""}</td>
                       </tr>
                     `
                       )

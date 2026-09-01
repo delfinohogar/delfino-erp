@@ -48,7 +48,7 @@ async function pintar() {
       <a href="/tesoreria/cajas.html" class="link-btn">← Cajas</a>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px">
         <div>
           <div style="font-size:20px; font-weight:700">${caja.nombre}</div>
@@ -76,13 +76,13 @@ async function pintar() {
     ${
       sesion
         ? `
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div class="section-title">Movimientos de esta sesión</div>
         ${
           movimientos.length === 0
             ? `<div class="hint">Sin movimientos todavía.</div>`
             : `<div class="table-scroll"><table>
-            <thead><tr><th>Hora</th><th>Tipo</th><th>Concepto</th><th>Medio</th><th style="text-align:right">Importe</th></tr></thead>
+            <thead><tr><th>Hora</th><th>Tipo</th><th>Concepto</th><th>Medio</th><th class="num">Importe</th></tr></thead>
             <tbody>
               ${movimientos
                 .sort((a, b) => (b.creadoEn?.toMillis?.() || 0) - (a.creadoEn?.toMillis?.() || 0))
@@ -93,7 +93,7 @@ async function pintar() {
                   <td>${m.tipo === "ingreso" ? "🟢 Ingreso" : "🔴 Egreso"}</td>
                   <td>${m.concepto}${m.ventaId ? ` · <a href="/productos/venta-ficha.html?id=${m.ventaId}">Ver venta</a>` : ""}</td>
                   <td>${m.medio}</td>
-                  <td style="text-align:right">${formatMonto(m.importe)}</td>
+                  <td class="num">${formatMonto(m.importe)}</td>
                 </tr>
               `
                 )
@@ -112,7 +112,7 @@ async function pintar() {
         historial.length === 0
           ? `<div class="hint">Sin sesiones anteriores.</div>`
           : `<div class="table-scroll"><table>
-          <thead><tr><th>Apertura</th><th>Cierre</th><th style="text-align:right">Saldo inicial</th><th style="text-align:right">Teórico</th><th style="text-align:right">Contado</th><th style="text-align:right">Diferencia</th></tr></thead>
+          <thead><tr><th>Apertura</th><th>Cierre</th><th class="num">Saldo inicial</th><th class="num">Teórico</th><th class="num">Contado</th><th class="num">Diferencia</th></tr></thead>
           <tbody>
             ${historial
               .map(
@@ -120,9 +120,9 @@ async function pintar() {
               <tr>
                 <td>${formatFechaHora(s.fechaApertura)}</td>
                 <td>${s.estado === "abierta" ? '<span class="badge success">Abierta</span>' : formatFechaHora(s.fechaCierre)}</td>
-                <td style="text-align:right">${formatMonto(s.saldoInicial)}</td>
-                <td style="text-align:right">${s.saldoTeorico != null ? formatMonto(s.saldoTeorico) : "-"}</td>
-                <td style="text-align:right">${s.dineroContado != null ? formatMonto(s.dineroContado) : "-"}</td>
+                <td class="num">${formatMonto(s.saldoInicial)}</td>
+                <td class="num">${s.saldoTeorico != null ? formatMonto(s.saldoTeorico) : "-"}</td>
+                <td class="num">${s.dineroContado != null ? formatMonto(s.dineroContado) : "-"}</td>
                 <td style="text-align:right; color:${!s.diferencia ? "inherit" : s.diferencia < 0 ? "var(--danger)" : "var(--warning)"}">${s.diferencia != null ? (s.diferencia === 0 ? "🟢 Sin diferencia" : s.diferencia < 0 ? `🔴 Faltante ${formatMonto(-s.diferencia)}` : `🟡 Sobrante ${formatMonto(s.diferencia)}`) : "-"}</td>
               </tr>
             `

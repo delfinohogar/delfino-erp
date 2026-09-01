@@ -65,7 +65,7 @@ content.innerHTML = `
     <div class="pos-carrito card">
       ${cajaSelectHtml}
       <div class="pos-cliente-row">
-        <span class="hint" style="margin:0">Cliente</span>
+        <span class="hint mt-0">Cliente</span>
         <div id="cliente-picker" style="flex:1; max-width:280px"></div>
         <button type="button" id="btn-editar-cliente" class="link-btn" style="display:none">Editar</button>
         <button type="button" id="btn-quitar-cliente" class="link-btn" style="display:none">Quitar</button>

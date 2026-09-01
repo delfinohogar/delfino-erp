@@ -43,16 +43,16 @@ function pintar(asientos) {
     <div class="card" style="padding:16px; margin-bottom:12px">
       <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px">
         <div><strong>#${a.numero}</strong> — ${a.descripcion}</div>
-        <span class="hint" style="margin:0">${formatFecha(a.fecha)}</span>
+        <span class="hint mt-0">${formatFecha(a.fecha)}</span>
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Cuenta</th><th style="text-align:right">Debe</th><th style="text-align:right">Haber</th></tr></thead>
+          <thead><tr><th>Cuenta</th><th class="num">Debe</th><th class="num">Haber</th></tr></thead>
           <tbody>
             ${a.movimientos
               .map(
                 (m) =>
-                  `<tr><td>${NOMBRE_CUENTA.get(m.cuenta) || m.cuenta} <span class="hint">${m.cuenta}</span></td><td style="text-align:right">${formatMonto(m.debe)}</td><td style="text-align:right">${formatMonto(m.haber)}</td></tr>`
+                  `<tr><td>${NOMBRE_CUENTA.get(m.cuenta) || m.cuenta} <span class="hint">${m.cuenta}</span></td><td class="num">${formatMonto(m.debe)}</td><td class="num">${formatMonto(m.haber)}</td></tr>`
               )
               .join("")}
           </tbody>

@@ -89,7 +89,7 @@ function variacion(actual, anterior) {
 function kpiCard(titulo, valor, comparacionHtml = "") {
   return `
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">${titulo}</div>
+      <div class="hint mt-0">${titulo}</div>
       <div class="dashboard-card-valor">${valor}</div>
       ${comparacionHtml}
     </div>
@@ -193,7 +193,7 @@ async function cargar() {
         ${kpiCard("Margen bruto", formatMonto(actual.margenBruto), variacion(actual.margenBruto, anterior.margenBruto))}
       </div>
       ${seccionComparacion()}
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div class="section-title">Ventas por día</div>
         <div style="height:240px"><canvas id="chart-dia"></canvas></div>
       </div>
@@ -342,7 +342,7 @@ async function cargar() {
       return;
     }
     contenedor.innerHTML = `
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div style="height:${Math.max(Math.min(productos.length, 15) * 34, 120)}px"><canvas id="chart-productos"></canvas></div>
       </div>
       <div id="tabla-productos" class="card" style="padding:20px"></div>
@@ -365,7 +365,7 @@ async function cargar() {
       return;
     }
     contenedor.innerHTML = `
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div style="height:${Math.max(Math.min(clientes.length, 15) * 34, 120)}px"><canvas id="chart-clientes"></canvas></div>
       </div>
       <div id="tabla-clientes" class="card" style="padding:20px"></div>
@@ -413,7 +413,7 @@ async function cargar() {
       return;
     }
     contenedor.innerHTML = `
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div class="section-title">Distribución por medio de pago</div>
         <div style="height:260px"><canvas id="chart-formas"></canvas></div>
       </div>
@@ -448,7 +448,7 @@ async function cargar() {
       return;
     }
     contenedor.innerHTML = `
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div style="height:${Math.max(categorias.length * 34, 120)}px"><canvas id="chart-categorias"></canvas></div>
       </div>
       <div id="tabla-categorias" class="card" style="padding:20px"></div>
@@ -474,7 +474,7 @@ async function cargar() {
       return;
     }
     contenedor.innerHTML = `
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div class="section-title">Ganancia por categoría</div>
         <div style="height:${Math.max(categorias.length * 34, 120)}px"><canvas id="chart-rent-cat"></canvas></div>
       </div>
@@ -504,7 +504,7 @@ async function cargar() {
       return;
     }
     contenedor.innerHTML = `
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div class="section-title">Productos con mayor ganancia</div>
         <div style="height:${Math.max(Math.min(productos.length, 15) * 34, 120)}px"><canvas id="chart-rent-prod"></canvas></div>
       </div>
@@ -636,7 +636,7 @@ async function cargar() {
       <div class="dashboard-grid" style="margin-bottom:16px">
         ${kpiCard("Capital inmovilizado en stock", formatMonto(total))}
       </div>
-      <div class="card" style="padding:20px; margin-bottom:16px">
+      <div class="card mb-16">
         <div class="section-title">Productos con mayor valorización</div>
         <div id="empty" class="hint" style="display:${principales.length ? "none" : "block"}">Sin stock valorizado todavía.</div>
         <div style="height:${Math.max(Math.min(principales.length, 15) * 34, 120)}px"><canvas id="chart-valorizacion"></canvas></div>

@@ -18,7 +18,7 @@ content.innerHTML = `
     (ej. <a href="/tesoreria/cuentas-por-cobrar.html">Tesorería → Cuentas por cobrar</a>).
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">💳 Mercado Pago</div>
     <div class="hint" style="margin-bottom:12px">Entorno, credenciales, webhook y estado de la integración de pruebas (sandbox).</div>
     <div class="toolbar">

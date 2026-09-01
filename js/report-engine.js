@@ -277,7 +277,7 @@ export function renderizarComparacion(contenedor, indicadores) {
   contenedor.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Indicador</th><th style="text-align:right">Actual</th><th style="text-align:right">Anterior</th><th style="text-align:right">Variación</th></tr></thead>
+        <thead><tr><th>Indicador</th><th class="num">Actual</th><th class="num">Anterior</th><th class="num">Variación</th></tr></thead>
         <tbody>
           ${indicadores
             .map((i) => {
@@ -285,9 +285,9 @@ export function renderizarComparacion(contenedor, indicadores) {
               return `
               <tr>
                 <td>${i.titulo}</td>
-                <td style="text-align:right">${formatoPlano(i.actual, i.formato)}</td>
-                <td style="text-align:right">${formatoPlano(i.anterior, i.formato)}</td>
-                <td style="text-align:right">${variacionHtml}</td>
+                <td class="num">${formatoPlano(i.actual, i.formato)}</td>
+                <td class="num">${formatoPlano(i.anterior, i.formato)}</td>
+                <td class="num">${variacionHtml}</td>
               </tr>
             `;
             })

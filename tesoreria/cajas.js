@@ -21,7 +21,7 @@ content.innerHTML = `
   <div class="card">
     <div class="table-scroll">
       <table class="table-clickable">
-        <thead><tr><th>Sucursal</th><th>Caja</th><th>Tipo</th><th>Estado</th><th style="text-align:right">Saldo</th><th></th></tr></thead>
+        <thead><tr><th>Sucursal</th><th>Caja</th><th>Tipo</th><th>Estado</th><th class="num">Saldo</th><th></th></tr></thead>
         <tbody id="tabla-body"></tbody>
       </table>
     </div>
@@ -49,7 +49,7 @@ async function cargar() {
       <td>${caja.nombre}</td>
       <td>${caja.tipo}</td>
       <td>${abierta ? '<span class="badge success">Abierta</span>' : '<span class="badge muted">Cerrada</span>'}</td>
-      <td style="text-align:right">${formatMonto(saldo)}</td>
+      <td class="num">${formatMonto(saldo)}</td>
       <td><a href="/tesoreria/caja-ficha.html?id=${caja.id}"><button type="button">Abrir</button></a></td>
     </tr>
   `
