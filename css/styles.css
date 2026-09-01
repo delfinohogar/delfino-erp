@@ -1408,3 +1408,133 @@ details.card[open] summary::before {
     break-inside: avoid;
   }
 }
+
+/* --- Configuración: menú lateral interno + panel de contenido ---------------------------------
+   Mismo lenguaje visual que el sidebar principal (nav-group/acordeón), pero en flujo normal (no
+   fixed) porque vive adentro de .main, no del viewport. En mobile se colapsa a un panel desplegable
+   con el mismo criterio que el sidebar principal (botón ☰ + overlay que se cierra al elegir). */
+.config-mobile-toggle {
+  display: none;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: left;
+}
+
+.config-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.config-sidebar {
+  width: 230px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 24px;
+}
+
+.config-sidebar-link,
+.config-sidebar-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px 7px 12px;
+  border: none;
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+  font-size: 13px;
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.config-sidebar-link:hover,
+.config-sidebar-group-header:hover {
+  background: var(--muted-bg);
+  color: var(--foreground);
+}
+
+.config-sidebar-link.active {
+  background: var(--muted-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.config-sidebar-link.disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.config-sidebar-link.disabled:hover {
+  background: none;
+  color: var(--muted);
+}
+
+.config-sidebar-group-header span {
+  flex: 1;
+}
+
+.config-sidebar-group-header .nav-icon:last-child {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+.config-sidebar-group.open .config-sidebar-group-header .nav-icon:last-child {
+  transform: rotate(90deg);
+}
+
+.config-sidebar-group-items {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 22px;
+}
+
+.config-sidebar-group.open .config-sidebar-group-items {
+  display: flex;
+}
+
+.config-content {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .config-mobile-toggle {
+    display: flex;
+  }
+  .config-layout {
+    flex-direction: column;
+    gap: 0;
+  }
+  .config-sidebar {
+    display: none;
+    width: 100%;
+    position: static;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px;
+    margin-bottom: 16px;
+  }
+  .config-sidebar.open {
+    display: flex;
+  }
+}

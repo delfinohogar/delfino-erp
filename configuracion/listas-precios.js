@@ -1,11 +1,11 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarListasPrecios, crearListaPrecio, actualizarListaPrecio } from "/js/catalogo.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "configuracion", titulo: "Listas de Precios", usuario });
+const content = renderConfigShell({ activeItem: "listas-precios", titulo: "Listas de Precios", usuario });
 
 content.innerHTML = `
   <div class="toolbar">

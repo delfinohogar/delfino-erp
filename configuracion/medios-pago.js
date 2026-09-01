@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarMediosPago, crearMedioPago, actualizarMedioPago, sembrarMediosPagoIniciales, DESTINOS_TESORERIA } from "/js/medios-pago.js";
 
 const usuario = await requireAuth();
@@ -10,7 +10,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Medios de pago", usuario });
+const content = renderConfigShell({ activeItem: "medios-pago", titulo: "Medios de pago", usuario });
 
 function labelDestino(destino) {
   return DESTINOS_TESORERIA.find((d) => d.valor === destino)?.label || "Sin destino específico";

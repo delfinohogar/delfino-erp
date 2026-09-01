@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { obtenerProveedor, actualizarProveedor } from "/js/catalogo.js";
 import { pedirProveedorModal } from "/js/proveedor-modal.js";
 import { consultarPadronArca } from "/js/arca.js";
@@ -11,7 +11,7 @@ const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const proveedorId = new URLSearchParams(location.search).get("id");
-const content = renderShell({ active: "configuracion", titulo: "Ficha de proveedor", usuario });
+const content = renderConfigShell({ activeItem: "proveedores", titulo: "Ficha de proveedor", usuario });
 
 if (!proveedorId) {
   content.innerHTML = `<div class="card empty-state">Falta el proveedor.</div>`;

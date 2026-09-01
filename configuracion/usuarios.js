@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarUsuarios, crearPerfilUsuario, actualizarPerfilUsuario, ROLES } from "/js/usuarios.js";
 
 const usuario = await requireAuth();
@@ -11,7 +11,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("solo administrador");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Usuarios", usuario });
+const content = renderConfigShell({ activeItem: "usuarios", titulo: "Usuarios", usuario });
 
 const ROL_LABEL = {
   administrador: "Administrador",

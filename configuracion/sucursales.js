@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { pedirCamposModal } from "/js/modal.js";
 import { listarSucursales, crearSucursal, actualizarSucursal } from "/js/sucursales.js";
 
@@ -11,7 +11,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Sucursales", usuario });
+const content = renderConfigShell({ activeItem: "sucursales", titulo: "Sucursales", usuario });
 
 content.innerHTML = `
   <div class="hint" style="margin-bottom:12px; max-width:64ch">

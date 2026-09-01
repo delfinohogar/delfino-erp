@@ -1,12 +1,12 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { abrirSelectorCategoria } from "/js/categoria-tree-modal.js";
 import { listarCategoriasPorNivel } from "/js/catalogo.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "configuracion", titulo: "Categorías", usuario });
+const content = renderConfigShell({ activeItem: "categorias", titulo: "Categorías", usuario });
 
 content.innerHTML = `
   <div class="card" style="padding:20px">

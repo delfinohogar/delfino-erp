@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { functions, httpsCallable } from "/js/firebase.js";
 import { obtenerConfigMercadoPago, guardarConfigMercadoPago } from "/js/mercado-pago.js";
 
@@ -11,7 +11,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Mercado Pago", usuario });
+const content = renderConfigShell({ activeItem: "mercado-pago", titulo: "Mercado Pago", usuario });
 
 content.innerHTML = `
   <div id="banner-modo"></div>

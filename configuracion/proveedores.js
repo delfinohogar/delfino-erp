@@ -1,12 +1,12 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { pedirProveedorModal } from "/js/proveedor-modal.js";
 import { listarProveedoresTodos, crearProveedor } from "/js/catalogo.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "configuracion", titulo: "Proveedores", usuario });
+const content = renderConfigShell({ activeItem: "proveedores", titulo: "Proveedores", usuario });
 
 content.innerHTML = `
   <div class="toolbar">

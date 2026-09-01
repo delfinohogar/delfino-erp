@@ -1,12 +1,12 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { pedirCamposModal } from "/js/modal.js";
 import { listarMarcas, crearMarca, renombrarMarca } from "/js/catalogo.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "configuracion", titulo: "Marcas", usuario });
+const content = renderConfigShell({ activeItem: "marcas", titulo: "Marcas", usuario });
 
 content.innerHTML = `
   <div class="toolbar">

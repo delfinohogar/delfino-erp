@@ -1,7 +1,7 @@
 // Definición de bancos y cuentas ("¿qué bancos y cuentas usa la empresa?") — separado de la
 // operación (movimientos/conciliación), que vive en Tesorería → Bancos.
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarBancos, crearBanco, actualizarBanco, listarCuentasBancarias, crearCuentaBancaria, actualizarCuentaBancaria, saldoActualCuenta } from "/js/bancos.js";
 import { listarSucursalesActivas } from "/js/sucursales.js";
 import { pedirCamposModal } from "/js/modal.js";
@@ -14,7 +14,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Bancos", usuario });
+const content = renderConfigShell({ activeItem: "tesoreria-bancos", titulo: "Bancos", usuario });
 
 function formatMonto(v) {
   return `$${Math.round(v || 0).toLocaleString("es-AR")}`;

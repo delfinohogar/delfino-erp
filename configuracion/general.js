@@ -2,13 +2,13 @@
 // no se duplican acá). Hoy el único ajuste realmente general que existe es el tema — se deja la
 // página lista para sumar más adelante, sin inventar opciones que todavía no existen.
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { initSelectorTema } from "/js/tema.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "configuracion", titulo: "Configuración general", usuario });
+const content = renderConfigShell({ activeItem: "general", titulo: "Configuración general", usuario });
 
 content.innerHTML = `
   <div class="toolbar">

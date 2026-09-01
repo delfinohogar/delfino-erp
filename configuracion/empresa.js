@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { consultarPadronArca } from "/js/arca.js";
 import { soloDigitos, formatearCuit, validarCuit } from "/js/cuit.js";
 import {
@@ -17,7 +17,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Empresa", usuario });
+const content = renderConfigShell({ activeItem: "empresa", titulo: "Empresa", usuario });
 
 content.innerHTML = `
   <div class="tabs">

@@ -5,7 +5,7 @@
 // legal del PDF) e Integración fiscal (estado de ARCA — hoy siempre apagada, ver js/facturacion.js
 // evaluarProveedorFiscal()).
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { obtenerConfigEmpresa } from "/js/configuracion-empresa.js";
 import { obtenerConfigFacturacion, guardarDisenoComprobante } from "/js/facturacion-config.js";
 import { TIPOS_COMPROBANTE } from "/js/facturacion.js";
@@ -19,7 +19,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Facturación", usuario });
+const content = renderConfigShell({ activeItem: "facturacion", titulo: "Facturación", usuario });
 
 const [configEmpresa, configFacturacion, sucursales] = await Promise.all([
   obtenerConfigEmpresa(),

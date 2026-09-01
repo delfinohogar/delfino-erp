@@ -1,7 +1,7 @@
 // Definición de las cajas que existen ("¿qué cajas usa la empresa?") — separado de la operación del
 // día a día (abrir/cerrar/movimientos), que vive en Tesorería → Cajas.
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarCajas, crearCaja, actualizarCaja, TIPOS_CAJA, saldoActualCaja } from "/js/cajas.js";
 import { listarSucursalesActivas } from "/js/sucursales.js";
 
@@ -13,7 +13,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "configuracion", titulo: "Cajas", usuario });
+const content = renderConfigShell({ activeItem: "tesoreria-cajas", titulo: "Cajas", usuario });
 
 function formatMonto(v) {
   return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
