@@ -101,6 +101,13 @@ export async function listarAsientos(maxResultados = 200) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// Los asientos de una operación puntual (venta, compra, cobro, pago) — para mostrar "cómo impactó
+// esto en la contabilidad" en la ficha de esa operación, sin tener que traer las 200/1000 últimas.
+export async function listarAsientosPorOrigen(origenId) {
+  const snap = await getDocs(query(collection(db, "asientosContables"), where("origen.id", "==", origenId)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 // Movimientos de una cuenta puntual, en orden cronológico, con saldo corrido — el signo del saldo
 // depende del tipo de cuenta (activo/egreso suman con el debe; pasivo/patrimonio/ingreso con el haber).
 export async function obtenerLibroMayor(codigoCuenta) {

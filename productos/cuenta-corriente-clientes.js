@@ -70,12 +70,14 @@ async function cargarCuenta(cliente) {
       detalle: `Venta #${v.numeroVenta ?? ""}`,
       debe: v.total || 0,
       haber: 0,
+      ventaId: v.id,
     })),
     ...cobros.map((c) => ({
       fecha: c.fecha,
       detalle: `Cobro (${c.medioPago || "-"}) — venta #${c.numeroVenta ?? ""}`,
       debe: 0,
       haber: c.monto || 0,
+      ventaId: c.ventaId,
     })),
   ].sort((a, b) => fechaOrden(a.fecha) - fechaOrden(b.fecha));
 
@@ -86,6 +88,11 @@ async function cargarCuenta(cliente) {
   movimientos.forEach((m) => {
     saldo += m.debe - m.haber;
     const tr = document.createElement("tr");
+    if (m.ventaId) {
+      tr.style.cursor = "pointer";
+      tr.title = "Ver ficha de la venta";
+      tr.addEventListener("click", () => (location.href = `/productos/venta-ficha.html?id=${m.ventaId}`));
+    }
     tr.innerHTML = `
       <td>${formatFecha(m.fecha)}</td>
       <td>${m.detalle}</td>

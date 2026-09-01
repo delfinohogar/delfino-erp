@@ -83,6 +83,8 @@ async function cargar() {
     const cobrado = cobros.filter((c) => c.ventaId === v.id).reduce((acc, c) => acc + (c.monto || 0), 0);
     const saldo = (v.montoPendiente || 0) > 0.01 ? Math.round(((v.total || 0) - cobrado) * 100) / 100 : 0;
     const tr = document.createElement("tr");
+    tr.style.cursor = "pointer";
+    tr.title = "Ver ficha de la venta";
     tr.innerHTML = `
       <td>${v.numeroVenta ?? ""}</td>
       <td>${formatFecha(v.fecha)}</td>
@@ -98,6 +100,10 @@ async function cargar() {
           : `<a href="/facturacion/nuevo.html?ventaId=${v.id}"><button type="button" title="Generar comprobante">🧾 Generar</button></a>`
       }</td>
     `;
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("a, button")) return;
+      location.href = `/productos/venta-ficha.html?id=${v.id}`;
+    });
     tablaBody.appendChild(tr);
   });
 }
