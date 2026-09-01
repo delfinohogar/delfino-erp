@@ -93,10 +93,14 @@ export async function prepararImportacion(filas) {
     const precioVenta = parsePrecioArs(fila["Lista Contado"]);
     const precioListaReferencia = parsePrecioArs(fila["Lista de Precios"]);
     const iva = parseFloat(fila.tax_percentage) || 0;
-    const { monto: costoOriginal, moneda: costoMoneda } = parseCosto(fila["Lista de Costos"]);
+    const { monto: costoBruto, moneda: costoMoneda } = parseCosto(fila["Lista de Costos"]);
+    // costoOriginal es lo que productos-form.js muestra como "Costo de referencia sin IVA" y usa tal
+    // cual (sin volver a sacarle el IVA) para calcular costoConIva y la ganancia — tiene que ser el
+    // neto en la MISMA moneda que costoBruto, no el bruto. Se le saca el IVA acá, antes de convertir
+    // a pesos, para no perder precisión con una doble conversión.
+    const costoOriginal = iva > 0 ? Math.round((costoBruto / (1 + iva / 100)) * 100) / 100 : Math.round(costoBruto * 100) / 100;
     const costoTipoCambio = costoMoneda === "USD" ? cotizacion?.valor || null : null;
-    const costoBrutoArs = costoMoneda === "USD" ? costoOriginal * (costoTipoCambio || 0) : costoOriginal;
-    const costoReferencia = iva > 0 ? Math.round((costoBrutoArs / (1 + iva / 100)) * 100) / 100 : Math.round(costoBrutoArs * 100) / 100;
+    const costoReferencia = costoMoneda === "USD" ? Math.round(costoOriginal * (costoTipoCambio || 0) * 100) / 100 : costoOriginal;
 
     // Si Lista Contado (el precio que se importa) se aleja demasiado de Lista de Precios, el precio
     // casi seguro quedó viejo (visto en la auditoría: ventiladores/mouses a $2.000 en medio de un
