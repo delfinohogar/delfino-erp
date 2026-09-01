@@ -118,7 +118,11 @@ function detalleVenta(v) {
 const HERRAMIENTAS = [
   {
     name: "buscar_productos",
-    description: "Busca productos por texto (SKU, código de barras, descripción o marca), opcionalmente filtrando por estado.",
+    description:
+      "Busca productos por texto (SKU, código de barras, descripción o marca), opcionalmente filtrando por estado. " +
+      "La respuesta trae 'total' (cuántos matchean de verdad) y 'truncado' (true si hay más de los que vienen en " +
+      "'resultados'). Si truncado es true, decile al usuario que hay más de los que se muestran — nunca lo trates " +
+      "como la lista completa.",
     input_schema: {
       type: "object",
       properties: {
@@ -282,14 +286,22 @@ async function ejecutarHerramienta(nombre, input, rol) {
       let productos;
       if (input.texto) {
         const primeraPalabra = input.texto.toLowerCase().trim().split(/\s+/)[0];
-        const snap = await db.collection("productos").where("searchKeywords", "array-contains", primeraPalabra).limit(30).get();
+        const snap = await db.collection("productos").where("searchKeywords", "array-contains", primeraPalabra).limit(150).get();
         productos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       } else {
-        const snap = await db.collection("productos").limit(30).get();
+        const snap = await db.collection("productos").limit(150).get();
         productos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       }
       if (input.estado) productos = productos.filter((p) => p.estado === input.estado);
-      return productos.slice(0, 15).map((p) => filtrarPorRol(resumenProducto(p), rol));
+      // Antes esto devolvía un array pelado cortado a 15 sin avisar — con categorías de más de 15
+      // productos (ej. "aire acondicionado") la IA armaba resúmenes/totales incompletos sin saberlo.
+      const MAX_DEVUELTOS = 60;
+      const total = productos.length;
+      return {
+        resultados: productos.slice(0, MAX_DEVUELTOS).map((p) => filtrarPorRol(resumenProducto(p), rol)),
+        total,
+        truncado: total > MAX_DEVUELTOS,
+      };
     }
 
     case "stock_bajo_minimo": {
@@ -518,6 +530,9 @@ exports.chatConsulta = onCall({ region: "southamerica-east1", secrets: [anthropi
         "Sos el asistente de datos del ERP de Delfino Hogar (retail de electrodomésticos). Respondé en español " +
         "rioplatense, corto y concreto, basándote solo en los datos que te devuelven las herramientas — nunca " +
         "inventes números. Si no encontrás algo con las herramientas, decilo directamente en vez de suponer. " +
+        "Si una herramienta devuelve 'truncado: true', NO trates 'resultados' como la lista completa ni sumes " +
+        "totales sobre ella como si lo fueran — decile al usuario que hay más de los que se muestran (usá 'total' " +
+        "para decir cuántos hay en verdad) y sugerí acotar la búsqueda si hace falta el detalle completo. " +
         `Hoy es ${fechaHoyArgentina()} (America/Argentina/Buenos_Aires) — usá esa fecha como referencia para ` +
         "preguntas relativas (\"esta semana\", \"este mes\", \"vencidas\").",
       tools: HERRAMIENTAS,
