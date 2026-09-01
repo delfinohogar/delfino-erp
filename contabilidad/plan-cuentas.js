@@ -1,6 +1,6 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { listarPlanDeCuentas } from "/js/contabilidad.js";
+import { listarPlanDeCuentas, sembrarPlanDeCuentas } from "/js/contabilidad.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -8,6 +8,14 @@ if (!usuario) throw new Error("redirecting to login");
 const content = renderShell({ active: "contabilidad-plan-cuentas", titulo: "Plan de Cuentas", usuario });
 
 content.innerHTML = `
+  ${
+    usuario.rol === "administrador"
+      ? `<div class="toolbar">
+           <button type="button" id="btn-sembrar">Sembrar / actualizar plan de cuentas</button>
+           <span class="hint" id="sembrar-estado" style="margin:0"></span>
+         </div>`
+      : ""
+  }
   <div class="card">
     <div class="table-scroll">
       <table>
@@ -26,6 +34,26 @@ content.innerHTML = `
     </div>
   </div>
 `;
+
+// Idempotente (setDoc con merge): agrega las cuentas nuevas del código sin pisar nada existente.
+// Hace falta correrlo cada vez que se suma una cuenta a PLAN_DE_CUENTAS — si no, los asientos que
+// la usen quedan fuera de Sumas y Saldos, que solo suma cuentas que existan en Firestore.
+document.getElementById("btn-sembrar")?.addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const estado = document.getElementById("sembrar-estado");
+  btn.disabled = true;
+  estado.textContent = "Sembrando…";
+  try {
+    await sembrarPlanDeCuentas();
+    estado.textContent = "Listo — plan de cuentas actualizado.";
+    await cargar();
+  } catch (err) {
+    estado.textContent = err?.message || "No se pudo sembrar el plan de cuentas.";
+    estado.className = "hint error-text";
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 const TIPO_LABEL = { activo: "Activo", pasivo: "Pasivo", patrimonio: "Patrimonio Neto", ingreso: "Ingreso", egreso: "Egreso" };
 

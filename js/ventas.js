@@ -19,39 +19,41 @@ import {
   serverTimestamp,
   runTransaction,
 } from "./firebase.js";
-import { generarAsiento, CUENTA } from "./contabilidad.js";
+import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria } from "./contabilidad.js";
 import { listarSucursalesActivas } from "./sucursales.js";
 import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
 import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
 import { crearCuentaPorCobrar } from "./cuentas-por-cobrar.js";
+import { obtenerMedioPagoPorNombre } from "./medios-pago.js";
 
-// Débito y Transferencia van a Banco (acreditación same-day, se tratan como disponible ya). Crédito,
-// Mercado Pago, GoCuotas y Boston Cred generan una Cuenta por Cobrar — el dinero no está disponible
-// todavía, solo prometido (ver js/cuentas-por-cobrar.js). Efectivo va a la Caja de la sucursal.
-// La lista de medios que ve el vendedor al cobrar ya no vive acá — es Configuración → Tesorería →
-// Medios de pago (ver js/medios-pago.js), para poder activar/desactivar sin tocar código. Este switch
-// de a dónde va cada uno sigue fijo acá: es el que de verdad mueve la plata, y generalizarlo para que
-// lo maneje cada medio configurado es un cambio de arquitectura aparte, todavía no hecho (ver nota en
-// js/medios-pago.js) — un medio nuevo que se cree ahí queda activo para cobrar pero sin ruteo real
-// hasta que se sume acá explícitamente.
-const MEDIOS_A_CUENTA_POR_COBRAR = { "Crédito": "Tarjeta de crédito", "Mercado Pago": "Mercado Pago", GoCuotas: "GoCuotas", "Boston Cred": "Boston Cred" };
-
-// Dónde termina la plata de un pago de venta, según el medio — el corazón de la integración con
-// Tesorería (VENTA → COBRO → TESORERÍA). Nunca registra un pago como "disponible" si en realidad
-// quedó pendiente de acreditar (ver PROMPT MAESTRO — TESORERÍA, punto 36).
+// Dónde termina la plata de un pago de venta — el corazón de la integración con Tesorería
+// (VENTA → COBRO → TESORERÍA). Nunca registra un pago como "disponible" si en realidad quedó
+// pendiente de acreditar (ver PROMPT MAESTRO — TESORERÍA, punto 36).
+//
+// El destino sale del medio configurado en Configuración → Medios de pago (campo `destino`, ver
+// js/medios-pago.js) — ya no de un switch por nombre acá. Así un medio nuevo ("Cheque", "Vale")
+// rutea de verdad apenas se lo crea, sin tocar código. Si el medio no existe en el catálogo o no
+// tiene destino, NO se inventa uno: se devuelve ruteado:false con el motivo, y quien llama decide
+// (ver crearVenta: la venta se registra igual, pero queda marcada como pago sin ubicar).
 async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clienteId, clienteNombre, fecha }, usuario) {
-  if (medio === "Pendiente de pago" || medio === "Otro" || monto <= 0) return { ruteado: false, motivo: "Medio sin destino de tesorería definido." };
+  if (medio === "Pendiente de pago" || monto <= 0) return { ruteado: false, motivo: "Pago a cuenta corriente — no mueve dinero todavía." };
+
+  const config = await obtenerMedioPagoPorNombre(medio);
+  if (!config) return { ruteado: false, motivo: `El medio "${medio}" no está en Configuración → Medios de pago, así que no se sabe a dónde va la plata.` };
+  if (!config.destino) return { ruteado: false, motivo: `"${medio}" no tiene un destino de Tesorería configurado (Configuración → Medios de pago).` };
 
   const sucursales = await listarSucursalesActivas();
   const sucursal = sucursales[0] || null;
 
-  const medioCuentaPorCobrar = MEDIOS_A_CUENTA_POR_COBRAR[medio];
-  if (medioCuentaPorCobrar) {
-    await crearCuentaPorCobrar({ medio: medioCuentaPorCobrar, ventaId, clienteId, clienteNombre, fecha, importeBruto: monto, sucursalId: sucursal?.id }, usuario);
-    return { ruteado: true, destino: "cuentaPorCobrar", medio: medioCuentaPorCobrar };
+  if (config.destino === "cuentaPorCobrar") {
+    // medioCuentaPorCobrar permite que "Crédito" agrupe como "Tarjeta de crédito" en Tesorería; si
+    // no está definido (medio nuevo), se usa el propio nombre del medio.
+    const medioCxC = config.medioCuentaPorCobrar || medio;
+    await crearCuentaPorCobrar({ medio: medioCxC, ventaId, clienteId, clienteNombre, fecha, importeBruto: monto, sucursalId: sucursal?.id }, usuario);
+    return { ruteado: true, destino: "cuentaPorCobrar", medio: medioCxC };
   }
 
-  if (medio === "Efectivo") {
+  if (config.destino === "caja") {
     if (!sucursal) return { ruteado: false, motivo: "No hay ninguna sucursal configurada — no se sabe a qué caja va el efectivo." };
     const cajas = await listarCajasPorSucursal(sucursal.id);
     const caja = cajas.find((c) => c.tipo === "Principal" && c.activa !== false) || cajas.find((c) => c.activa !== false);
@@ -65,7 +67,7 @@ async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clien
     return { ruteado: true, destino: "caja", id: caja.id };
   }
 
-  if (medio === "Débito" || medio === "Transferencia") {
+  if (config.destino === "banco") {
     const cuentas = await listarCuentasBancariasActivas();
     const cuenta = (sucursal ? cuentas.find((c) => c.sucursalId === sucursal.id) : null) || cuentas[0];
     if (!cuenta) return { ruteado: false, motivo: "No hay ninguna cuenta bancaria configurada (Tesorería → Bancos)." };
@@ -76,7 +78,7 @@ async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clien
     return { ruteado: true, destino: "banco", id: cuenta.id };
   }
 
-  return { ruteado: false, motivo: "Medio sin destino de tesorería definido." };
+  return { ruteado: false, motivo: `Destino "${config.destino}" no reconocido para el medio "${medio}".` };
 }
 
 // Tipos de entrega: por ahora fijos acá, pero es el único lugar que el futuro módulo de Logística
@@ -192,27 +194,14 @@ export async function crearVenta(datos, usuario) {
     }
   }
 
-  // Asiento contable: lo pagado al momento entra a Caja, lo que quedó a cuenta corriente entra a
-  // Deudores. El costo de lo vendido sale de Bienes de Cambio y pasa a Costo de Mercadería Vendida —
-  // un solo asiento balanceado (ver contabilidad.js para por qué cierra matemáticamente).
-  const costoTotal = items.reduce((acc, it) => acc + (it.costoUnitario || 0) * (it.cantidad || 0), 0);
-  const cobradoAhora = (datos.pagos || []).filter((p) => p.medio !== "Pendiente de pago").reduce((acc, p) => acc + p.monto, 0);
-  const movimientos = [
-    { cuenta: CUENTA.CAJA, debe: Math.round(cobradoAhora * 100) / 100, haber: 0 },
-    { cuenta: CUENTA.DEUDORES_VENTAS, debe: Math.round(montoPendiente * 100) / 100, haber: 0 },
-    { cuenta: CUENTA.VENTAS, debe: 0, haber: Math.round(datos.total * 100) / 100 },
-    { cuenta: CUENTA.COSTO_MERCADERIA_VENDIDA, debe: Math.round(costoTotal * 100) / 100, haber: 0 },
-    { cuenta: CUENTA.BIENES_DE_CAMBIO, debe: 0, haber: Math.round(costoTotal * 100) / 100 },
-  ];
-  await generarAsiento(
-    { fecha: datos.fecha, descripcion: `Venta #${numeroVenta} — ${datos.clienteId ? datos.clienteNombre : "Consumidor final"}`, origen: { tipo: "venta", id: ventaRef.id, numero: numeroVenta }, movimientos },
-    usuario
-  );
-
-  // Tesorería: cada pago que no quedó "Pendiente de pago" busca dónde termina esa plata (caja, banco,
-  // o una cuenta por cobrar si todavía no está disponible) — ver routearPagoATesoreria más arriba.
+  // Tesorería PRIMERO: cada pago que no quedó "Pendiente de pago" busca dónde termina esa plata
+  // (caja, banco, o una cuenta por cobrar si todavía no está disponible) — ver routearPagoATesoreria.
   // Un pago sin dónde rutear (ej. caja cerrada) NUNCA bloquea la venta — solo queda sin reflejar en
   // Tesorería, y se informa en el resultado para que la pantalla lo pueda avisar.
+  //
+  // Va antes del asiento a propósito: el asiento se arma con el resultado REAL del ruteo, para que
+  // contabilidad y Tesorería no se puedan contradecir (antes el asiento suponía que todo entraba a
+  // Caja, y una venta con tarjeta sobrestimaba el disponible).
   const routeo = [];
   for (const pago of datos.pagos) {
     if (pago.medio === "Pendiente de pago" || pago.monto <= 0) continue;
@@ -222,6 +211,36 @@ export async function crearVenta(datos, usuario) {
     );
     routeo.push({ medio: pago.medio, monto: pago.monto, ...resultado });
   }
+
+  // Asiento contable: el debe se reparte según a dónde fue realmente cada pago (Caja y Bancos si
+  // quedó disponible, Deudores por Tarjetas si quedó pendiente de acreditar), más Deudores por
+  // Ventas por lo que quedó a cuenta corriente. El costo sale de Bienes de Cambio y pasa a Costo de
+  // Mercadería Vendida — un solo asiento balanceado (ver contabilidad.js).
+  const costoTotal = items.reduce((acc, it) => acc + (it.costoUnitario || 0) * (it.cantidad || 0), 0);
+  const redondear = (v) => Math.round(v * 100) / 100;
+
+  // Un pago que no se pudo rutear no tiene cuenta contable donde imputarse sin mentir. Se acumula
+  // aparte y se imputa a Deudores por Ventas: es plata que el cliente entregó pero que el sistema
+  // todavía no ubicó, así que tratarla como un crédito a resolver es lo más honesto (y deja el
+  // asiento balanceado). Queda visible en el aviso de "pago sin ubicar" de la pantalla de venta.
+  const debePorCuenta = new Map();
+  const sumar = (cuenta, monto) => debePorCuenta.set(cuenta, (debePorCuenta.get(cuenta) || 0) + monto);
+  for (const r of routeo) {
+    const cuenta = r.ruteado ? cuentaParaDestinoTesoreria(r.destino) : null;
+    sumar(cuenta || CUENTA.DEUDORES_VENTAS, r.monto);
+  }
+  if (montoPendiente > 0) sumar(CUENTA.DEUDORES_VENTAS, montoPendiente);
+
+  const movimientos = [
+    ...Array.from(debePorCuenta, ([cuenta, monto]) => ({ cuenta, debe: redondear(monto), haber: 0 })),
+    { cuenta: CUENTA.VENTAS, debe: 0, haber: redondear(datos.total) },
+    { cuenta: CUENTA.COSTO_MERCADERIA_VENDIDA, debe: redondear(costoTotal), haber: 0 },
+    { cuenta: CUENTA.BIENES_DE_CAMBIO, debe: 0, haber: redondear(costoTotal) },
+  ];
+  await generarAsiento(
+    { fecha: datos.fecha, descripcion: `Venta #${numeroVenta} — ${datos.clienteId ? datos.clienteNombre : "Consumidor final"}`, origen: { tipo: "venta", id: ventaRef.id, numero: numeroVenta }, movimientos },
+    usuario
+  );
 
   return { id: ventaRef.id, numeroVenta, routeoTesoreria: routeo };
 }
