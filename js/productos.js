@@ -73,7 +73,7 @@ function generarPrefijos(palabra) {
 // Índice de búsqueda: todas las palabras (y sus prefijos) de sku/código/descripción/marca, en un solo
 // array. Permite encontrar el producto escribiendo cualquier palabra suelta ("hepa", "ultracomb"),
 // no solo el principio de la descripción completa.
-function camposBusqueda(producto, marcaNombre) {
+export function camposBusqueda(producto, marcaNombre) {
   const palabras = [
     ...tokenizar(producto.sku),
     ...tokenizar(producto.codigoInterno),
