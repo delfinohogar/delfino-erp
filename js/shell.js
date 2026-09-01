@@ -39,6 +39,7 @@ export function renderShell({ active, titulo, usuario }) {
           "bolsa",
           nav("venta-nueva", "/productos/venta-nueva.html", "Nueva venta") +
             nav("ventas", "/productos/ventas.html", "Ventas") +
+            nav("entregas", "/productos/entregas.html", "Entregas") +
             nav("cuenta-corriente-clientes", "/productos/cuenta-corriente-clientes.html", "Cuenta corriente") +
             nav("cobros", "/productos/cobros.html", "Cobros")
         )}

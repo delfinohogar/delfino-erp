@@ -3,6 +3,7 @@ import { renderShell } from "/js/shell.js";
 import { listarVentas } from "/js/ventas.js";
 import { listarCobros } from "/js/cobros.js";
 import { listarComprobantes } from "/js/facturacion.js";
+import { listarEntregas } from "/js/entregas.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -51,12 +52,12 @@ function medioResumen(pagos) {
   return "Varios medios";
 }
 
-// El estado se recalcula con los cobros reales (no con venta.montoPendiente, que queda congelado
-// al momento de la venta y no se entera de los cobros que se registren después).
-function entregaBadge(venta) {
+// El estado real de la entrega sale de /entregas (ver js/entregas.js), no de la venta — es lo único
+// de esta fila que sigue cambiando después de vender.
+function entregaBadge(venta, entregasPorVenta) {
   const tipo = venta.tipoEntrega || "Retira ahora";
   if (tipo === "Retira ahora") return tipo;
-  const pendiente = venta.estadoEntrega !== "entregado";
+  const pendiente = entregasPorVenta.get(venta.id)?.estado !== "entregado";
   return `${tipo} ${pendiente ? '<span class="badge warning">Pendiente</span>' : '<span class="badge success">Entregado</span>'}`;
 }
 
@@ -78,6 +79,7 @@ async function cargar() {
   // hace falta para ofrecer "Generar" en ventas viejas, de antes de ese cambio.
   const comprobantes = await listarComprobantes({ maxResultados: 500 });
   const comprobantePorVenta = new Map(comprobantes.filter((c) => c.ventaId).map((c) => [c.ventaId, c]));
+  const entregasPorVenta = new Map((await listarEntregas()).map((e) => [e.ventaId, e]));
 
   ventas.forEach((v) => {
     const cobrado = cobros.filter((c) => c.ventaId === v.id).reduce((acc, c) => acc + (c.monto || 0), 0);
@@ -91,7 +93,7 @@ async function cargar() {
       <td>${v.clienteNombre || "Consumidor final"}</td>
       <td>${v.vendedorNombre || ""}</td>
       <td>${medioResumen(v.pagos)}</td>
-      <td>${entregaBadge(v)}</td>
+      <td>${entregaBadge(v, entregasPorVenta)}</td>
       <td>$${(v.total ?? 0).toLocaleString("es-AR")}</td>
       <td>${estadoBadge(saldo, v.total || 0)}</td>
       <td>${

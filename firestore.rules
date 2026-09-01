@@ -171,6 +171,17 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Estado de entrega de una venta (id = ventaId) — vive acá y no en /ventas porque la venta es
+    // inmutable. Se crea al vender (js/ventas.js crearVenta) y solo se puede tocar para marcarla
+    // entregada.
+    match /entregas/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if puedeVender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'entregadoPor', 'entregadoPorNombre', 'entregadoEn']);
+      allow delete: if false;
+    }
+
     // Correlativo interno del número de venta y de comprobante (contadores/ventas,
     // contadores/comprobantes: { ultimo }).
     match /contadores/{id} {

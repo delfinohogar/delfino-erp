@@ -32,6 +32,7 @@ export const ICONOS_NAV = {
   reportes: "grafico",
   "venta-nueva": "mas",
   ventas: "lista",
+  entregas: "camion",
   "cuenta-corriente-clientes": "intercambio",
   cobros: "billetera",
   productos: "caja",

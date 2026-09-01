@@ -26,6 +26,7 @@ import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } 
 import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
 import { crearCuentaPorCobrar } from "./cuentas-por-cobrar.js";
 import { obtenerMedioPagoPorNombre } from "./medios-pago.js";
+import { crearEntrega } from "./entregas.js";
 
 // Dónde termina la plata de un pago de venta — el corazón de la integración con Tesorería
 // (VENTA → COBRO → TESORERÍA). Nunca registra un pago como "disponible" si en realidad quedó
@@ -212,8 +213,9 @@ export async function crearVenta(datos, usuario) {
     tipoEntrega: datos.tipoEntrega || "Retira ahora",
     domicilioEntrega: datos.tipoEntrega === "Envío a domicilio" ? datos.domicilioEntrega || null : null,
     notaEntrega: datos.notaEntrega || null,
-    // "Retira ahora" se resuelve en el momento — el resto queda pendiente para que Logística lo tome.
-    estadoEntrega: datos.tipoEntrega && datos.tipoEntrega !== "Retira ahora" ? "pendiente" : "entregado",
+    // El estado real de la entrega (pendiente/entregado) vive en /entregas, no acá — la venta es
+    // inmutable, así que un campo estadoEntrega congelado en el momento de vender nunca se podría
+    // actualizar cuando se entregue de verdad (ver crearEntrega más abajo y js/entregas.js).
     // Ruteo a Tesorería, guardado tal cual quedó: si algún pago no se pudo ubicar (caja cerrada, medio
     // sin destino configurado), tieneSinUbicar queda en true para que el Centro de Pendientes lo pueda
     // encontrar con una sola query — sin esto, el aviso solo vivía en memoria y se perdía al cerrar la
@@ -223,6 +225,26 @@ export async function crearVenta(datos, usuario) {
     creadoPor: usuario.uid,
     creadoEn: ahora,
   });
+
+  // "Retira ahora" no genera entrega — ya está resuelta en el momento. El resto queda pendiente en
+  // una colección aparte (no en la venta, que es inmutable) para poder marcarla "entregado" después
+  // sin tocar el registro original de la venta (ver js/entregas.js y productos/entregas.js).
+  if (datos.tipoEntrega && datos.tipoEntrega !== "Retira ahora") {
+    await crearEntrega(
+      {
+        ventaId: ventaRef.id,
+        numeroVenta,
+        clienteId: datos.clienteId || null,
+        clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final",
+        sucursalId: sucursal?.id || null,
+        sucursalNombre: sucursal?.nombre || null,
+        tipoEntrega: datos.tipoEntrega,
+        domicilioEntrega: datos.domicilioEntrega,
+        notaEntrega: datos.notaEntrega,
+      },
+      usuario
+    );
+  }
 
   // Todo lo que no quedó "Pendiente de pago" es un cobro inmediato, atado a esta venta — así el saldo
   // del cliente sale de restar ventas.total menos cobros.monto, igual que con proveedores.

@@ -9,6 +9,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { obtenerVenta } from "/js/ventas.js";
 import { listarCobrosPorVenta } from "/js/cobros.js";
+import { obtenerEntrega, marcarEntregado } from "/js/entregas.js";
 import { obtenerCliente, actualizarCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { PLAN_DE_CUENTAS, listarAsientosPorOrigen } from "/js/contabilidad.js";
@@ -52,13 +53,14 @@ if (!venta) {
   throw new Error("venta no encontrada");
 }
 
-const [cobros, cliente, comprobante, asientos, configEmpresa, configFacturacion] = await Promise.all([
+const [cobros, cliente, comprobante, asientos, configEmpresa, configFacturacion, entrega] = await Promise.all([
   listarCobrosPorVenta(ventaId),
   venta.clienteId ? obtenerCliente(venta.clienteId) : Promise.resolve(null),
   obtenerComprobantePorVenta(ventaId),
   listarAsientosPorOrigen(ventaId),
   obtenerConfigEmpresa(),
   obtenerConfigFacturacion(),
+  venta.tipoEntrega && venta.tipoEntrega !== "Retira ahora" ? obtenerEntrega(ventaId) : Promise.resolve(null),
 ]);
 const configComprobante = { ...configEmpresa, ...configFacturacion };
 
@@ -78,8 +80,11 @@ function estadoBadge() {
 function entregaTexto() {
   const tipo = venta.tipoEntrega || "Retira ahora";
   if (tipo === "Retira ahora") return tipo;
-  const pendiente = venta.estadoEntrega !== "entregado";
-  return `${tipo}${venta.domicilioEntrega ? " — " + venta.domicilioEntrega : ""} ${pendiente ? '<span class="badge warning">Pendiente</span>' : '<span class="badge success">Entregado</span>'}`;
+  const pendiente = entrega?.estado !== "entregado";
+  const badge = pendiente
+    ? '<span class="badge warning">Pendiente</span> <button type="button" id="btn-marcar-entregado" class="link-btn">Marcar entregado</button>'
+    : `<span class="badge success">Entregado</span> <span class="hint">por ${entrega.entregadoPorNombre}, ${formatFechaHora(entrega.entregadoEn)}</span>`;
+  return `${tipo}${venta.domicilioEntrega ? " — " + venta.domicilioEntrega : ""} ${badge}`;
 }
 
 // --- Rentabilidad estimada: CMV desde el costo que quedó congelado en cada ítem al vender ---------
@@ -259,6 +264,12 @@ document.getElementById("btn-editar-cliente")?.addEventListener("click", async (
   const datos = await pedirClienteModal(null, cliente);
   if (!datos) return;
   await actualizarCliente(cliente.id, datos.razonSocial, datos.cuit, datos.datosArca, datos.datosContacto);
+  location.reload();
+});
+
+document.getElementById("btn-marcar-entregado")?.addEventListener("click", async (e) => {
+  e.target.disabled = true;
+  await marcarEntregado(ventaId, usuario);
   location.reload();
 });
 
