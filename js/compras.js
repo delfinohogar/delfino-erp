@@ -14,7 +14,7 @@ import {
   serverTimestamp,
   runTransaction,
 } from "./firebase.js";
-import { generarAsiento, CUENTA } from "./contabilidad.js";
+import { generarAsiento, CUENTA, normalizarFecha } from "./contabilidad.js";
 
 export async function listarCompras(maxResultados = 100) {
   const snap = await getDocs(query(collection(db, "compras"), orderBy("creadoEn", "desc"), limit(maxResultados)));
@@ -33,6 +33,14 @@ export async function listarComprasPorProveedor(proveedorId) {
 // el IVA de cada línea es información del comprobante, no se mezcla con costoReferencia del producto.
 export async function crearCompra(datos, usuario) {
   const ahora = serverTimestamp();
+  // Antes guardaba lo que llegara en datos.fecha tal cual — productos/compras-nueva.js manda un
+  // Date, así que quedaba como Timestamp en vez del string "YYYY-MM-DD" que usa ventas.fecha. El
+  // asiento generado por esta misma función ya normalizaba su propia fecha (generarAsiento llama a
+  // normalizarFecha internamente) pero el documento de compras quedaba con el tipo inconsistente —
+  // es la razón documentada por la que reportePosicionIva (js/reportes.js) tiene que traer TODA la
+  // colección de compras y filtrar en memoria en vez de un where() por fecha.
+  const fecha = normalizarFecha(datos.fecha);
+  const fechaVencimiento = datos.fechaVencimiento ? normalizarFecha(datos.fechaVencimiento) : null;
   const importes = datos.items.reduce((acc, it) => acc + it.subtotal, 0);
   const ivaTotal = datos.items.reduce((acc, it) => acc + (it.subtotal * (it.ivaPct || 0)) / 100, 0);
   const descuentoGlobal = datos.descuentoGlobal || 0;
@@ -44,8 +52,8 @@ export async function crearCompra(datos, usuario) {
     proveedorNombre: datos.proveedorNombre,
     tipoComprobante: datos.tipoComprobante,
     numeroFactura: datos.numeroFactura,
-    fecha: datos.fecha,
-    fechaVencimiento: datos.fechaVencimiento || null,
+    fecha,
+    fechaVencimiento,
     items: datos.items,
     importes,
     ivaTotal,
@@ -117,7 +125,7 @@ export async function crearCompra(datos, usuario) {
   const netoSinIva = importes - descuentoGlobal + percepciones;
   await generarAsiento(
     {
-      fecha: datos.fecha,
+      fecha,
       descripcion: `Compra ${datos.tipoComprobante} ${datos.numeroFactura} — ${datos.proveedorNombre}`,
       origen: { tipo: "compra", id: compraRef.id, numero: datos.numeroFactura },
       movimientos: [

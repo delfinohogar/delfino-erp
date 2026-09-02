@@ -27,6 +27,9 @@ exports.extraerFactura = require("./extraerFactura").extraerFactura;
 // Cargar credenciales (secrets) desde una pantalla del ERP en vez de la terminal.
 exports.guardarSecretoAdmin = require("./secretosAdmin").guardarSecretoAdmin;
 
+// Alta de usuario (login + perfil) en un solo paso, sin pasar por Firebase Console.
+exports.crearUsuarioCompleto = require("./usuariosAdmin").crearUsuarioCompleto;
+
 // Integración de Mercado Pago Point (entorno de pruebas) — ver mercadoPago.js para el detalle.
 const mercadoPago = require("./mercadoPago");
 exports.mpProbarConexion = mercadoPago.mpProbarConexion;

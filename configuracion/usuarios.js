@@ -1,6 +1,6 @@
 import { requireAuth } from "/js/auth.js";
 import { renderConfigShell } from "/js/configuracion-shell.js";
-import { listarUsuarios, crearPerfilUsuario, actualizarPerfilUsuario, ROLES } from "/js/usuarios.js";
+import { listarUsuarios, crearUsuarioCompleto, actualizarPerfilUsuario, ROLES } from "/js/usuarios.js";
 import { listarSucursalesActivas } from "/js/sucursales.js";
 
 const usuario = await requireAuth();
@@ -33,10 +33,6 @@ content.innerHTML = `
     <div class="section-title" id="form-titulo">Nuevo usuario</div>
     <div class="hint" style="margin-bottom:12px" id="form-hint"></div>
     <form id="form-usuario">
-      <div class="field" id="campo-uid">
-        <label for="f-uid">UID (de Firebase Authentication)</label>
-        <input type="text" id="f-uid" placeholder="Lo copiás de Authentication en Firebase Console" required />
-      </div>
       <div class="field">
         <label for="f-nombre">Nombre</label>
         <input type="text" id="f-nombre" required />
@@ -44,6 +40,11 @@ content.innerHTML = `
       <div class="field">
         <label for="f-email">Email</label>
         <input type="email" id="f-email" required />
+      </div>
+      <div class="field" id="campo-password">
+        <label for="f-password">Contraseña inicial</label>
+        <input type="text" id="f-password" placeholder="Mínimo 6 caracteres — se la pasás vos a la persona" minlength="6" />
+        <div class="hint">La puede cambiar ella misma después iniciando sesión.</div>
       </div>
       <div class="field">
         <label for="f-rol">Rol</label>
@@ -86,7 +87,7 @@ content.innerHTML = `
 const formCard = document.getElementById("form-card");
 const formTitulo = document.getElementById("form-titulo");
 const formHint = document.getElementById("form-hint");
-const campoUid = document.getElementById("campo-uid");
+const campoPassword = document.getElementById("campo-password");
 const form = document.getElementById("form-usuario");
 const tablaBody = document.getElementById("tabla-body");
 const emptyState = document.getElementById("empty-state");
@@ -96,18 +97,16 @@ let editandoUid = null;
 function abrirFormulario(u) {
   editandoUid = u?.id || null;
   formTitulo.textContent = u ? "Editar usuario" : "Nuevo usuario";
-  formHint.textContent = u
-    ? ""
-    : "Primero creá el login (email + contraseña) en Firebase Console → Authentication → Add user, y pegá acá el UID que te da.";
-  campoUid.style.display = u ? "none" : "block";
-  document.getElementById("f-uid").required = !u;
-  document.getElementById("f-uid").value = u?.id || "";
+  formHint.textContent = u ? "" : "Esto crea el login y el perfil juntos — la persona ya puede entrar con este email y contraseña.";
+  campoPassword.style.display = u ? "none" : "block";
+  document.getElementById("f-password").required = !u;
+  document.getElementById("f-password").value = "";
   document.getElementById("f-nombre").value = u?.nombre || "";
   document.getElementById("f-email").value = u?.email || "";
   document.getElementById("f-rol").value = u?.rol || "vendedor";
   document.getElementById("f-sucursal").value = u?.sucursalId || "";
   formCard.style.display = "block";
-  document.getElementById(u ? "f-nombre" : "f-uid").focus();
+  document.getElementById(u ? "f-nombre" : "f-nombre").focus();
 }
 
 function cerrarFormulario() {
@@ -142,6 +141,8 @@ document.getElementById("btn-cancelar").addEventListener("click", cerrarFormular
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  const errorEl = document.getElementById("form-error");
+  if (errorEl) errorEl.style.display = "none";
   const sucSel = document.getElementById("f-sucursal");
   const datos = {
     nombre: document.getElementById("f-nombre").value.trim(),
@@ -150,14 +151,22 @@ form.addEventListener("submit", async (e) => {
     sucursalId: sucSel.value || null,
     sucursalNombre: sucSel.value ? sucSel.selectedOptions[0].dataset.nombre : null,
   };
-  if (editandoUid) {
-    await actualizarPerfilUsuario(editandoUid, datos);
-  } else {
-    const uid = document.getElementById("f-uid").value.trim();
-    await crearPerfilUsuario({ uid, ...datos });
+  const submitBtn = form.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  try {
+    if (editandoUid) {
+      await actualizarPerfilUsuario(editandoUid, datos);
+    } else {
+      const password = document.getElementById("f-password").value;
+      await crearUsuarioCompleto({ ...datos, password });
+    }
+    cerrarFormulario();
+    cargar();
+  } catch (err) {
+    alert(err?.message || "No se pudo guardar el usuario.");
+  } finally {
+    submitBtn.disabled = false;
   }
-  cerrarFormulario();
-  cargar();
 });
 
 cargar();

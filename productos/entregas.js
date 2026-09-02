@@ -78,8 +78,13 @@ async function cargar() {
     `;
     tr.querySelector("[data-role=entregar]")?.addEventListener("click", async (e) => {
       e.target.disabled = true;
-      await marcarEntregado(entrega.ventaId, usuario);
-      cargar();
+      try {
+        await marcarEntregado(entrega.ventaId, usuario);
+        cargar();
+      } catch (err) {
+        alert("No se pudo marcar como entregado: " + (err?.message || "error desconocido"));
+        e.target.disabled = false;
+      }
     });
     tablaBody.appendChild(tr);
   });
