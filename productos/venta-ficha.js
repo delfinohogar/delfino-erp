@@ -9,7 +9,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { obtenerVenta } from "/js/ventas.js";
 import { listarCobrosPorVenta } from "/js/cobros.js";
-import { obtenerEntrega, marcarEntregado } from "/js/entregas.js";
+import { obtenerEntrega, marcarEntregado, crearEntrega } from "/js/entregas.js";
 import { obtenerCliente, actualizarCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { PLAN_DE_CUENTAS, listarAsientosPorOrigen } from "/js/contabilidad.js";
@@ -19,6 +19,7 @@ import { obtenerConfigFacturacion } from "/js/facturacion-config.js";
 import { descargarPdfComprobante } from "/js/facturacion-pdf.js";
 import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
 import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -33,9 +34,6 @@ if (!ventaId) {
 
 const NOMBRE_CUENTA = new Map(PLAN_DE_CUENTAS.map((c) => [c.codigo, c.nombre]));
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFecha(fecha) {
   if (!fecha) return "-";
   if (fecha.toDate) return fecha.toDate().toLocaleDateString("es-AR");
@@ -269,8 +267,33 @@ document.getElementById("btn-editar-cliente")?.addEventListener("click", async (
 
 document.getElementById("btn-marcar-entregado")?.addEventListener("click", async (e) => {
   e.target.disabled = true;
-  await marcarEntregado(ventaId, usuario);
-  location.reload();
+  try {
+    // Si crearEntrega falló en su momento (red caída, etc. — ver crearVenta en ventas.js), no existe
+    // /entregas/{ventaId} y marcarEntregado (un updateDoc) tira "not-found" sin ningún aviso: el botón
+    // quedaba deshabilitado para siempre sin que nadie se enterara de qué pasó. Se reconstruye acá con
+    // los mismos datos de la venta (que ya están completos) antes de marcarla entregada.
+    if (!entrega) {
+      await crearEntrega(
+        {
+          ventaId,
+          numeroVenta: venta.numeroVenta,
+          clienteId: venta.clienteId,
+          clienteNombre: venta.clienteNombre,
+          sucursalId: venta.sucursalId,
+          sucursalNombre: venta.sucursalNombre,
+          tipoEntrega: venta.tipoEntrega,
+          domicilioEntrega: venta.domicilioEntrega,
+          notaEntrega: venta.notaEntrega,
+        },
+        usuario
+      );
+    }
+    await marcarEntregado(ventaId, usuario);
+    location.reload();
+  } catch (err) {
+    alert("No se pudo marcar como entregado: " + (err?.message || "error desconocido"));
+    e.target.disabled = false;
+  }
 });
 
 document.getElementById("btn-pdf")?.addEventListener("click", () => descargarPdfComprobante(comprobante, configComprobante));

@@ -352,7 +352,6 @@ function validarFirmaWebhook(req, secret) {
   const diagnostico = {
     xSignatureCruda: xSignature || "(ninguna)",
     xRequestIdCruda: xRequestId || "(ninguno)",
-    secretLargo: secret ? secret.length : 0,
   };
   if (!xSignature || !secret) return { variante: null, diagnostico };
 

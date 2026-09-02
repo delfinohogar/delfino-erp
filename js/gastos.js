@@ -4,6 +4,7 @@
 import { db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
 import { registrarMovimientoCaja } from "./cajas.js";
 import { registrarMovimientoBancario } from "./bancos.js";
+import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria } from "./contabilidad.js";
 
 // datos: { fecha, sucursalId, sucursalNombre, categoria, proveedorNombre?, concepto, importe,
 //          medioPago, destino: { tipo: "caja"|"banco", id, nombre, sesionId? }, comprobante? }
@@ -43,6 +44,22 @@ export async function registrarGasto(datos, usuario) {
     );
   }
 
+  // Antes un gasto nunca generaba asiento — Contabilidad no se enteraba de ningún egreso operativo
+  // (alquiler, insumos, servicios), así que Estado de Resultados/Sumas y Saldos quedaban siempre
+  // sobrestimados en la ganancia por el total acumulado de gastos, sin ningún aviso.
+  await generarAsiento(
+    {
+      fecha: datos.fecha || new Date().toISOString().slice(0, 10),
+      descripcion: `Gasto — ${datos.categoria}: ${datos.concepto}`,
+      origen,
+      movimientos: [
+        { cuenta: CUENTA.GASTOS_GENERALES, debe: Math.round(datos.importe * 100) / 100, haber: 0 },
+        { cuenta: cuentaParaDestinoTesoreria(datos.destino.tipo), debe: 0, haber: Math.round(datos.importe * 100) / 100 },
+      ],
+    },
+    usuario
+  );
+
   return { id: ref.id };
 }
 
@@ -66,6 +83,9 @@ export async function obtenerGasto(id) {
 }
 
 export async function anularGasto(id, motivo, usuario) {
+  const gastoSnap = await getDoc(doc(db, "gastos", id));
+  const gasto = gastoSnap.exists() ? gastoSnap.data() : null;
+
   await updateDoc(doc(db, "gastos", id), {
     estado: "anulado",
     motivoAnulacion: motivo,
@@ -82,5 +102,22 @@ export async function anularGasto(id, motivo, usuario) {
   const bancoSnap = await getDocs(query(collection(db, "movimientosBancarios"), where("origen.tipo", "==", "gasto"), where("origen.id", "==", id)));
   for (const d of bancoSnap.docs) {
     await updateDoc(doc(db, "movimientosBancarios", d.id), { estado: "anulado", motivoAnulacion: motivo, anuladoPor: usuario.uid, anuladoPorNombre: usuario.nombre || usuario.email, fechaAnulacion: serverTimestamp() });
+  }
+
+  // asientosContables es inmutable (allow update: if false) — el asiento original del gasto no se
+  // puede tocar, así que la anulación se contabiliza con un asiento inverso, no con un borrado.
+  if (gasto) {
+    await generarAsiento(
+      {
+        fecha: new Date().toISOString().slice(0, 10),
+        descripcion: `Anulación de gasto — ${gasto.categoria}: ${gasto.concepto} (${motivo})`,
+        origen: { tipo: "gasto", id, anulacion: true },
+        movimientos: [
+          { cuenta: cuentaParaDestinoTesoreria(gasto.destinoTipo), debe: Math.round(gasto.importe * 100) / 100, haber: 0 },
+          { cuenta: CUENTA.GASTOS_GENERALES, debe: 0, haber: Math.round(gasto.importe * 100) / 100 },
+        ],
+      },
+      usuario
+    );
   }
 }

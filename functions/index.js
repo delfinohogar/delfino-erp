@@ -48,6 +48,23 @@ function limpiarCuit(cuit) {
 // idImpuesto del catálogo de ARCA para IVA (impuesto 30).
 const ID_IMPUESTO_IVA = 30;
 
+// El parser XML (fast-xml-parser, ignoreAttributes:true) devuelve string para un nodo hoja
+// normal, pero si ARCA lo manda con atributos o hijos mixtos puede llegar como objeto
+// ({"#text": "..."} o un objeto con la primera propiedad útil) — de ahí salió el bug real de
+// "[object Object]" en la ficha de un cliente: se interpolaba el objeto crudo en el template
+// literal sin extraer el texto. Esto lo blinda para cualquier campo de texto que venga de ARCA,
+// no solo para este caso puntual.
+function textoDeCampoArca(valor) {
+  if (valor == null) return null;
+  if (typeof valor === "string" || typeof valor === "number") return String(valor).trim() || null;
+  if (typeof valor === "object") {
+    if (typeof valor["#text"] === "string") return valor["#text"].trim() || null;
+    const primerString = Object.values(valor).find((v) => typeof v === "string" && v.trim());
+    if (primerString) return primerString.trim();
+  }
+  return null;
+}
+
 // A partir de la respuesta de A5 (constancia de inscripción), arma la condición frente al IVA
 // propiamente dicha (Responsable Inscripto / Monotributista / etc.) — no la lista completa de
 // impuestos en los que está inscripto (eso queda aparte, no hace falta mezclarlo acá).
@@ -55,7 +72,7 @@ function condicionIvaDesdePersonaA5(personaA5) {
   if (!personaA5) return null;
 
   if (personaA5.datosMonotributo) {
-    const categoria = personaA5.datosMonotributo.descripcionCategoria || personaA5.datosMonotributo.categoriaMonotributo;
+    const categoria = textoDeCampoArca(personaA5.datosMonotributo.descripcionCategoria) || textoDeCampoArca(personaA5.datosMonotributo.categoriaMonotributo);
     return categoria ? `Monotributista (categoría ${categoria})` : "Monotributista";
   }
 
@@ -105,16 +122,23 @@ exports.consultarPadronArca = onCall(
     const domicilios = Array.isArray(domiciliosRaw) ? domiciliosRaw : domiciliosRaw ? [domiciliosRaw] : [];
     const domicilioFiscal = domicilios.find((d) => d.tipoDomicilio === "FISCAL") || domicilios[0] || {};
 
+    // Todo lo que viene de ARCA pasa por textoDeCampoArca antes de salir de acá — se guarda en
+    // Firestore y se renderiza en varias pantallas (ficha de cliente/proveedor, modal de alta),
+    // así que un campo mal parseado como objeto tiene que quedar blindado en el origen, no en
+    // cada lugar que lo consume después.
+    const descripcionActividad = textoDeCampoArca(persona.descripcionActividadPrincipal);
+
     return {
-      razonSocial: persona.razonSocial || [persona.nombre, persona.apellido].filter(Boolean).join(" ") || null,
+      razonSocial:
+        textoDeCampoArca(persona.razonSocial) ||
+        [textoDeCampoArca(persona.nombre), textoDeCampoArca(persona.apellido)].filter(Boolean).join(" ") ||
+        null,
       condicionIva,
-      domicilioFiscal: domicilioFiscal.direccion || null,
-      provincia: domicilioFiscal.descripcionProvincia || null,
-      codigoPostal: domicilioFiscal.codigoPostal || null,
-      situacionTributaria: persona.estadoClave || null,
-      actividades: persona.descripcionActividadPrincipal
-        ? [{ id: persona.idActividadPrincipal, descripcion: persona.descripcionActividadPrincipal }]
-        : [],
+      domicilioFiscal: textoDeCampoArca(domicilioFiscal.direccion),
+      provincia: textoDeCampoArca(domicilioFiscal.descripcionProvincia),
+      codigoPostal: textoDeCampoArca(domicilioFiscal.codigoPostal),
+      situacionTributaria: textoDeCampoArca(persona.estadoClave),
+      actividades: descripcionActividad ? [{ id: textoDeCampoArca(persona.idActividadPrincipal), descripcion: descripcionActividad }] : [],
     };
   }
 );

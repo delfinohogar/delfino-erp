@@ -2,16 +2,15 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarVentasConPagoSinUbicar } from "/js/ventas.js";
 import { listarCobrosConPagoSinUbicar } from "/js/cobros.js";
+import { listarPagosProveedorConPagoSinUbicar } from "/js/pagos.js";
 import { marcarPagoSinUbicarResuelto, mapaResolucionesPagoSinUbicar } from "/js/resoluciones-pago-sin-ubicar.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const content = renderShell({ active: "tesoreria-dashboard", titulo: "Pagos sin ubicar", usuario });
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFechaHora(v) {
   if (!v) return "-";
   const f = v?.toDate ? v.toDate() : new Date(v);
@@ -24,9 +23,10 @@ content.innerHTML = `<div class="hint">Cargando…</div>`;
 // lista — para Tesorería es el mismo problema: plata que se cobró pero que el sistema no supo dónde
 // poner (caja cerrada, medio sin destino configurado en Configuración → Medios de pago, etc.).
 async function cargar() {
-  const [ventas, cobros, resoluciones] = await Promise.all([
+  const [ventas, cobros, pagos, resoluciones] = await Promise.all([
     listarVentasConPagoSinUbicar(),
     listarCobrosConPagoSinUbicar(),
+    listarPagosProveedorConPagoSinUbicar(),
     mapaResolucionesPagoSinUbicar(),
   ]);
 
@@ -50,6 +50,16 @@ async function cargar() {
       sucursal: null,
       fecha: c.creadoEn,
       pagosSinRutear: c.routeoTesoreria?.ruteado ? [] : [{ medio: c.medioPago, monto: c.monto, motivo: c.routeoTesoreria?.motivo }],
+    })),
+    ...pagos.map((p) => ({
+      origenTipo: "pago",
+      origenId: p.id,
+      titulo: `Pago — ${p.compraNumero || "compra"}`,
+      href: `/productos/pagos.html`,
+      cliente: p.proveedorNombre,
+      sucursal: null,
+      fecha: p.creadoEn,
+      pagosSinRutear: p.routeoTesoreria?.ruteado ? [] : [{ medio: p.medioPago, monto: p.monto, motivo: p.routeoTesoreria?.motivo }],
     })),
   ].sort((a, b) => (b.fecha?.seconds || 0) - (a.fecha?.seconds || 0));
 

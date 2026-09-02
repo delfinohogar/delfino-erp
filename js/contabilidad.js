@@ -46,6 +46,7 @@ export const CUENTA = {
   PROVEEDORES: "2.1.1",
   VENTAS: "4.1",
   COSTO_MERCADERIA_VENDIDA: "5.1",
+  GASTOS_GENERALES: "5.2",
 };
 
 // A qué cuenta contable corresponde cada destino de Tesorería. Un solo lugar para que el asiento y

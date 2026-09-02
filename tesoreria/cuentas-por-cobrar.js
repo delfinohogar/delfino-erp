@@ -3,6 +3,7 @@ import { renderShell } from "/js/shell.js";
 import { listarCuentasPorCobrar, registrarCobroCuentaPorCobrar, MEDIOS_CUENTA_POR_COBRAR, estaVencida } from "/js/cuentas-por-cobrar.js";
 import { listarCajas, sesionAbiertaDeCaja } from "/js/cajas.js";
 import { listarCuentasBancariasActivas } from "/js/bancos.js";
+import { formatMoneda } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -10,7 +11,7 @@ if (!usuario) throw new Error("redirecting to login");
 const content = renderShell({ active: "tesoreria-cxc", titulo: "Cuentas por cobrar", usuario });
 
 function formatMonto(v) {
-  return v == null ? "No disponible" : `$${Math.round(v).toLocaleString("es-AR")}`;
+  return v == null ? "No disponible" : formatMoneda(v);
 }
 function formatFecha(fecha) {
   if (!fecha) return "-";
@@ -146,27 +147,12 @@ async function abrirModalCobro(cuentaId, cuenta) {
         {
           importeRecibido: parseFloat(overlay.querySelector("#cc-importe").value),
           fecha: overlay.querySelector("#cc-fecha").value,
-          destino: { tipo: destinoOpt.tipo, id: destinoOpt.id, nombre: destinoOpt.nombre.replace(/^[^\s]+\s/, "") },
+          destino: { tipo: destinoOpt.tipo, id: destinoOpt.id, sesionId: destinoOpt.sesionId, nombre: destinoOpt.nombre.replace(/^[^\s]+\s/, "") },
           referencia: overlay.querySelector("#cc-referencia").value,
           motivoDiferencia: overlay.querySelector("#cc-motivo").value,
         },
         usuario
       );
-      // El cobro de la cuenta por cobrar también tiene que quedar como ingreso real en la
-      // caja/cuenta elegida — mismo mecanismo que usan ventas.js/cobros.js.
-      const { registrarMovimientoCaja } = await import("/js/cajas.js");
-      const { registrarMovimientoBancario } = await import("/js/bancos.js");
-      if (destinoOpt.tipo === "caja") {
-        await registrarMovimientoCaja(
-          { cajaId: destinoOpt.id, sesionId: destinoOpt.sesionId, tipo: "ingreso", concepto: `Acreditación ${cuenta.medio} — ${cuenta.clienteNombre}`, importe: resultado.pago.importe, medio: cuenta.medio, clienteId: cuenta.clienteId, clienteNombre: cuenta.clienteNombre, origen: { tipo: "cuentaPorCobrar", id: cuentaId } },
-          usuario
-        );
-      } else {
-        await registrarMovimientoBancario(
-          { cuentaId: destinoOpt.id, fecha: overlay.querySelector("#cc-fecha").value, tipo: "ingreso", concepto: `Acreditación ${cuenta.medio} — ${cuenta.clienteNombre}`, importe: resultado.pago.importe, clienteId: cuenta.clienteId, clienteNombre: cuenta.clienteNombre, origen: { tipo: "cuentaPorCobrar", id: cuentaId } },
-          usuario
-        );
-      }
       overlay.remove();
       if (Math.abs(resultado.diferencia) > 0.5) alert(`Se registró con una diferencia de ${formatMonto(Math.abs(resultado.diferencia))} respecto de lo esperado.`);
       cargar();
