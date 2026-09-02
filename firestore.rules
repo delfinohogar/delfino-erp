@@ -31,9 +31,13 @@ service cloud.firestore {
     }
 
     // Una venta descuenta stock de producto vía transacción — un vendedor necesita poder tocar ESE
-    // campo puntual sin heredar permiso para editar costo/precio/etc. del catálogo.
+    // campo puntual sin heredar permiso para editar costo/precio/etc. del catálogo. crearVenta()
+    // (js/ventas.js) también pisa ultimoPrecioVenta/ultimaVentaEn en la misma transacción (referencia
+    // de "última venta" para el buscador de Nueva Venta) — hasta ahora esos dos campos no estaban en
+    // la lista y la regla rechazaba la transacción entera para cualquier usuario sin puedeEditarCatalogo()
+    // (o sea, cualquier "vendedor" real), bloqueando toda venta hecha por ese rol.
     function soloActualizaStock() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockTotal', 'modificadoPor', 'modificadoEn']);
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockTotal', 'ultimoPrecioVenta', 'ultimaVentaEn', 'modificadoPor', 'modificadoEn']);
     }
 
     match /usuarios/{uid} {
