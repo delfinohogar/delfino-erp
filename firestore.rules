@@ -254,6 +254,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // --- Tienda Nube (preparado, sin conectar — ver docs/tiendanube-integracion.md) ----------------
+    // La cola y las órdenes las escribe hoy el propio cliente (mismo rol que edita catálogo) porque
+    // todavía no hay una Cloud Function que sincronice de verdad. El día que exista, esa función usa
+    // el Admin SDK (bypasea reglas) y esto se puede endurecer a allow write: if false, igual que
+    // pagosMercadoPago — no hace falta tocar el resto del modelo para ese cambio.
+    match /colaSincronizacionTiendaNube/{id} {
+      allow read: if estaLogueado();
+      allow create, update: if puedeEditarCatalogo();
+      allow delete: if false;
+    }
+
+    match /ordenesTiendaNube/{id} {
+      allow read: if estaLogueado();
+      allow create, update: if puedeEditarCatalogo();
+      allow delete: if false;
+    }
+
     // --- Tesorería -------------------------------------------------------------------------------
     // Mismo criterio que el resto del ERP: los movimientos financieros nunca se borran ni se editan
     // libremente — solo se pueden "anular" (allowlist de campos, gateado a administrador) o, en el
