@@ -593,6 +593,23 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(226, 62, 58, 0.12);
 }
 
+/* iOS Safari hace zoom automático al enfocar cualquier input/select/textarea con font-size
+   computado menor a 16px — con los 14px de arriba, tocar el buscador en el celular disparaba
+   ese zoom y se perdía la vista general. Server side (Cloud Functions) no puede saber el ancho
+   real del viewport, así que se corrige con la propia condición del navegador (max-width),
+   sin cambiar la tipografía en desktop, que ya está bien a 14px. */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 label {
   display: block;
   font-size: 13px;
