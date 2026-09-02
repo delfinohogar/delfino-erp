@@ -27,6 +27,7 @@ import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./ba
 import { crearCuentaPorCobrar } from "./cuentas-por-cobrar.js";
 import { obtenerMedioPagoPorNombre } from "./medios-pago.js";
 import { crearEntrega } from "./entregas.js";
+import { vincularVentaAOrden } from "./mercado-pago.js";
 
 // Dónde termina la plata de un pago de venta — el corazón de la integración con Tesorería
 // (VENTA → COBRO → TESORERÍA). Nunca registra un pago como "disponible" si en realidad quedó
@@ -236,6 +237,20 @@ export async function crearVenta(datos, usuario) {
     creadoEn: ahora,
   });
 
+  // Cierra el vínculo Venta ↔ pagosMercadoPago: la orden se crea (y se aprueba) ANTES de esta
+  // venta existir, así que arranca con ventaId:null (ver mpCrearOrdenVenta) — recién acá, con la
+  // venta ya escrita, se puede completar. Best-effort a propósito: si esto falla, la venta ya está
+  // creada y el cobro ya está aprobado — la fuente de verdad de "esta venta se pagó con MP" sigue
+  // siendo pagos[].mpOrderId, guardado arriba; este vínculo es trazabilidad extra, no crítica.
+  for (const pago of datos.pagos) {
+    if (!pago.mpOrderId) continue;
+    try {
+      await vincularVentaAOrden(pago.mpOrderId, ventaRef.id);
+    } catch (err) {
+      console.error(`No se pudo vincular la venta #${numeroVenta} con la orden de Mercado Pago ${pago.mpOrderId}:`, err);
+    }
+  }
+
   // "Retira ahora" no genera entrega — ya está resuelta en el momento. El resto queda pendiente en
   // una colección aparte (no en la venta, que es inmutable) para poder marcarla "entregado" después
   // sin tocar el registro original de la venta (ver js/entregas.js y productos/entregas.js).
@@ -269,6 +284,7 @@ export async function crearVenta(datos, usuario) {
         monto: pago.monto,
         fecha: datos.fecha,
         medioPago: pago.medio,
+        mpOrderId: pago.mpOrderId || null,
         referencia: "",
         notas: "Cobro automático al confirmar la venta",
         usuario: usuario.uid,

@@ -510,6 +510,27 @@ continuarBtn.addEventListener("click", async () => {
 
     mostrarConfirmacion(resultado.numeroVenta, tipoEntrega, comprobante, resultado.routeoTesoreria);
   } catch (err) {
+    // El pago con Mercado Pago ya se cobró de verdad ANTES de llegar acá (venta-pago-modal.js solo
+    // resuelve con mpOrderId una vez que la terminal aprobó) — si crearVenta (o crearComprobante)
+    // falla DESPUÉS de eso, hay plata cobrada y ninguna venta registrada. No se puede tratar como
+    // un error cualquiera: nunca hay que dejar que el cajero piense "no pasó nada" y vuelva a
+    // cobrarle al cliente. Por eso el aviso es bloqueante y el botón queda deshabilitado a
+    // propósito — no se reactiva, la única salida es recargar la página.
+    const pagoMp = pagos.find((p) => p.mpOrderId);
+    if (pagoMp) {
+      const mensaje = `El pago de Mercado Pago (orden ${pagoMp.mpOrderId}) fue APROBADO, pero la venta NO se pudo registrar en Delfino.\n\nNO vuelvas a cobrarle al cliente.\n\nContactá administración y pasales este número de orden:\n${pagoMp.mpOrderId}\n\nError técnico: ${err?.message || "desconocido"}`;
+      alert(mensaje);
+      errorEl.innerHTML = `
+        <div style="border:2px solid var(--danger); border-radius:8px; padding:14px; text-align:left">
+          <div style="font-weight:700; color:var(--danger); margin-bottom:6px">⚠️ Mercado Pago cobró, pero la venta no se registró</div>
+          <div style="margin-bottom:6px">NO vuelvas a cobrarle al cliente. Contactá administración con este dato:</div>
+          <div style="font-family:monospace; font-weight:700; user-select:all">Orden Mercado Pago: ${pagoMp.mpOrderId}</div>
+          <div class="hint" style="margin-top:8px">Recargá la página para intentar otra venta — esta pantalla queda bloqueada a propósito.</div>
+        </div>
+      `;
+      errorEl.style.display = "block";
+      return; // continuarBtn se queda deshabilitado — no se reactiva
+    }
     errorEl.textContent = err?.message || "Ocurrió un error al registrar la venta.";
     errorEl.style.display = "block";
     continuarBtn.disabled = false;

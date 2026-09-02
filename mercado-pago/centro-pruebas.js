@@ -5,6 +5,7 @@ import {
   obtenerConfigMercadoPago,
   probarConexionMercadoPago,
   listarTerminales,
+  configurarPuntoDeVenta,
   crearOrdenPrueba,
   simularEventoOrden,
   consultarPago,
@@ -61,7 +62,9 @@ content.innerHTML = `
         <select id="select-terminal"><option value="">— Probá conexión y listá terminales —</option></select>
       </div>
       <button type="button" id="btn-listar-terminales" style="margin-top:22px">🔄 Listar terminales</button>
+      <button type="button" id="btn-configurar-pdv" style="margin-top:22px">🛠️ Configurar tienda/caja + activar PDV</button>
     </div>
+    <div class="hint">Si "Crear prueba" da 403 "Unauthorized", corré esto primero — el dispositivo virtual necesita una tienda y una caja asociadas antes de poder recibir órdenes.</div>
   </div>
 
   <div class="card mb-16">
@@ -275,6 +278,22 @@ async function cargarTerminales() {
   cargarLogs();
 }
 document.getElementById("btn-listar-terminales").addEventListener("click", cargarTerminales);
+
+document.getElementById("btn-configurar-pdv").addEventListener("click", async () => {
+  const terminalId = document.getElementById("select-terminal").value;
+  if (!terminalId) return mostrarResultado("Elegí un terminal primero (Listar terminales).", true);
+  const btn = document.getElementById("btn-configurar-pdv");
+  btn.disabled = true;
+  mostrarResultado("Configurando tienda + caja + modo PDV… puede tardar unos segundos.");
+  try {
+    const res = await configurarPuntoDeVenta(terminalId);
+    mostrarResultado(`Listo — tienda ${res.storeId}, caja ${res.posId}, terminal en modo PDV. Probá "Crear prueba" de nuevo.`);
+  } catch (err) {
+    mostrarResultado("No se pudo configurar: " + (err?.message || "error desconocido"), true);
+  }
+  btn.disabled = false;
+  cargarLogs();
+});
 
 document.getElementById("btn-crear-prueba").addEventListener("click", async () => {
   const terminalId = document.getElementById("select-terminal").value;
