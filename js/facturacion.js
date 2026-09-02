@@ -28,10 +28,17 @@ import {
   runTransaction,
 } from "./firebase.js";
 import { listarSucursalesActivas } from "./sucursales.js";
+import { obtenerConfigFacturacion } from "./facturacion-config.js";
+import { obtenerConfigEmpresa } from "./configuracion-empresa.js";
+import { autorizarComprobanteArca } from "./arca-facturacion.js";
 
-export const ESTADOS_COMPROBANTE = ["BORRADOR", "EMITIDA", "ANULADA"];
-// Preparados para cuando exista ARCA — no se usan todavía (ver FiscalService más abajo).
-export const ESTADOS_ARCA_FUTUROS = ["PENDING_ARCA", "AUTHORIZED", "REJECTED", "ERROR"];
+// PROCESANDO_ARCA y RECHAZADA solo se usan del lado de ARCA (ver ArcaFiscalProvider) — un
+// comprobante interno nunca pasa por ninguno de los dos, nace directo en EMITIDA como siempre.
+export const ESTADOS_COMPROBANTE = ["BORRADOR", "EMITIDA", "PROCESANDO_ARCA", "RECHAZADA", "ANULADA"];
+// arcaEstado (campo aparte, dentro de datosFiscales) — no confundir con comprobante.estado de
+// arriba: arcaEstado describe el resultado puntual de LA AUTORIZACIÓN, estado describe el
+// comprobante completo (que además puede después pasar a ANULADA vía nota de crédito).
+export const ESTADOS_ARCA = ["PENDING_ARCA", "AUTHORIZED", "REJECTED"];
 
 export const FORMAS_PAGO_COMPROBANTE = ["Efectivo", "Débito", "Transferencia", "Tarjeta de crédito", "GoCuotas", "Otra"];
 
@@ -129,25 +136,28 @@ const InternalProvider = {
   },
 };
 
-// TODO (futuro, NO implementar todavía): ArcaFiscalProvider — misma interfaz que InternalProvider.
-// Antes de escribir una sola línea de esto hay que investigar contra la documentación oficial
-// vigente de ARCA (no inventar endpoints/campos), como mínimo:
-//   - ArcaAuthService: WSAA — autenticación con certificado digital X.509 (TEST y PRODUCCIÓN son
-//     certificados y entornos DISTINTOS, nunca se mezclan) → Ticket de Acceso (token + sign, vida
-//     limitada) que después usa el Web Service de negocio.
-//   - WSFEv1 (o el que corresponda vigente) para Factura A/B/C/M: qué método exacto autoriza cada
-//     tipo, con qué estructura de request/response, qué código de comprobante fiscal usa cada uno.
-//   - Qué correlatividad exige ARCA por punto de venta + tipo (ya preparado acá, ver arriba).
-//   - Especificación oficial del QR fiscal (no se inventa el contenido).
-// autorizar(comprobante) debería:
-//   1. Determinar tipo de comprobante fiscal según condición de IVA emisor/receptor.
-//   2. Armar el request del Web Service correspondiente.
-//   3. Autenticarse vía WSAA (certificado + clave privada, como ya hace arcaWsaa.js para el padrón).
-//   4. Enviar y recibir CAE + vencimiento + resultado (o el motivo de rechazo, sin inventar nada).
-//   5. Devolver los mismos 8 campos que InternalProvider, con los valores reales de ARCA.
-// El resto del módulo NO debería necesitar cambios — solo evaluarProveedorFiscal() de acá abajo.
-function evaluarProveedorFiscal() {
-  return InternalProvider; // cambiar acá cuando exista ArcaFiscalProvider y arcaActivo sea true
+// ArcaFiscalProvider — implementado en functions/arcaFacturacion.js (Cloud Function), acá solo el
+// wrapper que respeta la misma interfaz que InternalProvider. autorizar(comprobante) espera
+// { comprobanteId, ptoVta, items, receptor, ambiente } — ver crearComprobante más abajo, que arma
+// exactamente eso y guarda el comprobante ANTES de llamar a ARCA (para que comprobanteId exista y
+// sirva de clave de idempotencia: dos llamadas con el mismo comprobanteId nunca piden un segundo
+// CAE — ver el chequeo al principio de arcaAutorizarComprobante).
+//
+// TODAVÍA NO PROBADO CONTRA ARCA (no hay certificado de homologación cargado) — ver informe final.
+const ArcaFiscalProvider = {
+  nombre: "arca",
+  async autorizar({ comprobanteId, ptoVta, items, receptor, ambiente }) {
+    return autorizarComprobanteArca({ comprobanteId, ptoVta, items, receptor, ambiente });
+  },
+};
+
+// Único punto de decisión de toda la integración: mientras arcaActivo sea false (siempre, en esta
+// etapa — no hay forma de ponerlo en true desde la UI todavía), SIEMPRE devuelve InternalProvider,
+// así que ArcaFiscalProvider.autorizar() nunca se llega a ejecutar y la facturación interna actual
+// sigue funcionando exactamente igual que antes de esta integración.
+async function evaluarProveedorFiscal() {
+  const config = await obtenerConfigFacturacion();
+  return config.arcaActivo ? ArcaFiscalProvider : InternalProvider;
 }
 
 // --- CRUD de comprobantes -----------------------------------------------------------------------
@@ -178,24 +188,39 @@ export async function crearComprobante(datos, usuario) {
   if (!datos.formaPago) throw new Error("Falta la forma de pago.");
 
   const tipo = tipoComprobantePorCodigo(datos.tipoComprobanteCodigo || "COMPROBANTE_INTERNO");
-  if (tipo.requiereArca) throw new Error(`${tipo.nombre} todavía no se puede emitir — requiere conexión con ARCA.`);
+  const configFiscal = tipo.requiereArca ? await obtenerConfigFacturacion() : null;
+  // Mismo mensaje, misma condición de bloqueo que antes de esta integración — la única diferencia
+  // es que ahora depende de arcaActivo en vez de ser un bloqueo incondicional. Como arcaActivo es
+  // false siempre en esta etapa, el comportamiento observable es IDÉNTICO al de antes.
+  if (tipo.requiereArca && !configFiscal.arcaActivo) {
+    throw new Error(`${tipo.nombre} todavía no se puede emitir — requiere conexión con ARCA.`);
+  }
 
   const items = datos.items.map((it) => ({ ...it, subtotal: subtotalItem(it) }));
   const { subtotal, descuento, iva, total } = calcularTotales(items, datos.descuentoGlobalPct || 0);
 
-  const estado = datos.guardarComoBorrador ? "BORRADOR" : "EMITIDA";
+  const estadoDeseado = datos.guardarComoBorrador ? "BORRADOR" : "EMITIDA";
   const ahora = serverTimestamp();
   const sucursal = await sucursalParaFacturar();
 
   let numero = null;
   let numeroCompleto = null;
-  if (estado === "EMITIDA") {
+  let estado = estadoDeseado;
+  let datosFiscales = {};
+
+  if (estadoDeseado === "EMITIDA" && !tipo.requiereArca) {
+    // Comprobante interno: exactamente el mismo camino de siempre, sin cambios.
     numero = await siguienteNumeroComprobante(sucursal.puntoVenta, tipo.codigo);
     numeroCompleto = `${tipo.letra} ${formatearNumeroComprobante(sucursal.puntoVenta, numero)}`;
+    datosFiscales = await InternalProvider.autorizar({ items, total });
+  } else if (estadoDeseado === "EMITIDA" && tipo.requiereArca) {
+    // Fiscal: el número lo da ARCA (FECompUltimoAutorizado + 1 del lado de la Cloud Function), no
+    // el contador interno — acá arranca en PROCESANDO_ARCA/PENDING_ARCA, sin numero todavía; se
+    // completa después de llamar a ArcaFiscalProvider (ver más abajo, necesita el ID del documento
+    // ya creado como clave de idempotencia).
+    estado = "PROCESANDO_ARCA";
+    datosFiscales = { arcaEstado: "PENDING_ARCA", cae: null, caeVencimiento: null, qr: null, numeroFiscal: null, tipoComprobanteFiscal: null, fechaAutorizacion: null, arcaErrorCodigo: null, arcaErrorDescripcion: null };
   }
-
-  const fiscalProvider = evaluarProveedorFiscal();
-  const datosFiscales = estado === "EMITIDA" ? await fiscalProvider.autorizar({ items, total }) : {};
 
   const comprobante = {
     tipoComprobante: tipo.nombre,
@@ -239,6 +264,32 @@ export async function crearComprobante(datos, usuario) {
   };
 
   const ref = await addDoc(collection(db, "comprobantes"), comprobante);
+
+  if (estadoDeseado === "EMITIDA" && tipo.requiereArca) {
+    // Recién acá se llama a ARCA — comprobanteId (ref.id) ya existe, así que un doble click o un
+    // reintento después de un timeout del cliente que vuelva a pasar por acá con el MISMO ref.id
+    // nunca pide un segundo CAE (ver el chequeo de idempotencia en arcaAutorizarComprobante). Un
+    // reintento del usuario que arranca todo de nuevo desde Nueva Venta sí genera un comprobanteId
+    // distinto — eso es intencional: cada intento de facturar es un comprobante propio, como en el
+    // camino interno de siempre.
+    const resultadoArca = await ArcaFiscalProvider.autorizar({
+      comprobanteId: ref.id,
+      ptoVta: sucursal.puntoVenta,
+      items,
+      receptor: { cuit: comprobante.clienteCuit, condicionIva: comprobante.clienteCondicionIva },
+      ambiente: configFiscal.arcaAmbiente,
+    });
+
+    const aprobado = resultadoArca.arcaEstado === "AUTHORIZED";
+    estado = aprobado ? "EMITIDA" : "RECHAZADA";
+    numero = resultadoArca.numeroFiscal;
+    numeroCompleto = numero ? `${resultadoArca.tipoComprobanteFiscal} ${formatearNumeroComprobante(sucursal.puntoVenta, numero)}` : null;
+    datosFiscales = resultadoArca;
+
+    await updateDoc(ref, { estado, numero, numeroCompleto, ...datosFiscales, actualizadoEn: serverTimestamp() });
+    return { id: ref.id, ...comprobante, estado, numero, numeroCompleto, ...datosFiscales };
+  }
+
   return { id: ref.id, ...comprobante };
 }
 
@@ -308,7 +359,18 @@ export async function crearNotaCredito(comprobanteOriginalId, motivo, usuario) {
   if (!original) throw new Error("No se encontró el comprobante original.");
   if (original.estado !== "EMITIDA") throw new Error("Solo se puede generar una nota de crédito de un comprobante emitido.");
 
-  const tipoNC = original.tipoComprobanteCodigo === "COMPROBANTE_INTERNO" ? "NOTA_CREDITO_INTERNA" : original.tipoComprobanteCodigo;
+  // Mapeo Factura → Nota de Crédito de la misma letra fiscal (antes de esta corrección, un comprobante
+  // fiscal (FACTURA_A/B/C) generaba una "nota de crédito" con el código de la FACTURA original — un
+  // bug real pero inofensivo hasta ahora porque tipo.requiereArca bloqueaba cualquier Factura A/B/C
+  // antes de que pudiera existir una para anular).
+  const MAPA_TIPO_A_NOTA_CREDITO = {
+    COMPROBANTE_INTERNO: "NOTA_CREDITO_INTERNA",
+    FACTURA_A: "NOTA_CREDITO_A",
+    FACTURA_B: "NOTA_CREDITO_B",
+    FACTURA_C: "NOTA_CREDITO_C",
+  };
+  const tipoNC = MAPA_TIPO_A_NOTA_CREDITO[original.tipoComprobanteCodigo];
+  if (!tipoNC) throw new Error(`No se puede generar una nota de crédito para el tipo de comprobante "${original.tipoComprobante}".`);
 
   const notaCredito = await crearComprobante(
     {

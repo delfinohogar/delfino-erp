@@ -44,6 +44,10 @@ exports.mpConsultarPago = mercadoPago.mpConsultarPago;
 exports.mpCrearDevolucion = mercadoPago.mpCrearDevolucion;
 exports.mpWebhook = mercadoPago.mpWebhook;
 
+// Autorización fiscal (WSFEv1) — ver arcaFacturacion.js. Inerte mientras
+// configuracion/facturacion.arcaActivo sea false (siempre, por ahora).
+exports.arcaAutorizarComprobante = require("./arcaFacturacion").arcaAutorizarComprobante;
+
 const afipCert = defineSecret("AFIP_CERT");
 const afipKey = defineSecret("AFIP_KEY");
 const afipCuit = defineSecret("AFIP_CUIT");

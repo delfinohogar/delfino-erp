@@ -1,16 +1,25 @@
 // Integración directa con ARCA (ex AFIP), sin intermediarios de terceros:
 //   1) Arma el "Login Ticket Request" y lo firma como CMS/PKCS#7 con el certificado propio
 //      (node-forge, todo en el propio proceso — la clave privada nunca sale de este Cloud Function).
-//   2) Se lo manda al WSAA (wsaa.afip.gov.ar) y obtiene el token/sign (Ticket de Acceso).
-//   3) Con ese ticket consulta el padrón (ws_sr_padron_a13) directo contra aws.afip.gov.ar.
+//   2) Se lo manda al WSAA y obtiene el token/sign (Ticket de Acceso).
+//   3) Con ese ticket consulta el padrón (ws_sr_padron_a13) o pide un CAE (WSFEv1, ver arcaWsfe.js).
 //
-// Namespaces y endpoints confirmados contra los WSDL reales el 31/08/2026:
-//   https://wsaa.afip.gov.ar/ws/services/LoginCms?wsdl
+// Namespaces y endpoints confirmados contra los WSDL reales el 31/08/2026 (padrón) y 02/09/2026
+// (WSAA homologación/producción, para WSFEv1):
+//   https://wsaa.afip.gov.ar/ws/services/LoginCms?wsdl (producción)
+//   https://wsaahomo.afip.gov.ar/ws/services/LoginCms?wsdl (homologación/testing)
 //   https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA13?wsdl
+//
+// El padrón (consultarPersonaA13/A5) SIEMPRE usa producción — nunca se consultó en homologación en
+// este proyecto y no hace falta: son datos públicos, no facturación. Por eso ambiente es opcional
+// acá (default "produccion") y los dos consumidores existentes (functions/index.js) no cambian.
 const forge = require("node-forge");
 const { XMLParser } = require("fast-xml-parser");
 
-const WSAA_URL = "https://wsaa.afip.gov.ar/ws/services/LoginCms";
+const WSAA_URLS = {
+  produccion: "https://wsaa.afip.gov.ar/ws/services/LoginCms",
+  testing: "https://wsaahomo.afip.gov.ar/ws/services/LoginCms",
+};
 const PADRON_A13_URL = "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA13";
 const PADRON_A5_URL = "https://aws.afip.gov.ar/sr-padron/webservices/personaServiceA5";
 
@@ -71,7 +80,14 @@ function decodeEntities(s) {
 // El TA (Ticket de Acceso) es válido ~12hs, pero acá se pide uno nuevo por invocación —
 // simple y suficiente para el volumen de consultas de este ERP; se puede cachear más adelante
 // (ej. en Firestore) si hiciera falta reducir la latencia.
-async function obtenerTicketAcceso(servicio, certPem, keyPem) {
+//
+// ambiente: "testing" (homologación) | "produccion" — determina el endpoint de WSAA. Nunca se
+// mezclan: un TA pedido contra homologación no sirve contra producción y viceversa (son sistemas
+// AFIP separados con sus propias validaciones de certificado).
+async function obtenerTicketAcceso(servicio, certPem, keyPem, ambiente = "produccion") {
+  const wsaaUrl = WSAA_URLS[ambiente];
+  if (!wsaaUrl) throw new Error(`Ambiente ARCA desconocido: "${ambiente}" (esperado "testing" o "produccion").`);
+
   const xml = crearLoginTicketXml(servicio);
   const cms = firmarCms(xml, certPem, keyPem);
 
@@ -85,7 +101,7 @@ async function obtenerTicketAcceso(servicio, certPem, keyPem) {
   </soapenv:Body>
 </soapenv:Envelope>`;
 
-  const res = await fetch(WSAA_URL, {
+  const res = await fetch(wsaaUrl, {
     method: "POST",
     headers: { "Content-Type": "text/xml; charset=utf-8", SOAPAction: "" },
     body: soapBody,
@@ -176,4 +192,4 @@ function consultarPersonaA5({ cuitRepresentada, cuitConsultado, cert, key }) {
   });
 }
 
-module.exports = { consultarPersonaA13, consultarPersonaA5 };
+module.exports = { consultarPersonaA13, consultarPersonaA5, obtenerTicketAcceso, decodeEntities };

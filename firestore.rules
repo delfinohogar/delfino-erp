@@ -197,13 +197,17 @@ service cloud.firestore {
     // nunca — anular es un update de estado, no un delete. Una vez creado, un comprobante solo
     // puede tocar los campos de anulación, el flag de PDF generado y los campos fiscales (hoy sin
     // usar, preparados para cuando exista ARCA) — nunca los productos, el total ni el cliente.
+    // numero/numeroCompleto quedan en null al crear un comprobante fiscal (arranca en
+    // PROCESANDO_ARCA — el número lo asigna ARCA, no Delfino) y se completan recién acá, en el
+    // mismo update donde llega el resultado de la autorización — ver crearComprobante en
+    // js/facturacion.js.
     match /comprobantes/{id} {
       allow read: if estaLogueado();
       allow create: if puedeVender();
       allow update: if puedeVender() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'estado', 'motivoAnulacion', 'fechaAnulacion', 'anuladoPor', 'anuladoPorNombre',
-          'pdfGenerado', 'actualizadoEn',
+          'pdfGenerado', 'actualizadoEn', 'numero', 'numeroCompleto',
           'arcaEstado', 'cae', 'caeVencimiento', 'qr', 'numeroFiscal', 'tipoComprobanteFiscal',
           'fechaAutorizacion', 'arcaErrorCodigo', 'arcaErrorDescripcion'
         ]);
@@ -250,6 +254,20 @@ service cloud.firestore {
     }
 
     match /webhooksMercadoPagoProcesados/{id} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // Integración fiscal ARCA (WSFEv1) — igual criterio que los de Mercado Pago de arriba: la
+    // Cloud Function usa Admin SDK (bypasea reglas), desde el cliente solo se puede leer el log
+    // para diagnóstico, nunca escribir directamente ni ver el lock de numeración (no aporta nada
+    // a la UI, es un detalle interno de concurrencia — ver arcaFacturacion.js).
+    match /logIntegracionArca/{id} {
+      allow read: if estaLogueado();
+      allow write: if false;
+    }
+
+    match /arcaNumeracionLocks/{id} {
       allow read: if false;
       allow write: if false;
     }
