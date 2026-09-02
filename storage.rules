@@ -1,0 +1,33 @@
+rules_version = '2';
+
+// Mismo criterio de roles que firestore.rules: cualquier usuario logueado puede leer (necesario para
+// mostrar fotos en Productos/Nueva Venta), pero solo quien puede editar catálogo (administrador o
+// administrativo) puede subir/reemplazar/borrar. No hay forma de replicar acá el chequeo de rol
+// (Storage Rules no puede leer perfil/usuarios sin una función auxiliar) — se resuelve igual que en
+// Firestore: leyendo el doc de /usuarios/{uid} desde la propia regla.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function estaLogueado() {
+      return request.auth != null;
+    }
+
+    function rol() {
+      return firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data.rol;
+    }
+
+    function puedeEditarCatalogo() {
+      return estaLogueado() && rol() in ['administrador', 'administrativo'];
+    }
+
+    // productos/{productoId}/{archivo} — una imagen de producto subida a mano desde el ERP.
+    // Tamaño acotado a 8MB (una foto de celular sin comprimir entra sobrado) y solo tipos imagen,
+    // para no convertir esto en un file-storage genérico.
+    match /productos/{productoId}/{archivo} {
+      allow read: if estaLogueado();
+      allow write: if puedeEditarCatalogo()
+        && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

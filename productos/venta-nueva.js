@@ -18,6 +18,7 @@ import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
 import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
 import { resolverSucursalUsuario } from "/js/sucursales.js";
 import { listarCajasAbiertasPorSucursal } from "/js/cajas.js";
+import { miniaturaProductoHtml } from "/js/producto-imagenes.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -279,9 +280,7 @@ function agregarAlCarrito(producto) {
 }
 
 function miniatura(p) {
-  const url = p.imagenes && p.imagenes[0];
-  if (url) return `<img src="${url}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:8px;border:1px solid var(--border);flex-shrink:0" />`;
-  return `<div style="width:36px;height:36px;border-radius:8px;background:var(--muted-bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px;flex-shrink:0">—</div>`;
+  return miniaturaProductoHtml(p);
 }
 
 let resultadosActuales = [];

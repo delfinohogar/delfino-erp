@@ -11,6 +11,8 @@ import { listarCategoriasPorNivel } from "/js/catalogo.js";
 import { abrirSelectorCategoria } from "/js/categoria-tree-modal.js";
 import { pedirMarcaModal } from "/js/marca-picker-modal.js";
 import { pedirAumentoPrecio } from "/js/aumento-precio-modal.js";
+import { formatMoneda } from "/js/formato.js";
+import { miniaturaProductoHtml } from "/js/producto-imagenes.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -44,21 +46,23 @@ content.innerHTML = `
       : ""
   }
   <div class="card">
-    <table class="table-clickable">
-      <thead>
-        <tr>
-          ${esAdmin ? '<th style="width:1%"><input type="checkbox" id="check-todos" /></th>' : ""}
-          <th></th>
-          <th>SKU</th>
-          <th>Descripción</th>
-          <th>Stock</th>
-          <th>Costo s/IVA</th>
-          <th>Precio de venta</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="table-clickable">
+        <thead>
+          <tr>
+            ${esAdmin ? '<th style="width:1%"><input type="checkbox" id="check-todos" /></th>' : ""}
+            <th></th>
+            <th>SKU</th>
+            <th>Descripción</th>
+            <th>Stock</th>
+            <th>Costo s/IVA</th>
+            <th>Precio de venta</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-body"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">No se encontraron productos.</div>
   </div>
 `;
@@ -81,9 +85,7 @@ listarCategoriasPorNivel("categoria").then((categorias) => {
 });
 
 function miniatura(p) {
-  const url = p.imagenes && p.imagenes[0];
-  if (url) return `<img src="${url}" alt="" style="width:36px;height:36px;object-fit:cover;border-radius:8px;border:1px solid var(--border)" />`;
-  return `<div style="width:36px;height:36px;border-radius:8px;background:var(--muted-bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:11px">—</div>`;
+  return miniaturaProductoHtml(p);
 }
 
 function estadoBadge(estado) {
@@ -129,8 +131,8 @@ function pintarProductos(productos) {
       <td>${p.sku || ""}</td>
       <td>${p.descripcion || ""}</td>
       <td>${p.stockTotal ?? 0}</td>
-      <td>${p.costoReferencia != null ? p.costoReferencia.toLocaleString("es-AR") : "-"}</td>
-      <td>${p.precioVenta != null ? "$" + p.precioVenta.toLocaleString("es-AR") : "-"}</td>
+      <td>${p.costoReferencia != null ? formatMoneda(p.costoReferencia, { decimales: 2 }) : "-"}</td>
+      <td>${p.precioVenta != null ? formatMoneda(p.precioVenta) : "-"}</td>
       <td>${estadoBadge(p.estado)}</td>
     `;
     tr.addEventListener("click", (e) => {
