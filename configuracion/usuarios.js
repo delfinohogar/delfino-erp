@@ -66,17 +66,19 @@ content.innerHTML = `
   </div>
 
   <div class="card">
-    <table class="table-clickable">
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>Email</th>
-          <th>Rol</th>
-          <th>Sucursal</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="table-clickable">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Email</th>
+            <th>Rol</th>
+            <th>Sucursal</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-body"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">Todavía no hay usuarios cargados.</div>
   </div>
 `;

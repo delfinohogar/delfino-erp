@@ -2,10 +2,8 @@
 // ir a Configuración → Clientes. Mismo cálculo que la ficha completa (ver js/cuenta-corriente.js),
 // mismo patrón de overlay que cliente-modal.js.
 import { calcularCuentaCorriente } from "./cuenta-corriente.js";
+import { formatMoneda as formatMonto } from "./formato.js";
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFecha(fecha) {
   if (!fecha) return "-";
   if (fecha.toDate) return fecha.toDate().toLocaleDateString("es-AR");

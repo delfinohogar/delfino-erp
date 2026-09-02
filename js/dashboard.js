@@ -7,6 +7,7 @@
 // para cada uno, qué número puntual mostrar; si un reporte nuevo no tiene entrada acá, la tarjeta
 // simplemente no aparece como opción en "Personalizar" hasta que se le agregue una.
 import { db, collection, getDocs, query, where, limit } from "./firebase.js";
+import { formatMoneda, formatPorcentaje } from "./formato.js";
 import {
   CATEGORIAS_REPORTES,
   reporteResumenVentas,
@@ -107,14 +108,14 @@ async function obtenerSaldoClientes() {
 }
 
 function formatMonto(valor) {
-  return `$${Math.round(valor).toLocaleString("es-AR")}`;
+  return formatMoneda(valor);
 }
 
 function variacion(actual, anterior) {
   if (!anterior) return null;
   const pct = ((actual - anterior) / anterior) * 100;
   const signo = pct >= 0 ? "+" : "";
-  return { texto: `${signo}${pct.toFixed(1)}% vs. período anterior`, positivo: pct >= 0 };
+  return { texto: `${signo}${formatPorcentaje(pct)} vs. período anterior`, positivo: pct >= 0 };
 }
 
 // Un resumen para tarjeta = { valor, sub?, comparacion?, serie? (para sparkline) }. rango trae

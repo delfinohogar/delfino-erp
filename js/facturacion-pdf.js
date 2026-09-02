@@ -8,9 +8,8 @@ export function nombreArchivoComprobante(comprobante) {
   return `Delfino_Hogar_Comprobante_${numero}.pdf`;
 }
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
+import { formatMoneda as formatMonto } from "./formato.js";
+
 function formatFecha(fechaStr) {
   if (!fechaStr) return "";
   return new Date(fechaStr + "T00:00:00").toLocaleDateString("es-AR");

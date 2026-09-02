@@ -10,6 +10,7 @@ import {
   consultarPago,
   crearDevolucion,
 } from "/js/mercado-pago.js";
+import { formatMoneda } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -144,7 +145,7 @@ function pintarBanner(modo) {
 }
 
 function formatMonto(v) {
-  return v == null ? "-" : `$${Number(v).toLocaleString("es-AR")}`;
+  return v == null ? "-" : formatMoneda(v);
 }
 function formatFecha(v) {
   if (!v) return "-";

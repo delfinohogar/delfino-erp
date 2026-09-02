@@ -13,18 +13,20 @@ content.innerHTML = `
     Incluye cambios de catálogo y movimientos de stock (compras, ventas) — derivado del log de auditoría de cada producto.
   </div>
   <div class="card">
-    <table class="table-clickable">
-      <thead>
-        <tr>
-          <th>Fecha</th>
-          <th>Producto</th>
-          <th>Campo</th>
-          <th>Cambio</th>
-          <th>Usuario</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="table-clickable">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Producto</th>
+            <th>Campo</th>
+            <th>Cambio</th>
+            <th>Usuario</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-body"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">Todavía no hay movimientos registrados.</div>
   </div>
 `;

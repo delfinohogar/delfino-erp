@@ -4,15 +4,13 @@ import { listarMovimientosTesoreria } from "/js/tesoreria.js";
 import { listarCajas } from "/js/cajas.js";
 import { listarCuentasBancarias } from "/js/bancos.js";
 import { obtenerComprobantePorVenta } from "/js/facturacion.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const content = renderShell({ active: "tesoreria-movimientos", titulo: "Movimientos", usuario });
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFecha(fecha) {
   if (!fecha) return "-";
   return new Date(fecha).toLocaleDateString("es-AR");

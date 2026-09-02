@@ -3,9 +3,8 @@
 // Formato inspirado en el comprobante clásico de AFIP/ARCA (letra en recuadro, dos columnas de
 // datos, medios de pago detallados) — el mismo esqueleto que va a usar el día de mañana un
 // comprobante fiscal real, solo que hoy con letra "X" y la leyenda de "sin validez fiscal".
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
+import { formatMoneda as formatMonto } from "./formato.js";
+
 function formatFecha(fechaStr) {
   if (!fechaStr) return "";
   return new Date(fechaStr + "T00:00:00").toLocaleDateString("es-AR");

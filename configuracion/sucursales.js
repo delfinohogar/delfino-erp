@@ -23,10 +23,12 @@ content.innerHTML = `
     <button type="button" id="btn-nueva" class="primary">+ Nueva sucursal</button>
   </div>
   <div class="card">
-    <table>
-      <thead><tr><th>Punto de venta</th><th>Nombre</th><th>Estado</th><th></th></tr></thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Punto de venta</th><th>Nombre</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="tabla-body"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">Todavía no hay sucursales cargadas.</div>
   </div>
 `;

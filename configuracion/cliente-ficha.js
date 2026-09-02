@@ -7,6 +7,7 @@ import { mostrarCentralDeudores } from "/js/bcra-modal.js";
 import { urlMapa } from "/js/motor-mapas.js";
 import { pedirNormalizacionDireccion } from "/js/normalizar-direccion-modal.js";
 import { calcularCuentaCorriente } from "/js/cuenta-corriente.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -125,10 +126,6 @@ function pintarCliente(c) {
     normalizadoEl.textContent = c.domicilioEntrega ? "Todavía no se normalizó esta dirección." : "";
     normalizadoEl.className = "hint";
   }
-}
-
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
 }
 
 async function cargarCuentaCorriente() {

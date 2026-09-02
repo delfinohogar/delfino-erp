@@ -1,6 +1,7 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarComprobantes, ESTADOS_COMPROBANTE, FORMAS_PAGO_COMPROBANTE, TIPOS_COMPROBANTE } from "/js/facturacion.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -100,9 +101,6 @@ content.innerHTML = `
   </div>
 `;
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFecha(fechaStr) {
   if (!fechaStr) return "-";
   return new Date(fechaStr + "T00:00:00").toLocaleDateString("es-AR");

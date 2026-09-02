@@ -43,21 +43,23 @@ content.innerHTML = `
         estructura pero no son seleccionables todavía — no hay forma de emitir una Factura A/B/C real
         sin conexión fiscal, y este sistema no va a fingir que sí.
       </div>
-      <table>
-        <thead><tr><th>Letra</th><th>Nombre</th><th>Tipo</th><th>Estado</th></tr></thead>
-        <tbody>
-          ${TIPOS_COMPROBANTE.map(
-            (t) => `
-            <tr>
-              <td><code>${t.letra}</code></td>
-              <td>${t.nombre}</td>
-              <td>${t.esNotaCredito ? "Nota de crédito" : "Comprobante"}</td>
-              <td>${t.requiereArca ? '<span class="badge muted">Requiere ARCA</span>' : '<span class="badge success">Disponible</span>'}</td>
-            </tr>
-          `
-          ).join("")}
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Letra</th><th>Nombre</th><th>Tipo</th><th>Estado</th></tr></thead>
+          <tbody>
+            ${TIPOS_COMPROBANTE.map(
+              (t) => `
+              <tr>
+                <td><code>${t.letra}</code></td>
+                <td>${t.nombre}</td>
+                <td>${t.esNotaCredito ? "Nota de crédito" : "Comprobante"}</td>
+                <td>${t.requiereArca ? '<span class="badge muted">Requiere ARCA</span>' : '<span class="badge success">Disponible</span>'}</td>
+              </tr>
+            `
+            ).join("")}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -72,7 +74,7 @@ content.innerHTML = `
       ${
         sucursales.length === 0
           ? `<div class="empty-state">Todavía no hay sucursales cargadas — mientras tanto se factura con el punto de venta 0001 (Casa Central) por defecto. <a href="/configuracion/sucursales.html">Cargar sucursales</a></div>`
-          : `<table>
+          : `<div class="table-scroll"><table>
               <thead><tr><th>Punto de venta</th><th>Nombre</th><th>Estado</th></tr></thead>
               <tbody>
                 ${sucursales
@@ -87,7 +89,7 @@ content.innerHTML = `
                   )
                   .join("")}
               </tbody>
-            </table>`
+            </table></div>`
       }
     </div>
   </div>

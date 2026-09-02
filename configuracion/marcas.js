@@ -13,10 +13,12 @@ content.innerHTML = `
     <button type="button" id="btn-nueva-marca" class="primary">+ Nueva marca</button>
   </div>
   <div class="card">
-    <table>
-      <thead><tr><th>Nombre</th><th></th></tr></thead>
-      <tbody id="tabla-marcas"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nombre</th><th></th></tr></thead>
+        <tbody id="tabla-marcas"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">Todavía no hay marcas cargadas.</div>
   </div>
 `;

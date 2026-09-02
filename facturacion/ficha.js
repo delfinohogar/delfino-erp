@@ -10,6 +10,7 @@ import { renderizarComprobanteHtml } from "/js/facturacion-preview.js";
 import { descargarPdfComprobante, verPdfComprobante } from "/js/facturacion-pdf.js";
 import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
 import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -47,10 +48,6 @@ function formatFecha(fecha) {
   if (fecha.toDate) return fecha.toDate().toLocaleDateString("es-AR");
   return new Date(fecha).toLocaleDateString("es-AR");
 }
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
-
 // Historial de pagos: lo declarado al vender (menos "Pendiente de pago", que no es un pago) + los
 // cobros que se hayan registrado después. Sin "estado" rechazado/pendiente por fila — en este
 // sistema un cobro solo se crea cuando el dinero ya entró, no hay pagos "en proceso" que mostrar acá.

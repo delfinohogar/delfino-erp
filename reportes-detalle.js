@@ -21,6 +21,7 @@ import {
   reporteFletes,
 } from "/js/reportes.js";
 import { renderizarTabla, renderizarComparacion, renderizarExportar, renderizarSinDatos } from "/js/report-engine.js";
+import { formatMoneda, formatPorcentaje } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -75,7 +76,7 @@ function destruirCharts() {
 }
 
 function formatMonto(valor) {
-  return `$${Math.round(valor).toLocaleString("es-AR")}`;
+  return formatMoneda(valor);
 }
 
 function variacion(actual, anterior) {
@@ -83,7 +84,7 @@ function variacion(actual, anterior) {
   const pct = ((actual - anterior) / anterior) * 100;
   const signo = pct >= 0 ? "+" : "";
   const color = pct >= 0 ? "success" : "danger";
-  return `<div class="hint" style="color:var(--${color})">${signo}${pct.toFixed(1)}% vs. período anterior</div>`;
+  return `<div class="hint" style="color:var(--${color})">${signo}${formatPorcentaje(pct)} vs. período anterior</div>`;
 }
 
 function kpiCard(titulo, valor, comparacionHtml = "") {
@@ -282,7 +283,7 @@ async function cargar() {
         ${kpiCard("Cantidad de operaciones", String(actual.cantidad), variacion(actual.cantidad, anterior.cantidad))}
         ${kpiCard("Unidades vendidas", String(actual.unidades), variacion(actual.unidades, anterior.unidades))}
         ${kpiCard("Ticket promedio", formatMonto(actual.ticketPromedio), variacion(actual.ticketPromedio, anterior.ticketPromedio))}
-        ${kpiCard("Margen promedio", `${margenPromedioPct.toFixed(1)}%`)}
+        ${kpiCard("Margen promedio", formatPorcentaje(margenPromedioPct))}
         ${kpiCard("Costo de mercadería", formatMonto(costoMercaderia))}
         ${kpiCard("Ganancia bruta", formatMonto(actual.margenBruto), variacion(actual.margenBruto, anterior.margenBruto))}
       </div>
@@ -325,7 +326,7 @@ async function cargar() {
         { titulo: "Cantidad de operaciones", valor: String(actual.cantidad) },
         { titulo: "Unidades vendidas", valor: String(actual.unidades) },
         { titulo: "Ticket promedio", valor: formatMonto(actual.ticketPromedio) },
-        { titulo: "Margen promedio", valor: `${margenPromedioPct.toFixed(1)}%` },
+        { titulo: "Margen promedio", valor: formatPorcentaje(margenPromedioPct) },
         { titulo: "Costo de mercadería", valor: formatMonto(costoMercaderia) },
         { titulo: "Ganancia bruta", valor: formatMonto(actual.margenBruto) },
       ],
@@ -434,7 +435,7 @@ async function cargar() {
         medio: "Total",
         cantidad: f.reduce((a, r) => a + r.cantidad, 0),
         importe: formatMonto(f.reduce((a, r) => a + r.importe, 0)),
-        porcentaje: `${f.reduce((a, r) => a + r.porcentaje, 0).toFixed(1)}%`,
+        porcentaje: formatPorcentaje(f.reduce((a, r) => a + r.porcentaje, 0)),
       }),
     });
     renderizarExportar(exportarTop, { nombreArchivo, tituloReporte: reporte.titulo, periodoTexto, columnas, filas: medios });
@@ -532,7 +533,7 @@ async function cargar() {
         ${kpiCard("Ventas", formatMonto(actual.total), variacion(actual.total, anterior.total))}
         ${kpiCard("Costo", formatMonto(costoTotal))}
         ${kpiCard("Margen bruto", formatMonto(actual.margenBruto), variacion(actual.margenBruto, anterior.margenBruto))}
-        ${kpiCard("Margen sobre ventas", `${margenPct.toFixed(1)}%`)}
+        ${kpiCard("Margen sobre ventas", formatPorcentaje(margenPct))}
       </div>
       ${seccionComparacion()}
       <div class="hint">Margen = precio de venta menos el costo del producto al momento exacto de venderse (no el costo actual) — así el número no se corre si el costo cambió después. Para el detalle por producto o categoría, ver "Rentabilidad por producto" y "Rentabilidad por categoría".</div>
@@ -550,7 +551,7 @@ async function cargar() {
         { titulo: "Ventas", valor: formatMonto(actual.total) },
         { titulo: "Costo", valor: formatMonto(costoTotal) },
         { titulo: "Margen bruto", valor: formatMonto(actual.margenBruto) },
-        { titulo: "Margen sobre ventas", valor: `${margenPct.toFixed(1)}%` },
+        { titulo: "Margen sobre ventas", valor: formatPorcentaje(margenPct) },
       ],
     });
     return;

@@ -3,9 +3,7 @@
 // mailto: con asunto y cuerpo pre-cargados, que abre el cliente de correo del usuario (Gmail,
 // Outlook, la app del teléfono, lo que tenga configurado). Igual que WhatsApp, mailto: no permite
 // adjuntar el PDF automáticamente — el usuario lo adjunta a mano, y la UI se lo aclara.
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
+import { formatMoneda as formatMonto } from "./formato.js";
 
 export function asuntoEmailComprobante() {
   return "Comprobante de compra — Delfino Hogar";

@@ -15,10 +15,12 @@ content.innerHTML = `
       <button type="button" id="btn-categorias" class="primary">Gestionar árbol</button>
     </div>
     <div class="hint" style="margin-bottom:12px">Crear, elegir y renombrar categorías y subcategorías se hace desde el mismo árbol que usa la ficha de producto.</div>
-    <table>
-      <thead><tr><th>Nombre</th><th>Nivel</th></tr></thead>
-      <tbody id="tabla-categorias"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nombre</th><th>Nivel</th></tr></thead>
+        <tbody id="tabla-categorias"></tbody>
+      </table>
+    </div>
   </div>
 `;
 

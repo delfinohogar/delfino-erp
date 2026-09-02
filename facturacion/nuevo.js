@@ -11,6 +11,7 @@ import { renderizarComprobanteHtml } from "/js/facturacion-preview.js";
 import { descargarPdfComprobante, nombreArchivoComprobante } from "/js/facturacion-pdf.js";
 import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
 import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -20,9 +21,6 @@ const content = renderShell({ active: "facturacion-nuevo", titulo: "Nuevo compro
 const ventaId = new URLSearchParams(location.search).get("ventaId");
 const configEmpresa = { ...(await obtenerConfigEmpresa()), ...(await obtenerConfigFacturacion()) };
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 
 // --- Estado del formulario manual (solo si no viene de una venta) -----------------------------
 let items = []; // { productoId?, productoSku?, productoDescripcion, cantidad, precioUnitario, descuentoPct }

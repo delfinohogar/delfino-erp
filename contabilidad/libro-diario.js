@@ -1,6 +1,7 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarAsientosPagina, listarPlanDeCuentas } from "/js/contabilidad.js";
+import { formatMoneda } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -23,8 +24,10 @@ function formatFecha(fecha) {
   return new Date(fecha).toLocaleDateString("es-AR");
 }
 
+// Antes mostraba el número pelado, sin "$" y con decimales inconsistentes (toLocaleString sin
+// fijar cantidad de decimales) — en un libro contable eso es peor que en cualquier otra pantalla.
 function formatMonto(v) {
-  return v ? v.toLocaleString("es-AR") : "";
+  return v ? formatMoneda(v, { decimales: 2 }) : "";
 }
 
 const contenedor = document.getElementById("lista-asientos");

@@ -1,9 +1,7 @@
 // Envío por WhatsApp: arma el mensaje y abre wa.me — no hay forma de adjuntar el PDF automáticamente
 // desde el navegador (WhatsApp Web/App no lo permite), así que no se inventa esa parte: se le avisa
 // al usuario que tiene que adjuntarlo a mano. No se usa ninguna API externa de WhatsApp.
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
+import { formatMoneda as formatMonto } from "./formato.js";
 
 export function mensajeWhatsapp(comprobante) {
   const nombre = comprobante.clienteNombre === "Consumidor final" ? "" : comprobante.clienteNombre?.split(" ")[0] || "";

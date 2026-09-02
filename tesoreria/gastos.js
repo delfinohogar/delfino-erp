@@ -4,15 +4,13 @@ import { registrarGasto, listarGastos, categoriasUsadas, anularGasto } from "/js
 import { listarCajas, sesionAbiertaDeCaja } from "/js/cajas.js";
 import { listarCuentasBancariasActivas } from "/js/bancos.js";
 import { listarSucursalesActivas } from "/js/sucursales.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const content = renderShell({ active: "tesoreria-gastos", titulo: "Gastos", usuario });
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFecha(fecha) {
   if (!fecha) return "-";
   return new Date(fecha).toLocaleDateString("es-AR");

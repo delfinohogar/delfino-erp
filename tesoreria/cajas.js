@@ -3,15 +3,12 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarCajas, saldoActualCaja } from "/js/cajas.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const content = renderShell({ active: "tesoreria-cajas", titulo: "Cajas", usuario });
-
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 
 content.innerHTML = `
   <div class="toolbar">

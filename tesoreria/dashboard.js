@@ -1,15 +1,13 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { posicionTesoreria, posicionPorSucursal, centroDePendientes } from "/js/tesoreria.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const content = renderShell({ active: "tesoreria-dashboard", titulo: "Tesorería", usuario });
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFechaHora(v) {
   if (!v) return "-";
   const f = v?.toDate ? v.toDate() : new Date(v);

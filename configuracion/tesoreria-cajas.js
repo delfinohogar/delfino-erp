@@ -4,6 +4,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarCajas, crearCaja, actualizarCaja, TIPOS_CAJA, saldoActualCaja } from "/js/cajas.js";
 import { listarSucursalesActivas } from "/js/sucursales.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -14,10 +15,6 @@ if (usuario.rol !== "administrador") {
 }
 
 const content = renderConfigShell({ activeItem: "tesoreria-cajas", titulo: "Cajas", usuario });
-
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 
 const sucursales = await listarSucursalesActivas();
 

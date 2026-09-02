@@ -10,6 +10,7 @@ import {
   registrarMovimientoCaja,
   listarSesionesPorCaja,
 } from "/js/cajas.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -28,9 +29,6 @@ if (!caja) {
   throw new Error("caja no encontrada");
 }
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFechaHora(v) {
   if (!v) return "-";
   const f = v?.toDate ? v.toDate() : new Date(v);

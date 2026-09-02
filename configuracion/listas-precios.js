@@ -50,17 +50,19 @@ content.innerHTML = `
   </div>
 
   <div class="card">
-    <table class="table-clickable">
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>Margen</th>
-          <th>Redondeo</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="table-clickable">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Margen</th>
+            <th>Redondeo</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-body"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">Todavía no hay listas de precios creadas.</div>
   </div>
 `;
