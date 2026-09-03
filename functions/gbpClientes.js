@@ -43,6 +43,22 @@ function soloDigitos(valor) {
   return (valor || "").toString().replace(/\D/g, "");
 }
 
+// Mismo criterio que capitalizarDireccion en js/texto.js — duplicado a propósito (ese archivo corre
+// con el SDK cliente, éste con el admin): GBP guarda domicilio/localidad en mayúsculas.
+const PALABRAS_MINUSCULAS = new Set(["de", "del", "la", "las", "los", "y", "en", "al"]);
+function capitalizarDireccion(texto) {
+  if (!texto) return texto;
+  return texto
+    .toLowerCase()
+    .split(" ")
+    .map((palabra, i) => {
+      if (!palabra) return palabra;
+      if (i > 0 && PALABRAS_MINUSCULAS.has(palabra)) return palabra;
+      return palabra.charAt(0).toUpperCase() + palabra.slice(1);
+    })
+    .join(" ");
+}
+
 // Mismo criterio que formatearCuit (js/cuit.js): hasta 8 dígitos puede ser un DNI (sin guiones), a
 // partir de ahí ya solo puede ser un CUIT en camino a 11.
 function formatearCuit(valor) {
@@ -77,8 +93,8 @@ function mapearClienteGbp(g) {
     domicilioFiscal: null,
     provincia: null,
     codigoPostal: null,
-    domicilioEntrega: g.cust_address ? String(g.cust_address) : null,
-    localidadEntrega: g.cust_city ? String(g.cust_city) : null,
+    domicilioEntrega: g.cust_address ? capitalizarDireccion(String(g.cust_address)) : null,
+    localidadEntrega: g.cust_city ? capitalizarDireccion(String(g.cust_city)) : null,
     codigoPostalEntrega: g.cust_zip != null ? String(g.cust_zip) : null,
     provinciaEntrega: "Buenos Aires",
     paisEntrega: "Argentina",

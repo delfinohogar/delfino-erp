@@ -4,6 +4,7 @@
 // directo, se previsualiza y se confirma. Upsert por identificadorExterno (el ID de GBP), igual
 // criterio que la importación de clientes: nunca duplica si se vuelve a subir el mismo archivo.
 import { db, collection, getDocs, doc, writeBatch, query, where } from "./firebase.js";
+import { capitalizarDireccion } from "./texto.js";
 
 // GBP tiene esta fila fija para pagos que no son a un proveedor real (fletes/gastos varios
 // cargados históricamente como si fueran un "proveedor") — nunca se importa como proveedor.
@@ -32,8 +33,10 @@ export function prepararImportacionProveedores(filas) {
       razonSocial: nombre,
       cuit,
       condicionIva: String(fila["Clase Fiscal"] ?? "").trim() || null,
-      domicilioFiscal: String(fila["Direccion"] ?? "").trim() || null,
-      localidad: String(fila["Ciudad"] ?? "").trim() || null,
+      // GBP guarda domicilio/localidad en mayúsculas — mismo criterio que la importación de
+      // clientes (ver capitalizarDireccion en js/texto.js, ya usada en la carga manual).
+      domicilioFiscal: capitalizarDireccion(String(fila["Direccion"] ?? "").trim()) || null,
+      localidad: capitalizarDireccion(String(fila["Ciudad"] ?? "").trim()) || null,
       codigoPostal: String(fila["Codigo Postal"] ?? "").trim() || null,
       provincia: String(fila["Provincia"] ?? "").trim() || null,
       telefono: String(fila["Telefono"] ?? "").trim() || null,

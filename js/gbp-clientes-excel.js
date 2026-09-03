@@ -3,6 +3,7 @@
 // Mismas columnas en export e import, así lo que se descarga es directamente la plantilla de vuelta.
 import { db, collection, getDocs, doc, writeBatch, query, where, functions, httpsCallable } from "./firebase.js";
 import { exportarExcel } from "./report-engine.js";
+import { capitalizarDireccion } from "./texto.js";
 
 const COLUMNAS = [
   { titulo: "ID GBP (no editar)", clave: "identificadorExterno" },
@@ -84,6 +85,11 @@ export function prepararImportacionClientes(filas) {
       sinNombre.push({ fila: i + 2, identificadorExterno: c.identificadorExterno });
       return;
     }
+    // GBP guarda domicilio/localidad en mayúsculas — se capitaliza acá, en el último paso antes de
+    // escribir, para que quede bien sin importar de qué exportación haya salido el Excel (misma
+    // función que ya usa la carga manual de clientes, ver js/clientes.js).
+    c.domicilioEntrega = capitalizarDireccion(c.domicilioEntrega);
+    c.localidadEntrega = capitalizarDireccion(c.localidadEntrega);
     validas.push(c);
   });
   return { validas, sinId, sinNombre };
