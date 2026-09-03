@@ -1,6 +1,29 @@
 // Historial de facturas de GBP ya sincronizado a Firestore (colección facturasGbp, solo lectura —
 // la escribe únicamente functions/gbpFacturas.js). Ver productos/facturas-gbp.js para la pantalla.
-import { db, collection, query, where, orderBy, limit, getDocs, functions, httpsCallable } from "./firebase.js";
+import { db, collection, doc, getDoc, query, where, orderBy, limit, getDocs, functions, httpsCallable } from "./firebase.js";
+
+// Nombre para mostrar de una factura de GBP: primero el cliente REAL de Delfino si ya está vinculado
+// (clienteId), si no la ficha liviana (clientesGbp — la crea gbpVincularClientes para quien compró
+// pero no es cliente operativo de Delfino), y si tampoco hay ficha, null (quien llama cae al "#id").
+// cache: Map opcional para no volver a resolver el mismo cliente en la misma pantalla (ver
+// productos/facturas-gbp.js) — clave por clienteIdExterno.
+export async function resolverNombreClienteGbp(factura, cache) {
+  const clave = factura.clienteIdExterno || "";
+  if (cache?.has(clave)) return cache.get(clave);
+
+  let nombre = null;
+  if (factura.clienteId) {
+    const snap = await getDoc(doc(db, "clientes", factura.clienteId));
+    nombre = snap.exists() ? snap.data().razonSocial : null;
+  }
+  if (!nombre && factura.clienteIdExterno) {
+    const snap = await getDoc(doc(db, "clientesGbp", String(factura.clienteIdExterno)));
+    nombre = snap.exists() ? snap.data().nombre : null;
+  }
+
+  cache?.set(clave, nombre);
+  return nombre;
+}
 
 export async function listarFacturasGbp(maxResultados = 3000) {
   const snap = await getDocs(query(collection(db, "facturasGbp"), orderBy("fecha", "desc"), limit(maxResultados)));

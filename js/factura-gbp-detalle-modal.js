@@ -4,6 +4,7 @@
 import { formatMoneda, formatFecha } from "./formato.js";
 import { descargarPdfFacturaGbp } from "./facturas-gbp-pdf.js";
 import { db, doc, getDoc } from "./firebase.js";
+import { resolverNombreClienteGbp } from "./gbp-facturas.js";
 
 function comprobanteTexto(f) {
   const numeroFmt = String(f.numero ?? "").padStart(8, "0");
@@ -19,7 +20,7 @@ export function mostrarDetalleFacturaGbp(f, configEmpresa, cliente = undefined) 
     <div class="modal-card card" style="max-width:640px">
       <div class="section-title">Factura ${comprobanteTexto(f)}</div>
       <div class="hint" style="margin-bottom:12px">
-        ${formatFecha(f.fecha)} · Cliente GBP #${f.clienteIdExterno || "-"} · CAE ${f.cae || "-"}
+        ${formatFecha(f.fecha)} · Cliente <span data-role="nombre-cliente">GBP #${f.clienteIdExterno || "-"}</span> · CAE ${f.cae || "-"}
         ${f.anulada ? ' · <span style="color:var(--danger)">Anulada</span>' : ""}
       </div>
       <div class="table-scroll">
@@ -48,6 +49,17 @@ export function mostrarDetalleFacturaGbp(f, configEmpresa, cliente = undefined) 
     </div>
   `;
   document.body.appendChild(overlay);
+
+  // Si quien llama ya tiene el cliente de Delfino a mano, lo usamos directo — si no, se resuelve acá
+  // (clientes vinculados o, si no, la ficha liviana de clientesGbp — ver resolverNombreClienteGbp).
+  if (cliente?.razonSocial) {
+    overlay.querySelector('[data-role="nombre-cliente"]').textContent = cliente.razonSocial;
+  } else {
+    resolverNombreClienteGbp(f).then((nombre) => {
+      if (nombre) overlay.querySelector('[data-role="nombre-cliente"]').textContent = nombre;
+    });
+  }
+
   const cerrar = () => overlay.remove();
   overlay.querySelector("#btn-cerrar-detalle").addEventListener("click", cerrar);
   overlay.addEventListener("click", (e) => e.target === overlay && cerrar());

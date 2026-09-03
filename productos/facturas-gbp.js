@@ -8,7 +8,13 @@
 // Corriente de cada cliente.
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { listarFacturasGbp, sincronizarFacturasGbp, previewVincularClientesGbp, aplicarVincularClientesGbp } from "/js/gbp-facturas.js";
+import {
+  listarFacturasGbp,
+  sincronizarFacturasGbp,
+  previewVincularClientesGbp,
+  aplicarVincularClientesGbp,
+  resolverNombreClienteGbp,
+} from "/js/gbp-facturas.js";
 import { formatMoneda, formatFecha } from "/js/formato.js";
 import { obtenerConfigEmpresa } from "/js/configuracion-empresa.js";
 import { mostrarDetalleFacturaGbp } from "/js/factura-gbp-detalle-modal.js";
@@ -98,10 +104,19 @@ const emptyState = document.getElementById("empty-state");
 
 let todasLasFacturas = [];
 const configEmpresa = await obtenerConfigEmpresa();
+const cacheNombresCliente = new Map();
 
 function comprobanteTexto(f) {
   const numeroFmt = String(f.numero ?? "").padStart(8, "0");
   return `${f.letra || ""} ${String(f.puntoVenta ?? "").padStart(4, "0")}-${numeroFmt}`.trim();
+}
+
+// Nombre a mostrar en la tabla: se resuelve async (clientes/clientesGbp — ver
+// resolverNombreClienteGbp) pero se pinta primero con el ID crudo y se reemplaza apenas resuelve, así
+// la tabla no queda esperando a buscar clientes uno por uno antes de mostrar nada.
+async function pintarNombreCliente(f, celda) {
+  const nombre = await resolverNombreClienteGbp(f, cacheNombresCliente);
+  if (nombre) celda.textContent = nombre;
 }
 
 function pintar() {
@@ -119,12 +134,13 @@ function pintar() {
     tr.innerHTML = `
       <td>${formatFecha(f.fecha)}</td>
       <td>${comprobanteTexto(f)}${f.anulada ? ' <span class="hint" style="color:var(--danger)">Anulada</span>' : ""}</td>
-      <td>#${f.clienteIdExterno || "-"}</td>
+      <td data-role="celda-cliente">#${f.clienteIdExterno || "-"}</td>
       <td>${formatMoneda(f.total)}</td>
       <td>${f.cae || "-"}</td>
     `;
     tr.addEventListener("click", () => mostrarDetalleFacturaGbp(f, configEmpresa));
     tablaBody.appendChild(tr);
+    pintarNombreCliente(f, tr.querySelector('[data-role="celda-cliente"]'));
   });
 }
 
