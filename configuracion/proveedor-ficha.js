@@ -179,6 +179,9 @@ document.getElementById("btn-reconsultar").addEventListener("click", async () =>
         }
       }
       if (!encontrado) throw new Error(`No se encontró ningún CUIL registrado en ARCA para el DNI ${digitos}.`);
+      // Persona resuelta por DNI y ARCA no le encontró ninguna inscripción — es la definición misma
+      // de Consumidor Final, no un dato que falte. Nunca se deja en blanco.
+      if (!encontrado.datos.condicionIva) encontrado.datos.condicionIva = "Consumidor Final";
       cuitParaGuardar = formatearCuit(encontrado.cuit);
       datosArca = encontrado.datos;
     } else {

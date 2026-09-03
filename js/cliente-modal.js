@@ -260,6 +260,10 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
           }
         }
         if (encontrado) {
+          // Persona resuelta por DNI (no tenía CUIT propio) y ARCA no le encontró ninguna
+          // inscripción (ni monotributo ni régimen general) — es la definición misma de
+          // Consumidor Final, no un dato que falte. Nunca se deja en blanco.
+          if (!encontrado.datos.condicionIva) encontrado.datos.condicionIva = "Consumidor Final";
           cuitInput.value = formatearCuit(encontrado.cuit);
           actualizarCuit();
           mostrarResultadoArca(encontrado.datos);
