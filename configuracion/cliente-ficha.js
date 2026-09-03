@@ -3,6 +3,7 @@ import { renderShell } from "/js/shell.js";
 import { obtenerCliente, actualizarCliente, guardarUbicacionCliente } from "/js/clientes.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { consultarPadronArca } from "/js/arca.js";
+import { soloDigitos, formatearCuit, cuitsPosiblesDesdeDni } from "/js/cuit.js";
 import { mostrarCentralDeudores } from "/js/bcra-modal.js";
 import { urlMapa } from "/js/motor-mapas.js";
 import { pedirNormalizacionDireccion } from "/js/normalizar-direccion-modal.js";
@@ -249,8 +250,32 @@ document.getElementById("btn-reconsultar").addEventListener("click", async () =>
   btn.disabled = true;
   btn.textContent = "Consultando…";
   try {
-    const datosArca = await consultarPadronArca(cliente.cuit);
-    await actualizarCliente(clienteId, cliente.razonSocial, cliente.cuit, datosArca, {
+    const digitos = soloDigitos(cliente.cuit);
+    // Un DNI (7-8 dígitos) no es un identificador válido para ARCA — hace falta el CUIL. Mismo
+    // criterio que ya usa pedirClienteModal (js/cliente-modal.js): se prueban los prefijos de
+    // persona física (20/27/23/24) contra ARCA hasta encontrar el real, sin pedirle al usuario que
+    // elija a mano. Si el cliente ya tiene CUIT/CUIL completo, se consulta directo como siempre.
+    let cuitParaGuardar = cliente.cuit;
+    let datosArca;
+    if (digitos.length === 7 || digitos.length === 8) {
+      const candidatos = cuitsPosiblesDesdeDni(digitos);
+      let encontrado = null;
+      for (const candidato of candidatos) {
+        try {
+          const datos = await consultarPadronArca(candidato.cuit);
+          encontrado = { cuit: candidato.cuit, datos };
+          break;
+        } catch {
+          // este prefijo no correspondía a una persona real — se prueba el siguiente
+        }
+      }
+      if (!encontrado) throw new Error(`No se encontró ningún CUIL registrado en ARCA para el DNI ${digitos}.`);
+      cuitParaGuardar = formatearCuit(encontrado.cuit);
+      datosArca = encontrado.datos;
+    } else {
+      datosArca = await consultarPadronArca(cliente.cuit);
+    }
+    await actualizarCliente(clienteId, cliente.razonSocial, cuitParaGuardar, datosArca, {
       domicilioEntrega: cliente.domicilioEntrega,
       whatsapp: cliente.whatsapp,
       email: cliente.email,

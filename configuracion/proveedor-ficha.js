@@ -3,6 +3,7 @@ import { renderShell } from "/js/shell.js";
 import { obtenerProveedor, actualizarProveedor } from "/js/catalogo.js";
 import { pedirProveedorModal } from "/js/proveedor-modal.js";
 import { consultarPadronArca } from "/js/arca.js";
+import { soloDigitos, formatearCuit, cuitsPosiblesDesdeDni } from "/js/cuit.js";
 import { mostrarCentralDeudores } from "/js/bcra-modal.js";
 import { listarComprasPorProveedor } from "/js/compras.js";
 import { listarPagosPorProveedor } from "/js/pagos.js";
@@ -159,8 +160,31 @@ document.getElementById("btn-reconsultar").addEventListener("click", async () =>
   btn.disabled = true;
   btn.textContent = "Consultando…";
   try {
-    const datosArca = await consultarPadronArca(proveedor.cuit);
-    await actualizarProveedor(proveedorId, proveedor.razonSocial, proveedor.cuit, datosArca);
+    const digitos = soloDigitos(proveedor.cuit);
+    // Un DNI (7-8 dígitos) no es un identificador válido para ARCA — hace falta el CUIL. Mismo
+    // criterio que ya usa pedirClienteModal (js/cliente-modal.js): se prueban los prefijos de
+    // persona física (20/27/23/24) contra ARCA hasta encontrar el real.
+    let cuitParaGuardar = proveedor.cuit;
+    let datosArca;
+    if (digitos.length === 7 || digitos.length === 8) {
+      const candidatos = cuitsPosiblesDesdeDni(digitos);
+      let encontrado = null;
+      for (const candidato of candidatos) {
+        try {
+          const datos = await consultarPadronArca(candidato.cuit);
+          encontrado = { cuit: candidato.cuit, datos };
+          break;
+        } catch {
+          // este prefijo no correspondía a una persona real — se prueba el siguiente
+        }
+      }
+      if (!encontrado) throw new Error(`No se encontró ningún CUIL registrado en ARCA para el DNI ${digitos}.`);
+      cuitParaGuardar = formatearCuit(encontrado.cuit);
+      datosArca = encontrado.datos;
+    } else {
+      datosArca = await consultarPadronArca(proveedor.cuit);
+    }
+    await actualizarProveedor(proveedorId, proveedor.razonSocial, cuitParaGuardar, datosArca);
     proveedor = await obtenerProveedor(proveedorId);
     pintarProveedor(proveedor);
   } catch (err) {
