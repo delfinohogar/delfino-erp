@@ -6,8 +6,9 @@
 // reporte tiene la posibilidad de mostrarse acá como tarjeta resumen. RESUMENES_DASHBOARD define,
 // para cada uno, qué número puntual mostrar; si un reporte nuevo no tiene entrada acá, la tarjeta
 // simplemente no aparece como opción en "Personalizar" hasta que se le agregue una.
-import { db, collection, getDocs, query, where, limit } from "./firebase.js";
+import { db, collection, getDocs, query, where } from "./firebase.js";
 import { formatMoneda, formatPorcentaje } from "./formato.js";
+import { listarCobrosPorVentas } from "./cobros.js";
 import {
   CATEGORIAS_REPORTES,
   reporteResumenVentas,
@@ -97,8 +98,11 @@ async function obtenerSaldoClientes() {
   const ventas = ventasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   if (ventas.length === 0) return { saldoTotal: 0 };
 
-  const cobrosSnap = await getDocs(query(collection(db, "cobros"), limit(500)));
-  const cobros = cobrosSnap.docs.map((d) => d.data());
+  // Antes traía los últimos 500 cobros de TODO el sistema (limit(500), sin orderBy) y filtraba en
+  // memoria — con más de 500 cobros históricos, el cobro real de una venta vieja podía quedar afuera
+  // de esa ventana, y esa venta se contaba como impaga aunque estuviera saldada (saldo sobrestimado,
+  // sin ningún aviso). Ahora se piden solo los cobros de estas ventas puntuales, sin límite fijo.
+  const cobros = await listarCobrosPorVentas(ventas.map((v) => v.id));
 
   const saldoTotal = ventas.reduce((acc, v) => {
     const cobrado = cobros.filter((c) => c.ventaId === v.id).reduce((a, c) => a + (c.monto || 0), 0);

@@ -6,7 +6,7 @@
 // sistema (js/compras.js no tiene ningún mecanismo de NC/ND de proveedor) — este libro de compras
 // no las contempla porque no hay de dónde sacarlas; es una limitación real, no un olvido.
 import { db, collection, getDocs } from "./firebase.js";
-import { listarComprobantes, tipoComprobantePorCodigo } from "./facturacion.js";
+import { listarComprobantesTodos, tipoComprobantePorCodigo } from "./facturacion.js";
 
 function fechaCompraNormalizada(c) {
   return c.fecha?.toDate ? c.fecha.toDate().toISOString().slice(0, 10) : c.fecha || null;
@@ -15,7 +15,9 @@ function fechaCompraNormalizada(c) {
 // Cada fila ya viene con signo: una nota de crédito resta (neto/iva/total negativos), así que sumar
 // la columna alcanza para el total del período — no hace falta acordarse de restar en otro lado.
 export async function libroIvaVentas(desde, hasta) {
-  const comprobantes = (await listarComprobantes({ desde, hasta, maxResultados: 5000 })).filter((c) => c.estado === "EMITIDA");
+  // Sin tope — antes maxResultados:5000 podía truncar en silencio un período con muchos
+  // comprobantes, subestimando el IVA Débito Fiscal declarado. Ver listarComprobantesTodos.
+  const comprobantes = (await listarComprobantesTodos({ desde, hasta })).filter((c) => c.estado === "EMITIDA");
 
   const filas = comprobantes.map((c) => {
     const tipo = tipoComprobantePorCodigo(c.tipoComprobanteCodigo);

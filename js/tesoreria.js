@@ -5,8 +5,7 @@ import { listarCajas, sesionAbiertaDeCaja, listarMovimientosPorSesion, saldoSesi
 import { listarCuentasBancariasActivas, listarMovimientosPorCuenta, saldoCuenta, listarMovimientosBancariosPendientes } from "./bancos.js";
 import { listarCuentasPorCobrarPendientes, MEDIOS_CUENTA_POR_COBRAR, estaVencida, estaProximaAVencer } from "./cuentas-por-cobrar.js";
 import { listarGastos } from "./gastos.js";
-import { listarCompras } from "./compras.js";
-import { listarPagos } from "./pagos.js";
+import { reporteFacturasPorVencer } from "./reportes.js";
 import { listarVentasConPagoSinUbicar } from "./ventas.js";
 import { listarCobrosConPagoSinUbicar } from "./cobros.js";
 import { mapaResolucionesPagoSinUbicar } from "./resoluciones-pago-sin-ubicar.js";
@@ -49,14 +48,13 @@ function totalPorMedio(cuentas, medio) {
 // El dashboard central: DISPONIBLE AHORA / POR ACREDITAR / GASTOS DEL MES / DIFERENCIAS DE CAJA /
 // PENDIENTES DE CONCILIAR / POSICIÓN PROYECTADA — todo derivado de movimientos reales, nada tipeado.
 export async function posicionTesoreria(sucursalId = null) {
-  const [cajas, cuentas, cuentasPorCobrar, gastosDelMes, movBancariosPendientes, compras, pagos, sesionesAbiertas] = await Promise.all([
+  const [cajas, cuentas, cuentasPorCobrar, gastosDelMes, movBancariosPendientes, facturasPorVencer, sesionesAbiertas] = await Promise.all([
     saldosPorCaja(sucursalId),
     saldosPorCuentaBancaria(sucursalId),
     listarCuentasPorCobrarPendientes(),
     listarGastos({ desde: INICIO_MES(), hasta: HOY(), sucursalId: sucursalId || undefined, maxResultados: 1000 }),
     listarMovimientosBancariosPendientes(),
-    listarCompras(500),
-    listarPagos(500),
+    reporteFacturasPorVencer(),
     listarSesionesAbiertas(),
   ]);
 
@@ -77,12 +75,13 @@ export async function posicionTesoreria(sucursalId = null) {
 
   const gastosMes = Math.round(gastosDelMes.filter((g) => g.estado !== "anulado").reduce((acc, g) => acc + g.importe, 0) * 100) / 100;
 
-  // Contra lo que realmente hay que pagarle al proveedor (total menos retenciones, si las hay — ver
-  // compras.js: netoAPagarProveedor) — contra el bruto, las retenciones quedaban contadas como plata
-  // todavía comprometida para siempre, aunque esa parte nunca se le iba a pagar al proveedor.
-  const totalCompras = compras.reduce((acc, c) => acc + (c.netoAPagarProveedor ?? c.total ?? 0), 0);
-  const totalPagosProveedores = pagos.reduce((acc, p) => acc + (p.monto || 0), 0);
-  const egresosComprometidos = Math.round(Math.max(totalCompras - totalPagosProveedores, 0) * 100) / 100;
+  // Antes esto traía "las últimas 500 compras" y "los últimos 500 pagos" del sistema entero
+  // (listarCompras(500)/listarPagos(500)) y restaba los totales — con más de 500 compras o pagos
+  // históricos, una compra vieja todavía impaga podía quedar afuera de esa ventana y directamente no
+  // sumar a lo comprometido (la "Posición proyectada" se veía mejor de lo real, en silencio). Ahora
+  // se reusa reporteFacturasPorVencer (js/reportes.js) — la misma cuenta que ya hace bien el cálculo
+  // por compra puntual (saldo = neto a pagar menos lo ya pagado, sin límite), sumando su resultado.
+  const egresosComprometidos = Math.round(facturasPorVencer.reduce((acc, f) => acc + f.saldo, 0) * 100) / 100;
 
   const sesionesCerradasDelMes = (
     await Promise.all(cajas.map((c) => listarSesionesPorCaja(c.caja.id, 20)))

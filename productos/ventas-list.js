@@ -1,9 +1,10 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarVentas } from "/js/ventas.js";
-import { listarCobros } from "/js/cobros.js";
+import { listarCobrosPorVentas } from "/js/cobros.js";
 import { listarComprobantes } from "/js/facturacion.js";
 import { listarEntregas } from "/js/entregas.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -73,8 +74,12 @@ async function cargar() {
   tablaBody.innerHTML = "";
 
   // Solo hace falta traer cobros para las ventas que arrancaron con algo pendiente — el resto ya
-  // se sabe "Cobrada" sin consultar nada más.
-  const cobros = ventas.some((v) => (v.montoPendiente || 0) > 0.01) ? await listarCobros(500) : [];
+  // se sabe "Cobrada" sin consultar nada más. Antes esto era "los últimos 500 cobros del sistema"
+  // (listarCobros(500)): una venta vieja con saldo pendiente cuyo cobro real ya no entraba en esos
+  // 500 se mostraba "Pendiente" aunque estuviera saldada. Ahora se piden los cobros de esas ventas
+  // puntuales, sin límite fijo.
+  const ventasConPendiente = ventas.filter((v) => (v.montoPendiente || 0) > 0.01);
+  const cobros = ventasConPendiente.length > 0 ? await listarCobrosPorVentas(ventasConPendiente.map((v) => v.id)) : [];
   // Desde que la venta genera el comprobante automáticamente casi todas lo van a tener — esto solo
   // hace falta para ofrecer "Generar" en ventas viejas, de antes de ese cambio.
   const comprobantes = await listarComprobantes({ maxResultados: 500 });
@@ -89,8 +94,8 @@ async function cargar() {
     tr.innerHTML = `
       <td>${v.numeroVenta ?? ""}</td>
       <td>${formatFecha(v.fecha)}</td>
-      <td>${v.clienteNombre || "Consumidor final"}</td>
-      <td>${v.vendedorNombre || ""}</td>
+      <td>${escapeHtml(v.clienteNombre || "Consumidor final")}</td>
+      <td>${escapeHtml(v.vendedorNombre || "")}</td>
       <td>${medioResumen(v.pagos)}</td>
       <td>${entregaBadge(v, entregasPorVenta)}</td>
       <td>$${(v.total ?? 0).toLocaleString("es-AR")}</td>

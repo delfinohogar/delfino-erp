@@ -119,6 +119,22 @@ export async function listarPagosPorCompra(compraId) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// Pagos de un CONJUNTO de compras puntuales — mismo criterio que listarCobrosPorVentas (js/cobros.js):
+// antes el listado de Compras traía "los últimos 200 pagos del sistema" (listarPagos(200)) para
+// calcular el estado Pagada/Parcial/Pendiente de cada fila — una compra vieja ya pagada podía
+// aparecer "Pendiente" si su pago real había quedado fuera de esos 200 más recientes. Acá se piden,
+// en tandas de 30, solo los pagos de las compras que en verdad se están mostrando.
+export async function listarPagosPorCompras(compraIds) {
+  const idsUnicos = [...new Set(compraIds)];
+  if (idsUnicos.length === 0) return [];
+  const tandas = [];
+  for (let i = 0; i < idsUnicos.length; i += 30) tandas.push(idsUnicos.slice(i, i + 30));
+  const resultados = await Promise.all(
+    tandas.map((tanda) => getDocs(query(collection(db, "pagosProveedores"), where("compraId", "in", tanda))))
+  );
+  return resultados.flatMap((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+}
+
 // Pagos a proveedor que Tesorería no pudo ubicar solos — misma idea que listarVentasConPagoSinUbicar
 // / listarCobrosConPagoSinUbicar, para que aparezcan también en Tesorería → Pagos sin ubicar.
 export async function listarPagosProveedorConPagoSinUbicar() {

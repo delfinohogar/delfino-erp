@@ -150,6 +150,24 @@ export async function listarCobrosPorVenta(ventaId) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// Cobros de un CONJUNTO de ventas puntuales — para calcular saldos (Dashboard, listado de Ventas) sin
+// depender de un límite fijo sobre TODA la colección de cobros. Antes esos cálculos traían "los
+// últimos N cobros del sistema" (limit(500)) y filtraban en memoria — con más de N cobros históricos
+// totales, el cobro real de una venta vieja podía quedar afuera de esa ventana y esa venta aparecía
+// como impaga aunque estuviera saldada. Acá se pide, en tandas de 30 (límite de Firestore para "in"),
+// solo los cobros de las ventas que en verdad importan — correcto sin importar cuántos cobros haya
+// en total en el sistema, ni cuántas ventas se le pasen.
+export async function listarCobrosPorVentas(ventaIds) {
+  const idsUnicos = [...new Set(ventaIds)];
+  if (idsUnicos.length === 0) return [];
+  const tandas = [];
+  for (let i = 0; i < idsUnicos.length; i += 30) tandas.push(idsUnicos.slice(i, i + 30));
+  const resultados = await Promise.all(
+    tandas.map((tanda) => getDocs(query(collection(db, "cobros"), where("ventaId", "in", tanda))))
+  );
+  return resultados.flatMap((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+}
+
 // Cobros manuales que Tesorería no pudo ubicar — misma idea que listarVentasConPagoSinUbicar.
 export async function listarCobrosConPagoSinUbicar() {
   const snap = await getDocs(query(collection(db, "cobros"), where("tieneSinUbicar", "==", true)));
