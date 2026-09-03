@@ -38,6 +38,7 @@ export const ICONOS_NAV = {
   "facturas-gbp": "recibo",
   "gbp-top-clientes": "grafico",
   "gbp-clientes-importar": "descarga",
+  "gbp-proveedores-importar": "descarga",
   "gbp-articulos-sync": "refresh",
   combos: "caja",
   "cuenta-corriente-clientes": "intercambio",

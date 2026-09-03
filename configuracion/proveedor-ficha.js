@@ -24,6 +24,7 @@ content.innerHTML = `
       <div>
         <div id="f-razonSocial" style="font-size:20px; font-weight:600"></div>
         <div class="hint" id="f-cuit" style="margin-top:4px"></div>
+        <div class="hint" id="f-gbp" style="margin-top:2px; display:none"></div>
       </div>
       <div style="display:flex; gap:8px; align-items:center">
         <span id="f-origen"></span>
@@ -46,6 +47,15 @@ content.innerHTML = `
     <div class="field"><label>Domicilio fiscal</label><div id="d-domicilio">-</div></div>
     <div class="field"><label>Actividades</label><div id="d-actividades">-</div></div>
     <div class="hint" id="d-fecha"></div>
+  </div>
+
+  <div class="card mb-16">
+    <div class="section-title">Contacto</div>
+    <div class="field-row">
+      <div class="field"><label>Localidad</label><div id="d-localidad">-</div></div>
+      <div class="field"><label>Teléfono</label><div id="d-telefono">-</div></div>
+      <div class="field"><label>Email</label><div id="d-email">-</div></div>
+    </div>
   </div>
 
   <div class="card" style="padding:20px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center">
@@ -86,6 +96,15 @@ function pintarProveedor(p) {
   document.getElementById("f-origen").innerHTML =
     p.fuenteDatos === "arca" ? '<span class="badge success">Origen: ARCA</span>' : '<span class="badge muted">Origen: Manual</span>';
 
+  // Referencia para cruzar a mano con GBP — mismo criterio que configuracion/cliente-ficha.js.
+  const gbpEl = document.getElementById("f-gbp");
+  if (p.identificadorExterno) {
+    gbpEl.textContent = `ID GBP: ${p.identificadorExterno}`;
+    gbpEl.style.display = "block";
+  } else {
+    gbpEl.style.display = "none";
+  }
+
   document.getElementById("d-condicionIva").textContent = p.condicionIva || "-";
   document.getElementById("d-situacion").textContent = p.situacionTributaria || "-";
   document.getElementById("d-provincia").textContent = p.provincia || "-";
@@ -95,6 +114,10 @@ function pintarProveedor(p) {
   document.getElementById("d-fecha").textContent = p.fechaConsultaArca
     ? `Última consulta a ARCA: ${formatFecha(p.fechaConsultaArca)}`
     : "Todavía no se consultó ARCA para este proveedor.";
+
+  document.getElementById("d-localidad").textContent = p.localidad || "-";
+  document.getElementById("d-telefono").textContent = p.telefono || "-";
+  document.getElementById("d-email").textContent = p.email || "-";
 }
 
 let proveedor = await obtenerProveedor(proveedorId);

@@ -68,7 +68,8 @@ export function renderShell({ active, titulo, usuario }) {
           nav("ordenes-compra", "/productos/ordenes-compra.html", "Órdenes de compra") +
             nav("compras", "/productos/compras.html", "Compras") +
             nav("cuenta-corriente", "/productos/cuenta-corriente.html", "Cuenta corriente") +
-            nav("pagos", "/productos/pagos.html", "Pagos")
+            nav("pagos", "/productos/pagos.html", "Pagos") +
+            nav("gbp-proveedores-importar", "/productos/gbp-proveedores-importar.html", "Proveedores GBP — Excel")
         )}
         ${grupo(
           "contabilidad",
