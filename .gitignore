@@ -3,3 +3,10 @@
 
 # Dependencias de Cloud Functions (se reinstalan con npm install)
 functions/node_modules
+
+# Dependencias raíz (esbuild, ver build.js) y el resultado del build — se regeneran con
+# npm install && npm run build. IMPORTANTE: correr "npm run build" antes de cada
+# "netlify deploy --prod" (dist/ no está en git, pero el deploy sube el directorio de trabajo tal
+# cual está en disco, así que tiene que existir y estar actualizado en el momento del deploy).
+node_modules
+dist
