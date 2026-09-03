@@ -63,7 +63,7 @@ function pintar(lista, mensajeVacio) {
 
 // Búsqueda bajo demanda (Firestore, prefijo por nombre o CUIT/DNI) en vez de traer TODOS los
 // clientes al entrar y filtrar en memoria — funcionaba con los clientes de prueba, pero con miles
-// reales (migración de GBP) la pantalla directamente dejaba de responder. Debounce de 300ms para no
+// reales (migración de GBP) la pantalla directamente dejaba de responder. Debounce de 200ms para no
 // disparar una consulta por cada tecla, y un id de búsqueda para no pintar una respuesta vieja que
 // llegó tarde si mientras tanto se siguió escribiendo (mismo criterio que js/cliente-picker.js).
 let busquedaId = 0;
@@ -79,10 +79,14 @@ async function buscar() {
   pintar(resultados, "Sin resultados.");
 }
 
+// "Buscando…" se pinta ANTES del debounce, no después — sin esto, mientras viaja la consulta (más en
+// una conexión lenta) quedaban a la vista los resultados de la búsqueda ANTERIOR, dando la impresión
+// de que el buscador no filtraba lo recién escrito cuando en realidad solo estaba tardando.
 let debounceTimer = null;
 buscador.addEventListener("input", () => {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(buscar, 300);
+  if (buscador.value.trim()) pintar([], "Buscando…");
+  debounceTimer = setTimeout(buscar, 200);
 });
 
 document.getElementById("btn-nuevo").addEventListener("click", async () => {

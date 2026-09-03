@@ -74,8 +74,13 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
   // Búsqueda bajo demanda (Firestore, prefijo por nombre o CUIT — ver buscarClientesTexto) en vez de
   // traer TODOS los clientes al abrir el panel y filtrar en memoria: con los clientes de prueba no se
   // notaba, pero con miles reales (migración de GBP) esa carga inicial se volvía lenta o directamente
-  // se colgaba. Debounce de 300ms para no disparar una consulta por cada tecla, y un id de búsqueda
+  // se colgaba. Debounce de 200ms para no disparar una consulta por cada tecla, y un id de búsqueda
   // para no pintar una respuesta vieja que llegó tarde si mientras tanto se siguió escribiendo.
+  //
+  // "Buscando…" se pinta ANTES de esperar el debounce, no después — sin esto, mientras la consulta
+  // viaja (más en una conexión de celular lenta) seguían a la vista los resultados de la búsqueda
+  // ANTERIOR, y de lejos parece que el buscador no filtra lo que se acaba de escribir cuando en
+  // realidad solo está tardando en responder.
   let debounceTimer = null;
   searchInput.addEventListener("input", () => {
     const texto = searchInput.value.trim();
@@ -84,12 +89,13 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
       render([], "Escribí un nombre o CUIT/DNI para buscar.");
       return;
     }
+    render([], "Buscando…");
     const idActual = ++busquedaId;
     debounceTimer = setTimeout(async () => {
       const resultados = await buscarClientesTexto(texto);
       if (idActual !== busquedaId) return; // llegó tarde, ya hay una búsqueda más nueva en curso
       render(resultados, "Sin resultados.");
-    }, 300);
+    }, 200);
   });
 
   crearEl.addEventListener("mousedown", async (e) => {
