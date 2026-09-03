@@ -2,7 +2,13 @@
 // el elegido y, al abrirse, un panel con buscador (por nombre o CUIT/DNI), "+ Crear nuevo cliente"
 // fijo arriba, y la lista. A diferencia del de proveedor, el cliente es opcional (ventas sin cliente
 // son "Consumidor final") — por eso suma limpiarSeleccion().
-import { crearCliente, buscarClientePorCuit, buscarClientesTexto } from "./clientes.js";
+import {
+  crearCliente,
+  buscarClientePorCuit,
+  buscarClientesTexto,
+  buscarCandidatosClientesPorNombre,
+  filtrarYOrdenarCandidatosPorNombre,
+} from "./clientes.js";
 import { pedirClienteModal } from "./cliente-modal.js";
 import { escapeHtml } from "./escape-html.js";
 
@@ -30,6 +36,7 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
   let seleccionado = seleccionActual;
   let abierto = false;
   let busquedaId = 0; // descarta una respuesta vieja si llega después de una más nueva
+  let cacheNombre = null; // { clave, candidatos } — ver buscarPorNombreConCache más abajo
 
   function render(items, mensajeVacio) {
     listEl.innerHTML = "";
@@ -47,6 +54,23 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
       });
       listEl.appendChild(row);
     });
+  }
+
+  // Cache liviano SOLO para búsqueda por nombre — el caso de "seguir tipeando" (fig → figu → figue…)
+  // que es el que más golpea Firestore en un tecleo normal. Documento/teléfono/email no progresan
+  // letra a letra de la misma forma, así que van directo a buscarClientesTexto sin pasar por acá.
+  // Nunca se cachea si la consulta pudo haber quedado truncada (truncado=true): en ese caso podría
+  // haber más clientes en Firestore que no se trajeron, y filtrar ese conjunto incompleto en memoria
+  // arriesgaría un falso negativo — se vuelve a consultar Firestore en cada tecla hasta que la
+  // búsqueda sea lo bastante específica como para no truncarse.
+  async function buscarPorNombreConCache(texto) {
+    const clave = texto.trim().toLowerCase();
+    if (cacheNombre && clave.startsWith(cacheNombre.clave)) {
+      return filtrarYOrdenarCandidatosPorNombre(cacheNombre.candidatos, texto);
+    }
+    const { candidatos, truncado } = await buscarCandidatosClientesPorNombre(texto);
+    cacheNombre = truncado ? null : { clave, candidatos };
+    return filtrarYOrdenarCandidatosPorNombre(candidatos, texto);
   }
 
   function elegir(c) {
@@ -91,8 +115,9 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
     }
     render([], "Buscando…");
     const idActual = ++busquedaId;
+    const esNombre = !texto.includes("@") && !/^[\d+]/.test(texto);
     debounceTimer = setTimeout(async () => {
-      const resultados = await buscarClientesTexto(texto);
+      const resultados = esNombre ? await buscarPorNombreConCache(texto) : await buscarClientesTexto(texto);
       if (idActual !== busquedaId) return; // llegó tarde, ya hay una búsqueda más nueva en curso
       render(resultados, "Sin resultados.");
     }, 200);

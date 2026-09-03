@@ -2,15 +2,28 @@
 // específico de un dominio (antes vivían duplicadas en cada archivo que las necesitaba).
 const PALABRAS_MINUSCULAS = new Set(["de", "del", "la", "las", "los", "y", "en", "al"]);
 
+// Saca acentos/diéresis (NFD separa la letra de su marca diacrítica, después se descarta la marca) —
+// "ü"/"ó"/etc. quedan como su letra base. De paso también "ñ" queda como "n" (Unicode la descompone
+// igual, como "n" + tilde combinable) — a propósito para una búsqueda permisiva: alguien que escribe
+// "nuñez" o "nunez" apurado tiene que encontrar el mismo cliente, sin depender de si tipeó la tilde.
+function sinAcentos(texto) {
+  return texto.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// minúsculas + sin acentos + sin espacios de más — antes de tokenizar o de comparar dos nombres
+// entre sí (ver calcularRelevanciaCliente en js/clientes.js).
+export function normalizarTexto(texto) {
+  return sinAcentos((texto || "").toString().trim().toLowerCase()).replace(/\s+/g, " ");
+}
+
 // Separa en palabras (sin acentos ni puntuación) para indexar por término, no por frase completa —
-// misma función que ya usaba solo js/productos.js, ahora compartida (ver camposBusquedaTexto acá
-// abajo y buscarClientesPorNombre en js/clientes.js).
+// misma función que ya usaba solo js/productos.js, ahora compartida (ver keywordsDeTextos acá abajo
+// y buscarClientes en js/clientes.js). Antes de normalizar acentos, "AGÜERO" se cortaba en "ag" +
+// "ero" (la "ü" no estaba en la clase de caracteres permitidos acá) y quedaba imposible de encontrar
+// buscando "aguero" — bug real, confirmado contra un cliente real de la migración de GBP.
 export function tokenizar(texto) {
-  return (texto || "")
-    .toString()
-    .trim()
-    .toLowerCase()
-    .split(/[^a-z0-9áéíóúñ]+/i)
+  return normalizarTexto(texto)
+    .split(/[^a-z0-9]+/i)
     .filter(Boolean);
 }
 

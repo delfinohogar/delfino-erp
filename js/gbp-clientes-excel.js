@@ -4,7 +4,7 @@
 import { db, collection, getDocs, doc, writeBatch, query, where, functions, httpsCallable } from "./firebase.js";
 import { exportarExcel } from "./report-engine.js";
 import { capitalizarDireccion, keywordsDeTextos } from "./texto.js";
-import { dniDesdeCuit } from "./cuit.js";
+import { dniDesdeCuit, normalizarTelefono } from "./cuit.js";
 
 const COLUMNAS = [
   { titulo: "ID GBP (no editar)", clave: "identificadorExterno" },
@@ -128,7 +128,8 @@ export async function confirmarImportacionClientes(clientesValidos, onProgreso =
         provinciaEntrega: c.provinciaEntrega || "Buenos Aires",
         paisEntrega: c.paisEntrega || "Argentina",
         whatsapp: c.whatsapp || null,
-        email: c.email || null,
+        searchPhone: normalizarTelefono(c.whatsapp),
+        email: c.email ? c.email.trim().toLowerCase() : null,
         fuenteDatos: "gbp",
         identificadorExterno: c.identificadorExterno,
         activo: true,

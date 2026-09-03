@@ -60,6 +60,14 @@ function capitalizarDireccion(texto) {
     .join(" ");
 }
 
+// Mismo criterio que normalizarTelefono (js/cuit.js): últimos 10 dígitos, para poder buscar el
+// teléfono sin importar cómo se haya cargado (con o sin código de país, con o sin el 9 de celular).
+function normalizarTelefono(valor) {
+  const d = soloDigitos(valor);
+  if (d.length < 8) return null;
+  return d.slice(-10);
+}
+
 // Mismo criterio que formatearCuit (js/cuit.js): hasta 8 dígitos puede ser un DNI (sin guiones), a
 // partir de ahí ya solo puede ser un CUIT en camino a 11.
 function formatearCuit(valor) {
@@ -118,7 +126,8 @@ function mapearClienteGbp(g) {
     fuenteDatos: "gbp",
     fechaConsultaArca: null,
     whatsapp: g.cust_phone1 ? String(g.cust_phone1) : null,
-    email: g.cust_email || null,
+    searchPhone: normalizarTelefono(g.cust_phone1),
+    email: g.cust_email ? String(g.cust_email).trim().toLowerCase() : null,
     domicilioEntregaNormalizado: null,
     domicilioEntregaLat: null,
     domicilioEntregaLon: null,

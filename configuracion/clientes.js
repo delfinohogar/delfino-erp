@@ -1,7 +1,12 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
-import { crearCliente, buscarClientesTexto } from "/js/clientes.js";
+import {
+  crearCliente,
+  buscarClientesTexto,
+  buscarCandidatosClientesPorNombre,
+  filtrarYOrdenarCandidatosPorNombre,
+} from "/js/clientes.js";
 import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
@@ -67,6 +72,19 @@ function pintar(lista, mensajeVacio) {
 // disparar una consulta por cada tecla, y un id de búsqueda para no pintar una respuesta vieja que
 // llegó tarde si mientras tanto se siguió escribiendo (mismo criterio que js/cliente-picker.js).
 let busquedaId = 0;
+// Cache liviano SOLO para búsqueda por nombre (mismo criterio que js/cliente-picker.js) — nunca se
+// usa si la última consulta pudo haber quedado truncada, para no arriesgar un falso negativo.
+let cacheNombre = null;
+async function buscarPorNombreConCache(texto) {
+  const clave = texto.trim().toLowerCase();
+  if (cacheNombre && clave.startsWith(cacheNombre.clave)) {
+    return filtrarYOrdenarCandidatosPorNombre(cacheNombre.candidatos, texto);
+  }
+  const { candidatos, truncado } = await buscarCandidatosClientesPorNombre(texto);
+  cacheNombre = truncado ? null : { clave, candidatos };
+  return filtrarYOrdenarCandidatosPorNombre(candidatos, texto);
+}
+
 async function buscar() {
   const texto = buscador.value.trim();
   if (!texto) {
@@ -74,7 +92,8 @@ async function buscar() {
     return;
   }
   const idActual = ++busquedaId;
-  const resultados = await buscarClientesTexto(texto);
+  const esNombre = !texto.includes("@") && !/^[\d+]/.test(texto);
+  const resultados = esNombre ? await buscarPorNombreConCache(texto) : await buscarClientesTexto(texto);
   if (idActual !== busquedaId) return;
   pintar(resultados, "Sin resultados.");
 }

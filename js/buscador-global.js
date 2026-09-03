@@ -1,7 +1,7 @@
 // Buscador superior tipo paleta de comandos: Ctrl+K (o Cmd+K) lo enfoca desde cualquier pantalla.
 // Sin texto muestra acciones rápidas; al escribir, además busca en productos/clientes/proveedores.
 import { buscarProductos } from "./productos.js";
-import { buscarClientes } from "./clientes.js";
+import { buscarClientesTexto } from "./clientes.js";
 import { buscarProveedores } from "./catalogo.js";
 
 const ACCIONES = [
@@ -71,7 +71,7 @@ export function initBuscadorGlobal(container) {
     debounceTimer = setTimeout(async () => {
       const [productos, clientes, proveedores] = await Promise.all([
         buscarProductos(texto, 5),
-        buscarClientes(texto),
+        buscarClientesTexto(texto),
         buscarProveedores(texto),
       ]);
       render(

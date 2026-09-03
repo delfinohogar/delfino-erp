@@ -55,6 +55,18 @@ export function dniDesdeCuit(cuit) {
   return null;
 }
 
+// Últimos 10 dígitos de un teléfono, sin importar cómo se haya tipeado — "11 5555 4444" y
+// "+54 9 11 5555 4444" dan el mismo valor, porque ambos terminan en los mismos 10 dígitos (el
+// código de país y el 9 de celular van siempre ANTES del número real). Se usa solo para BUSCAR
+// (searchPhone en js/clientes.js) — el teléfono que se le muestra al usuario nunca se toca, se
+// guarda tal cual se cargó. null si es demasiado corto para ser un teléfono real (evita que un DNI
+// corto cargado por error en el campo de teléfono termine matcheando búsquedas de teléfono).
+export function normalizarTelefono(valor) {
+  const d = soloDigitos(valor);
+  if (d.length < 8) return null;
+  return d.slice(-10);
+}
+
 // dni: 7 u 8 dígitos. Devuelve los CUIT probables (formateados) para cada prefijo de persona física.
 export function cuitsPosiblesDesdeDni(dni) {
   const d = soloDigitos(dni).padStart(8, "0");
