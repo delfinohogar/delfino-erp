@@ -65,6 +65,10 @@ content.innerHTML = `
       </div>
       <div class="hint" id="d-domicilio-normalizado" style="margin-top:6px"></div>
     </div>
+    <div class="field-row" style="margin-top:14px">
+      <div class="field"><label>Localidad</label><div id="d-localidad-entrega">-</div></div>
+      <div class="field"><label>Código postal</label><div id="d-cp-entrega">-</div></div>
+    </div>
   </div>
 
   <div class="card mb-16" id="cuenta-corriente">
@@ -128,6 +132,8 @@ function pintarCliente(c) {
   document.getElementById("d-whatsapp").textContent = c.whatsapp || "-";
   document.getElementById("d-email").textContent = c.email || "-";
   document.getElementById("d-domicilio-entrega").textContent = c.domicilioEntrega || "-";
+  document.getElementById("d-localidad-entrega").textContent = c.localidadEntrega || "-";
+  document.getElementById("d-cp-entrega").textContent = c.codigoPostalEntrega || "-";
 
   const normalizadoEl = document.getElementById("d-domicilio-normalizado");
   if (c.domicilioEntregaNormalizado) {
