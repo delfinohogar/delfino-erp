@@ -275,8 +275,15 @@ document.getElementById("btn-reconsultar").addEventListener("click", async () =>
     } else {
       datosArca = await consultarPadronArca(cliente.cuit);
     }
+    // actualizarCliente pisa TODO lo que no venga en datosContacto (updateDoc, no merge parcial por
+    // campo) — hay que mandar los que ya tenía el cliente, no solo los tres que importan acá, o se
+    // pierden en silencio (pasó de verdad: localidad y código postal quedaban en null).
     await actualizarCliente(clienteId, cliente.razonSocial, cuitParaGuardar, datosArca, {
       domicilioEntrega: cliente.domicilioEntrega,
+      codigoPostalEntrega: cliente.codigoPostalEntrega,
+      localidadEntrega: cliente.localidadEntrega,
+      provinciaEntrega: cliente.provinciaEntrega,
+      paisEntrega: cliente.paisEntrega,
       whatsapp: cliente.whatsapp,
       email: cliente.email,
     });
