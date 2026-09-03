@@ -71,6 +71,7 @@ exports.gbpSincronizarFacturas = require("./gbpFacturas").gbpSincronizarFacturas
 exports.gbpPreviewVincularClientes = require("./gbpClientes").gbpPreviewVincularClientes;
 exports.gbpAplicarVincularClientes = require("./gbpClientes").gbpAplicarVincularClientes;
 exports.gbpImportarClientePrueba = require("./gbpClientes").gbpImportarClientePrueba;
+exports.gbpExportarTodosLosClientes = require("./gbpClientes").gbpExportarTodosLosClientes;
 
 // GBP — sincroniza precio/stock/descripción/IVA del catálogo existente (no crea productos nuevos).
 exports.gbpPreviewArticulos = require("./gbpArticulos").gbpPreviewArticulos;

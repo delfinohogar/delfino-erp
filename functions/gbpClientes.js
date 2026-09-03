@@ -22,6 +22,23 @@ const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const gbp = require("./gbp");
 
+// Mismas claves que COLUMNAS en js/gbp-clientes-excel.js — a propósito duplicado (ese archivo corre
+// con el SDK cliente, éste con el admin): son las que exportarTodosLosClientesGbp() usa allá para
+// armar el .xlsx con exportarExcel(), sin que el usuario tenga que tocar ni una columna.
+const COLUMNAS_EXPORT_CLIENTES = [
+  { clave: "identificadorExterno" },
+  { clave: "razonSocial" },
+  { clave: "cuit" },
+  { clave: "condicionIva" },
+  { clave: "domicilioEntrega" },
+  { clave: "codigoPostalEntrega" },
+  { clave: "localidadEntrega" },
+  { clave: "provinciaEntrega" },
+  { clave: "paisEntrega" },
+  { clave: "whatsapp" },
+  { clave: "email" },
+];
+
 function soloDigitos(valor) {
   return (valor || "").toString().replace(/\D/g, "");
 }
@@ -268,3 +285,29 @@ exports.gbpAplicarVincularClientes = onCall({ region: "southamerica-east1", time
 
   return { vinculados: vinculaciones.length, fichasCreadas: fichasNuevas.length };
 });
+
+// Exporta el universo COMPLETO de clientes de GBP (~31.000, no solo los que ya tienen ficha liviana
+// por haber comprado en los últimos 90 días — ver gbpFacturas.js), con la misma forma de fila que ya
+// usa la plantilla de productos/gbp-clientes-importar.html, para revisar/corregir/filtrar a mano
+// antes de subirlo. Devuelve las filas ya armadas (no el objeto crudo de GBP) — el .xlsx en sí lo
+// arma el navegador con el mismo motor que ya usa el botón "para revisar" (exportarExcel), no hace
+// falta Storage ni URLs firmadas: 31.000 filas de texto corto entran sobradas en una respuesta.
+exports.gbpExportarTodosLosClientes = onCall(
+  { region: "southamerica-east1", secrets: gbp.GBP_SECRETS, timeoutSeconds: 300, memory: "1GiB" },
+  async (request) => {
+    const db = admin.firestore();
+    await requiereAdmin(db, request);
+
+    const token = await gbp.authenticate();
+    const todosLosClientesGbp = await gbp.listarTodosLosClientes(token);
+
+    const filas = todosLosClientesGbp.map((g) => {
+      const datos = mapearClienteGbp(g);
+      const fila = {};
+      for (const col of COLUMNAS_EXPORT_CLIENTES) fila[col.clave] = datos[col.clave] ?? "";
+      return fila;
+    });
+
+    return { filas, total: filas.length };
+  }
+);

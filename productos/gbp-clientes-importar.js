@@ -3,7 +3,7 @@
 // que la importación de catálogo (ver productos/importar.js): subir → previsualizar → confirmar.
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { exportarClientesGbpParaRevisar, prepararImportacionClientes, confirmarImportacionClientes } from "/js/gbp-clientes-excel.js";
+import { exportarClientesGbpParaRevisar, exportarTodosLosClientesGbp, prepararImportacionClientes, confirmarImportacionClientes } from "/js/gbp-clientes-excel.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -18,13 +18,22 @@ const content = renderShell({ active: "gbp-clientes-importar", titulo: "Clientes
 content.innerHTML = `
   <div class="card mb-16" style="padding:20px">
     <div class="section-title">1. Descargar para revisar</div>
-    <div class="hint" style="max-width:64ch; margin-bottom:12px">
-      Baja un Excel con los clientes de GBP que ya compraron algo (los que hoy son "ficha liviana",
-      sin cuenta corriente ni Nueva Venta) — corregí lo que haga falta ahí y volvé a subirlo abajo.
-      La columna "ID GBP" es la clave para no duplicar — no la edites ni la borres.
+    <div class="hint" style="max-width:64ch; margin-bottom:14px">
+      Dos formas de bajar el Excel, según qué necesites — las dos usan la misma plantilla, así que se
+      suben de vuelta igual en el paso 2. La columna "ID GBP" es la clave para no duplicar — no la
+      edites ni la borres.
     </div>
-    <button type="button" id="btn-exportar" class="primary">📥 Descargar clientes GBP para revisar (.xlsx)</button>
-    <span id="exportar-estado" class="hint mt-0" style="margin-left:10px"></span>
+    <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center">
+      <button type="button" id="btn-exportar" class="primary">📥 Solo los que ya compraron (.xlsx)</button>
+      <button type="button" id="btn-exportar-todos">📥 TODOS los clientes de GBP — ~31.000 (.xlsx)</button>
+    </div>
+    <div class="hint mt-0" style="margin-top:8px">
+      "Solo los que ya compraron" son los que hoy son "ficha liviana" (aparecieron en una factura
+      sincronizada de los últimos 90 días). "TODOS" trae el universo completo de GBP tal cual está allá
+      — para elegir vos con cuáles quedarte y corregir antes de subir; tarda más porque arma el archivo
+      del lado del servidor.
+    </div>
+    <span id="exportar-estado" class="hint mt-0" style="margin-left:0; display:block; margin-top:6px"></span>
   </div>
 
   <div class="card mb-16" style="padding:20px">
@@ -48,6 +57,21 @@ document.getElementById("btn-exportar").addEventListener("click", async () => {
     estadoEl.textContent = `Error: ${err?.message || "no se pudo exportar"}`;
   } finally {
     btn.disabled = false;
+  }
+});
+
+document.getElementById("btn-exportar-todos").addEventListener("click", async () => {
+  const btnTodos = document.getElementById("btn-exportar-todos");
+  const estadoEl = document.getElementById("exportar-estado");
+  btnTodos.disabled = true;
+  estadoEl.textContent = "Trayendo el listado completo de GBP… puede tardar uno o dos minutos.";
+  try {
+    const total = await exportarTodosLosClientesGbp();
+    estadoEl.textContent = `Listo: ${total} clientes.`;
+  } catch (err) {
+    estadoEl.textContent = `Error: ${err?.message || "no se pudo exportar"}`;
+  } finally {
+    btnTodos.disabled = false;
   }
 });
 

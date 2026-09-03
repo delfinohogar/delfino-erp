@@ -1,7 +1,7 @@
 // Exportar/importar clientes de GBP vía Excel — para poder revisar y corregir los datos a mano
 // antes de subirlos como clientes reales de Delfino (en vez de aplicar directo lo que trae GBP).
 // Mismas columnas en export e import, así lo que se descarga es directamente la plantilla de vuelta.
-import { db, collection, getDocs, doc, writeBatch, query, where } from "./firebase.js";
+import { db, collection, getDocs, doc, writeBatch, query, where, functions, httpsCallable } from "./firebase.js";
 import { exportarExcel } from "./report-engine.js";
 
 const COLUMNAS = [
@@ -40,6 +40,17 @@ export async function exportarClientesGbpParaRevisar() {
   });
   exportarExcel("Delfino_Clientes_GBP_para_revisar.xlsx", COLUMNAS, filas);
   return filas.length;
+}
+
+// Universo COMPLETO de GBP (~31.000, no solo los que ya compraron recientemente) — la Cloud Function
+// trae y mapea las filas (necesita las credenciales de GBP, que solo existen del lado del servidor);
+// el .xlsx en sí se arma acá con el mismo motor que exportarClientesGbpParaRevisar, misma plantilla.
+// Devuelve cuántas filas se exportaron.
+export async function exportarTodosLosClientesGbp() {
+  const fn = httpsCallable(functions, "gbpExportarTodosLosClientes", { timeout: 280000 });
+  const { data } = await fn();
+  exportarExcel("Delfino_Clientes_GBP_completo.xlsx", COLUMNAS, data.filas);
+  return data.total;
 }
 
 // Lee las filas ya parseadas de la hoja (XLSX.utils.sheet_to_json) y las valida — no escribe nada.
