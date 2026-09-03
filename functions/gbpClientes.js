@@ -296,7 +296,7 @@ exports.gbpPreviewVincularClientes = onCall({ region: "southamerica-east1", secr
   return calcularVinculacion(db);
 });
 
-exports.gbpAplicarVincularClientes = onCall({ region: "southamerica-east1", timeoutSeconds: 120, memory: "512MiB" }, async (request) => {
+exports.gbpAplicarVincularClientes = onCall({ region: "southamerica-east1", timeoutSeconds: 180, memory: "512MiB" }, async (request) => {
   const db = admin.firestore();
   await requiereAdmin(db, request);
 
@@ -323,7 +323,32 @@ exports.gbpAplicarVincularClientes = onCall({ region: "southamerica-east1", time
     await batch.commit();
   }
 
-  return { vinculados: vinculaciones.length, fichasCreadas: fichasNuevas.length };
+  // Backfill: facturas de estos mismos clientes de GBP que ya estaban sincronizadas ANTES de este
+  // vínculo se quedan con clienteId null para siempre si nadie las toca — gbpSincronizarFacturas solo
+  // calcula clienteId en el momento del sync (ver gbpFacturas.js), y antes de este vínculo no había
+  // con qué cliente de Delfino cruzarlas. Sin este backfill, un cliente recién vinculado no ve sus
+  // compras ya sincronizadas en Cuenta Corriente hasta que alguien vuelva a apretar "Sincronizar
+  // ahora" a mano (fácil de no saber que hace falta).
+  const custIdAClienteId = new Map(vinculaciones.filter((v) => v?.clienteId && v?.custId).map((v) => [String(v.custId), String(v.clienteId)]));
+  let facturasVinculadas = 0;
+  if (custIdAClienteId.size > 0) {
+    const facturasSnap = await db.collection("facturasGbp").select("clienteIdExterno", "clienteId").get();
+    const aActualizar = facturasSnap.docs.filter((doc) => {
+      const idExt = doc.data().clienteIdExterno;
+      const clienteIdNuevo = idExt ? custIdAClienteId.get(String(idExt)) : null;
+      return clienteIdNuevo && doc.data().clienteId !== clienteIdNuevo;
+    });
+    for (let i = 0; i < aActualizar.length; i += TAMANO_TANDA) {
+      const batch = db.batch();
+      for (const doc of aActualizar.slice(i, i + TAMANO_TANDA)) {
+        batch.update(doc.ref, { clienteId: custIdAClienteId.get(String(doc.data().clienteIdExterno)) });
+      }
+      await batch.commit();
+    }
+    facturasVinculadas = aActualizar.length;
+  }
+
+  return { vinculados: vinculaciones.length, fichasCreadas: fichasNuevas.length, facturasVinculadas };
 });
 
 // Exporta el universo COMPLETO de clientes de GBP (~31.000, no solo los que ya tienen ficha liviana

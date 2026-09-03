@@ -255,7 +255,7 @@ function mostrarPreviewVinculacion(preview) {
       const seleccionadas = Array.from(overlay.querySelectorAll("[data-role=chk-vinc]:checked")).map((chk) => vinculaciones[Number(chk.dataset.i)]);
       const res = await aplicarVincularClientesGbp({ vinculaciones: seleccionadas, fichasNuevas });
       cerrar();
-      syncEstado.textContent = `Listo: ${res.vinculados} clientes vinculados, ${res.fichasCreadas} fichas nuevas creadas.`;
+      syncEstado.textContent = `Listo: ${res.vinculados} clientes vinculados, ${res.fichasCreadas} fichas nuevas creadas, ${res.facturasVinculadas} facturas ya sincronizadas quedaron asociadas.`;
       await cargar();
     } catch (err) {
       errorEl.textContent = err?.message || "No se pudo aplicar.";

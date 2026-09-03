@@ -31,7 +31,9 @@ function encontrarEntryPoints() {
   for (const html of listarHtml(".")) {
     const contenido = fs.readFileSync(html, "utf8");
     for (const m of contenido.matchAll(/<script type="module" src="\/([^"]+\.js)"/g)) {
-      entries.add(m[1]);
+      // El .html ya apunta a /dist/... (build anterior) — el entry point real es la ruta original,
+      // sin ese prefijo. Sin esto, correr el build dos veces anida dist/dist/...
+      entries.add(m[1].startsWith("dist/") ? m[1].slice("dist/".length) : m[1]);
     }
   }
   return Array.from(entries);
