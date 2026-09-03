@@ -68,6 +68,18 @@ function formatearCuit(valor) {
   return `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}`;
 }
 
+// Mismo criterio que dniDesdeCuit (js/cuit.js) — duplicado a propósito (ver capitalizarDireccion más
+// arriba): el DNI embebido dentro de un CUIL completo, para poder buscar clientes por DNI sin
+// importar si terminaron con el CUIL completo (los que ya se resolvieron por ARCA) o con el DNI
+// suelto (todos los que todavía no).
+const PREFIJOS_PERSONA_FISICA = ["20", "23", "24", "27"];
+function dniDesdeCuit(cuit) {
+  const d = soloDigitos(cuit);
+  if (d.length === 11 && PREFIJOS_PERSONA_FISICA.includes(d.slice(0, 2))) return d.slice(2, 10);
+  if (d.length === 7 || d.length === 8) return d.padStart(8, "0");
+  return null;
+}
+
 // Mapeo GBP -> esquema de clientes de Delfino (ver js/clientes.js:crearCliente para el esquema
 // real). condicionIva/situacionTributaria/actividades quedan vacíos — Customers_funGetXMLData no
 // los da; quedan disponibles para completar con una consulta a ARCA después, como cualquier cliente
@@ -89,6 +101,7 @@ function mapearClienteGbp(g) {
     razonSocial: nombre,
     razonSocialLower: nombre.toLowerCase(),
     cuit: formatearCuit(g.cust_taxNumber),
+    dni: dniDesdeCuit(g.cust_taxNumber),
     condicionIva: digitos && digitos.length <= 8 ? "Consumidor Final" : null,
     domicilioFiscal: null,
     provincia: null,

@@ -4,6 +4,7 @@
 // cargados a mano, como base para integraciones futuras (normalización de mapas, WhatsApp/Meta, mail).
 import { db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit } from "./firebase.js";
 import { capitalizarDireccion } from "./texto.js";
+import { dniDesdeCuit } from "./cuit.js";
 
 // Truco estándar de Firestore para range query "empieza con": el límite superior tiene que ser el
 // prefijo más un carácter que ordene después de cualquier texto normal (U+F8FF, área de uso
@@ -37,16 +38,36 @@ export async function buscarClientesPorCuit(texto) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// Mismo criterio, pero contra el DNI embebido (ver dni en crearCliente/actualizarCliente y
+// dniDesdeCuit en js/cuit.js) — así "36727434" encuentra un cliente aunque su cuit haya quedado
+// como el CUIL completo "20-36727434-5" (lo que pasa apenas se resuelve por ARCA), no solo a los
+// que se quedaron con el DNI suelto.
+export async function buscarClientesPorDni(texto) {
+  if (!texto) return [];
+  const t = texto.trim();
+  const snap = await getDocs(
+    query(collection(db, "clientes"), where("dni", ">=", t), where("dni", "<=", t + COTA_SUPERIOR_UNICODE), orderBy("dni"), limit(8))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 // Punto único de búsqueda "como se escriba" para los buscadores de cliente (picker de Nueva Venta,
-// listado de Configuración → Clientes): un CUIT/DNI siempre empieza con un dígito, un nombre nunca —
-// alcanza para elegir el campo correcto sin tener que consultar los dos y descartar la mitad.
+// listado de Configuración → Clientes): un CUIT/DNI siempre empieza con un dígito, un nombre nunca.
+// Para un documento se combinan dos búsquedas en paralelo — por CUIT completo Y por DNI embebido —
+// porque un mismo número de documento puede estar guardado de las dos formas según el cliente (ver
+// buscarClientesPorDni); se corren juntas y se descartan duplicados por id.
 // Sin esto, cada pantalla traía la colección ENTERA de clientes para filtrar en memoria — funcionaba
 // con los clientes de prueba, pero se vuelve pesado/lento en serio con miles de clientes reales
-// (ver migración de GBP). Ninguna consulta trae más de 8 resultados.
+// (ver migración de GBP). Ninguna búsqueda final trae más de 8 resultados.
 export async function buscarClientesTexto(texto) {
   const t = (texto || "").trim();
   if (!t) return [];
-  return /^\d/.test(t) ? buscarClientesPorCuit(t) : buscarClientes(t);
+  if (!/^\d/.test(t)) return buscarClientes(t);
+
+  const [porCuit, porDni] = await Promise.all([buscarClientesPorCuit(t), buscarClientesPorDni(t.replace(/\D/g, ""))]);
+  const combinados = new Map();
+  for (const c of [...porCuit, ...porDni]) combinados.set(c.id, c);
+  return Array.from(combinados.values()).slice(0, 8);
 }
 
 // datosArca: opcional — lo que devuelve la consulta al padrón de ARCA. Sin eso, queda cargado a mano.
@@ -56,6 +77,7 @@ export async function crearCliente(razonSocial, cuit = "", datosArca = null, dat
     razonSocial: razonSocial.trim(),
     razonSocialLower: razonSocial.trim().toLowerCase(),
     cuit: cuit.trim(),
+    dni: dniDesdeCuit(cuit),
     condicionIva: datosArca?.condicionIva || null,
     domicilioFiscal: datosArca?.domicilioFiscal || null,
     provincia: datosArca?.provincia || null,
@@ -85,6 +107,7 @@ export async function actualizarCliente(id, razonSocial, cuit, datosArca = null,
     razonSocial: razonSocial.trim(),
     razonSocialLower: razonSocial.trim().toLowerCase(),
     cuit: cuit.trim(),
+    dni: dniDesdeCuit(cuit),
     domicilioEntrega: capitalizarDireccion(datosContacto.domicilioEntrega?.trim()) || null,
     codigoPostalEntrega: datosContacto.codigoPostalEntrega?.trim() || null,
     localidadEntrega: datosContacto.localidadEntrega?.trim() || null,

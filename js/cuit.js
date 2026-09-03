@@ -44,6 +44,17 @@ export function formatearCuit(valor) {
   return `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}`;
 }
 
+// El DNI, embebido dentro de un CUIL completo (posiciones 3-10, entre el prefijo de 2 y el
+// verificador) o directo si es lo único que se tiene — para poder buscar clientes por DNI sin
+// importar si su cuit terminó como DNI suelto o como CUIL completo (ver buscarClientesTexto en
+// js/clientes.js). null para un CUIT de empresa (30/33/34…): no tiene un DNI de persona adentro.
+export function dniDesdeCuit(cuit) {
+  const d = soloDigitos(cuit);
+  if (d.length === 11 && PREFIJOS_PERSONA_FISICA.some((p) => p.prefijo === d.slice(0, 2))) return d.slice(2, 10);
+  if (d.length === 7 || d.length === 8) return d.padStart(8, "0");
+  return null;
+}
+
 // dni: 7 u 8 dígitos. Devuelve los CUIT probables (formateados) para cada prefijo de persona física.
 export function cuitsPosiblesDesdeDni(dni) {
   const d = soloDigitos(dni).padStart(8, "0");
