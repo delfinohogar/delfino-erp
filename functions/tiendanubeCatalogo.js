@@ -177,7 +177,9 @@ exports.tnVincularProductos = onCall({ region: "southamerica-east1" }, async (re
   return { ok: true, vinculados: items.length };
 });
 
-// items: [{ productoId, stockNuevo }]
+// items: [{ productoId, stockNuevo, stockAnterior }] — stockAnterior es el stock de Delfino que se
+// vio al armar la reconciliación (reconciliarCatalogoTiendaNube); puede haber pasado un rato hasta
+// que el admin aprieta "Aplicar".
 exports.tnActualizarStock = onCall({ region: "southamerica-east1" }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Hay que estar logueado.");
   const db = admin.firestore();
@@ -187,20 +189,33 @@ exports.tnActualizarStock = onCall({ region: "southamerica-east1" }, async (requ
   const { items } = request.data || {};
   if (!Array.isArray(items) || items.length === 0) throw new HttpsError("invalid-argument", "Faltan items para actualizar.");
 
-  const ahora = admin.firestore.FieldValue.serverTimestamp();
-  await commitEnTandas(db, items, (batch, it) => {
+  // No se pisa stockTotal con el valor de Tienda Nube tal cual — se aplica la DIFERENCIA dentro de
+  // una transacción que relee el stock actual, para no perder una venta/compra real que haya pasado
+  // entre que se armó la reconciliación y que el admin apretó "Aplicar" (mismo criterio que
+  // gbpAplicarArticulos en functions/gbpArticulos.js).
+  let actualizados = 0;
+  for (const it of items) {
+    const delta = Math.round(((it.stockNuevo ?? 0) - (it.stockAnterior ?? 0)) * 100) / 100;
     const ref = db.collection("productos").doc(it.productoId);
-    batch.update(ref, { stockTotal: it.stockNuevo, modificadoPor: request.auth.uid, modificadoEn: ahora });
-    batch.set(ref.collection("logAuditoria").doc(), {
-      campo: "stockTotal",
-      valorNuevo: it.stockNuevo,
-      usuario: request.auth.uid,
-      fecha: ahora,
-      productoId: it.productoId,
-      motivo: "Reconciliación de catálogo Tienda Nube",
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return;
+      const stockAnteriorReal = snap.data().stockTotal ?? 0;
+      const stockNuevoReal = Math.round((stockAnteriorReal + delta) * 100) / 100;
+      tx.update(ref, { stockTotal: stockNuevoReal, modificadoPor: request.auth.uid, modificadoEn: admin.firestore.FieldValue.serverTimestamp() });
+      tx.set(ref.collection("logAuditoria").doc(), {
+        campo: "stockTotal",
+        valorAnterior: stockAnteriorReal,
+        valorNuevo: stockNuevoReal,
+        usuario: request.auth.uid,
+        fecha: admin.firestore.FieldValue.serverTimestamp(),
+        productoId: it.productoId,
+        motivo: `Reconciliación de catálogo Tienda Nube (diferencia detectada: ${delta >= 0 ? "+" : ""}${delta})`,
+      });
     });
-  });
-  return { ok: true, actualizados: items.length };
+    actualizados++;
+  }
+  return { ok: true, actualizados };
 });
 
 // items: [{ sku, nombre, precio, stock, idExternoVariante, idExternoProducto }], ivaPorDefecto: 21|10.5|...

@@ -88,7 +88,13 @@ export async function crearCompra(datos, usuario) {
     await runTransaction(db, async (tx) => {
       const productoRef = doc(db, "productos", item.productoId);
       const productoSnap = await tx.get(productoRef);
-      if (!productoSnap.exists()) return;
+      // Antes: `return` silencioso — la compra quedaba guardada con este ítem como si el stock se
+      // hubiera cargado, pero nunca pasaba nada de verdad (producto borrado/ID inválido). Con `throw`
+      // la transacción de ESTE ítem no se confirma y el error llega a quien llamó a crearCompra, en
+      // vez de una compra "fantasma" con stock que nunca se movió.
+      if (!productoSnap.exists()) {
+        throw new Error(`El producto ${item.productoId} no existe — no se pudo actualizar su stock.`);
+      }
       const producto = productoSnap.data();
 
       const stockAnterior = producto.stockTotal ?? 0;

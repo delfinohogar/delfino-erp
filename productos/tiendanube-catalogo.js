@@ -201,7 +201,7 @@ function pintar() {
 
   document.querySelector('[data-role=aplicar][data-tab="stock"]')?.addEventListener("click", async (e) => {
     const ids = seleccionados("stock");
-    const items = diffsStock.filter((it) => ids.has(it.productoId)).map((it) => ({ productoId: it.productoId, stockNuevo: it.stockTiendaNube }));
+    const items = diffsStock.filter((it) => ids.has(it.productoId)).map((it) => ({ productoId: it.productoId, stockNuevo: it.stockTiendaNube, stockAnterior: it.stockDelfino }));
     await ejecutar(e.target, "stock", () => actualizarStockDesdeTiendaNube(items), `Actualizados: ${items.length}.`);
   });
 

@@ -153,12 +153,46 @@ exports.gbpAplicarArticulos = onCall(
     for (const item of items) {
       const cambios = {};
       if (item.cambios?.precioVenta) cambios.precioVenta = item.cambios.precioVenta.nuevo;
-      if (item.cambios?.stockTotal) cambios.stockTotal = item.cambios.stockTotal.nuevo;
       if (item.cambios?.iva) cambios.iva = item.cambios.iva.nuevo;
       if (item.cambios?.descripcion) {
         cambios.descripcion = item.cambios.descripcion.nuevo;
         cambios.searchKeywords = searchKeywordsPara(item.sku, item.cambios.descripcion.nuevo, item.marcaNombre);
       }
+
+      // El stock NO se pisa con el valor "nuevo" que quedó congelado en el preview — entre que se
+      // previsualiza y se aplica pueden pasar minutos, y en el medio pudo haber una venta o compra
+      // real que cambió el stock de verdad. Se aplica la DIFERENCIA (lo que GBP detectó que cambió)
+      // dentro de una transacción que relee el stock actual — así una venta concurrente nunca se
+      // pierde, sea cual sea el orden en que lleguen. Mismo criterio que ya usan ventas.js/compras.js.
+      if (item.cambios?.stockTotal) {
+        const delta = Math.round((item.cambios.stockTotal.nuevo - item.cambios.stockTotal.anterior) * 100) / 100;
+        const productoRef = db.collection("productos").doc(item.productoId);
+        await db.runTransaction(async (tx) => {
+          const snap = await tx.get(productoRef);
+          if (!snap.exists) return;
+          const stockAnterior = snap.data().stockTotal ?? 0;
+          const stockNuevo = Math.round((stockAnterior + delta) * 100) / 100;
+          tx.update(productoRef, {
+            ...cambios,
+            stockTotal: stockNuevo,
+            modificadoEn: admin.firestore.FieldValue.serverTimestamp(),
+            modificadoPor: request.auth.uid,
+          });
+          tx.set(productoRef.collection("logAuditoria").doc(), {
+            campo: "stockTotal",
+            valorAnterior: stockAnterior,
+            valorNuevo: stockNuevo,
+            usuario: request.auth.uid,
+            fecha: admin.firestore.FieldValue.serverTimestamp(),
+            productoId: item.productoId,
+            productoSku: item.sku,
+            motivo: `Sincronización de catálogo GBP (diferencia detectada: ${delta >= 0 ? "+" : ""}${delta})`,
+          });
+        });
+        aplicados++;
+        continue;
+      }
+
       if (Object.keys(cambios).length === 0) continue;
       cambios.modificadoEn = admin.firestore.FieldValue.serverTimestamp();
       cambios.modificadoPor = request.auth.uid;

@@ -29,6 +29,7 @@ import {
   where,
   writeBatch,
   serverTimestamp,
+  runTransaction,
 } from "./firebase.js";
 import { camposBusqueda } from "./productos.js";
 import { obtenerCotizacionDolarOficial } from "./cotizacion-dolar.js";
@@ -156,6 +157,10 @@ export async function confirmarImportacion(productos, usuario, onProgreso = () =
   const subcategoriaPorClave = new Map(subcategoriasSnap.docs.map((d) => [`${d.data().parentId}::${d.data().nombreLower}`, d.id]));
   const marcaPorNombre = new Map(marcasSnap.docs.map((d) => [d.data().nombreLower, d.id]));
   const productoPorSku = new Map(productosSnap.docs.map((d) => [d.data().sku, d.id]));
+  // Stock tal como estaba en Firestore al ARRANCAR esta importación — la base para calcular la
+  // diferencia real contra la planilla (ver ediciones más abajo), no el valor que se termine leyendo
+  // en cada transacción individual (que puede haberse movido por una venta/compra mientras tanto).
+  const stockConocidoPorProductoId = new Map(productosSnap.docs.map((d) => [d.id, d.data().stockTotal ?? 0]));
 
   // --- 1) categorías y subcategorías nuevas ---
   const categoriasFaltantes = new Map();
@@ -235,60 +240,107 @@ export async function confirmarImportacion(productos, usuario, onProgreso = () =
   const ahora = serverTimestamp();
   let creados = 0;
   let actualizados = 0;
-  const lotesProductos = enLotes(productos, 150);
   let hechos = 0;
-  for (const lote of lotesProductos) {
-    const batch = writeBatch(db);
-    for (const p of lote) {
-      const categoriaId = p.categoriaNombre ? categoriaPorNombre.get(p.categoriaNombre.toLowerCase()) || null : null;
-      const subcategoriaId =
-        p.subcategoriaNombre && categoriaId ? subcategoriaPorClave.get(`${categoriaId}::${p.subcategoriaNombre.toLowerCase()}`) || null : null;
-      const marcaId = p.marcaNombre ? marcaPorNombre.get(p.marcaNombre.toLowerCase()) || null : null;
 
-      const datosProducto = {
-        sku: p.sku,
-        identificadorExterno: p.identificadorExterno,
-        descripcion: p.descripcion,
-        categoriaId,
-        subcategoriaId,
-        marcaId,
-        marcaNombre: p.marcaNombre || null,
-        iva: p.iva,
-        costoMoneda: p.costoMoneda,
-        costoOriginal: p.costoOriginal,
-        costoTipoCambio: p.costoTipoCambio,
-        costoReferencia: p.costoReferencia,
-        costoModo: "ultimo",
-        // Manual, no "por margen": el precio ya viene fijo de Lista Contado — si quedara en "margen",
-        // productos/productos-form.js lo recalcula (y pisa) apenas se abre la ficha para editar otra
-        // cosa (ver recalcularPrecio ahí), perdiendo el precio real importado.
-        modoPrecio: "manual",
-        precioVenta: p.precioVenta,
-        stockTotal: p.stockTotal,
-        stockReservado: 0,
-        estado: p.revisarPrecio ? "inactivo" : "activo",
-        visibilidad: "ambos",
-        revisarPrecio: p.revisarPrecio,
-        modificadoPor: usuario.uid,
-        modificadoEn: ahora,
-        ...camposBusqueda(p, p.marcaNombre),
-      };
+  // Altas: sin riesgo de pisar nada (el documento no existe todavía) — se pueden seguir agrupando en
+  // lotes rápidos. Ediciones: si se importa el mismo SKU dos veces con la planilla desactualizada
+  // (o pasó tiempo entre exportar de GBP e importar acá), stockTotal NO se pisa con el valor de la
+  // planilla — se aplica la DIFERENCIA dentro de una transacción que relee el stock real, para no
+  // perder una venta/compra que haya ocurrido mientras tanto (mismo criterio que gbpAplicarArticulos
+  // en functions/gbpArticulos.js). El resto de los campos (precio, costo, descripción, etc.) sí se
+  // actualiza directo — no tienen el mismo patrón de "otro proceso los está tocando en paralelo".
+  const altas = [];
+  const ediciones = [];
+  for (const p of productos) {
+    const categoriaId = p.categoriaNombre ? categoriaPorNombre.get(p.categoriaNombre.toLowerCase()) || null : null;
+    const subcategoriaId =
+      p.subcategoriaNombre && categoriaId ? subcategoriaPorClave.get(`${categoriaId}::${p.subcategoriaNombre.toLowerCase()}`) || null : null;
+    const marcaId = p.marcaNombre ? marcaPorNombre.get(p.marcaNombre.toLowerCase()) || null : null;
 
-      const idExistente = productoPorSku.get(p.sku);
-      let productoId;
-      if (idExistente) {
-        productoId = idExistente;
-        batch.set(doc(db, "productos", productoId), datosProducto, { merge: true });
-        actualizados++;
-      } else {
-        productoId = doc(collection(db, "productos")).id;
-        batch.set(doc(db, "productos", productoId), { ...datosProducto, creadoPor: usuario.uid, creadoEn: ahora });
-        productoPorSku.set(p.sku, productoId);
-        creados++;
-      }
+    const datosProducto = {
+      sku: p.sku,
+      identificadorExterno: p.identificadorExterno,
+      descripcion: p.descripcion,
+      categoriaId,
+      subcategoriaId,
+      marcaId,
+      marcaNombre: p.marcaNombre || null,
+      iva: p.iva,
+      costoMoneda: p.costoMoneda,
+      costoOriginal: p.costoOriginal,
+      costoTipoCambio: p.costoTipoCambio,
+      costoReferencia: p.costoReferencia,
+      costoModo: "ultimo",
+      // Manual, no "por margen": el precio ya viene fijo de Lista Contado — si quedara en "margen",
+      // productos/productos-form.js lo recalcula (y pisa) apenas se abre la ficha para editar otra
+      // cosa (ver recalcularPrecio ahí), perdiendo el precio real importado.
+      modoPrecio: "manual",
+      precioVenta: p.precioVenta,
+      stockReservado: 0,
+      estado: p.revisarPrecio ? "inactivo" : "activo",
+      visibilidad: "ambos",
+      revisarPrecio: p.revisarPrecio,
+      modificadoPor: usuario.uid,
+      modificadoEn: ahora,
+      ...camposBusqueda(p, p.marcaNombre),
+    };
+
+    const idExistente = productoPorSku.get(p.sku);
+    if (idExistente) {
+      ediciones.push({ productoId: idExistente, datosProducto, stockPlanilla: p.stockTotal });
+    } else {
+      const productoId = doc(collection(db, "productos")).id;
+      altas.push({ productoId, datosProducto: { ...datosProducto, stockTotal: p.stockTotal, creadoPor: usuario.uid, creadoEn: ahora } });
+      productoPorSku.set(p.sku, productoId);
     }
+  }
+
+  for (const lote of enLotes(altas, 150)) {
+    const batch = writeBatch(db);
+    lote.forEach((a) => batch.set(doc(db, "productos", a.productoId), a.datosProducto));
     await batch.commit();
+    creados += lote.length;
     hechos += lote.length;
+    onProgreso(`Importando productos… ${hechos}/${productos.length}`, hechos, productos.length);
+  }
+
+  const TANDA_EDICIONES = 20; // en paralelo, pero acotado — son transacciones, no un batch
+  for (let i = 0; i < ediciones.length; i += TANDA_EDICIONES) {
+    const tanda = ediciones.slice(i, i + TANDA_EDICIONES);
+    await Promise.all(
+      tanda.map(({ productoId, datosProducto, stockPlanilla }) =>
+        runTransaction(db, async (tx) => {
+          const ref = doc(db, "productos", productoId);
+          const snap = await tx.get(ref);
+          if (!snap.exists()) return;
+          const stockActual = snap.data().stockTotal ?? 0;
+          tx.set(ref, datosProducto, { merge: true });
+
+          // Diferencia entre lo que dice la planilla y lo que YA SE SABÍA al arrancar la importación
+          // (no contra el valor recién leído acá) — esa diferencia es lo que GBP realmente detectó
+          // que cambió. Se la suma al stock ACTUAL (recién leído en esta transacción), así una venta o
+          // compra real que haya pasado durante la importación nunca se pierde, sea cual sea el orden.
+          const stockConocidoAlEmpezar = stockConocidoPorProductoId.get(productoId) ?? stockActual;
+          const delta = stockPlanilla != null ? Math.round((stockPlanilla - stockConocidoAlEmpezar) * 100) / 100 : 0;
+          if (delta !== 0) {
+            const stockNuevo = Math.round((stockActual + delta) * 100) / 100;
+            tx.update(ref, { stockTotal: stockNuevo });
+            tx.set(doc(collection(db, "productos", productoId, "logAuditoria")), {
+              campo: "stockTotal",
+              valorAnterior: stockActual,
+              valorNuevo: stockNuevo,
+              usuario: usuario.uid,
+              fecha: ahora,
+              productoId,
+              productoSku: datosProducto.sku,
+              motivo: `Importación GBP (Excel) — diferencia detectada: ${delta >= 0 ? "+" : ""}${delta}`,
+            });
+          }
+        })
+      )
+    );
+    actualizados += tanda.length;
+    hechos += tanda.length;
     onProgreso(`Importando productos… ${hechos}/${productos.length}`, hechos, productos.length);
   }
 
