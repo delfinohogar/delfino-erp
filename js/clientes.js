@@ -5,7 +5,11 @@
 import { db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit } from "./firebase.js";
 import { capitalizarDireccion } from "./texto.js";
 
-const COTA_SUPERIOR_UNICODE = "";
+// Truco estándar de Firestore para range query "empieza con": el límite superior tiene que ser el
+// prefijo más un carácter que ordene después de cualquier texto normal (U+F8FF, área de uso
+// privado de Unicode) — un string vacío acá deja el rango en field <= prefijo, o sea una
+// búsqueda EXACTA, no por prefijo (buscarClientes("aguero") no encontraba "Aguero Martin Gabriel").
+const COTA_SUPERIOR_UNICODE = "";
 
 export async function buscarClientes(texto) {
   if (!texto) return [];
@@ -20,6 +24,29 @@ export async function buscarClientes(texto) {
     )
   );
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// Mismo criterio que buscarClientes pero por prefijo de CUIT/DNI en vez de nombre — ver
+// buscarClientesTexto, que decide cuál de las dos usar según lo que se haya tipeado.
+export async function buscarClientesPorCuit(texto) {
+  if (!texto) return [];
+  const t = texto.trim();
+  const snap = await getDocs(
+    query(collection(db, "clientes"), where("cuit", ">=", t), where("cuit", "<=", t + COTA_SUPERIOR_UNICODE), orderBy("cuit"), limit(8))
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// Punto único de búsqueda "como se escriba" para los buscadores de cliente (picker de Nueva Venta,
+// listado de Configuración → Clientes): un CUIT/DNI siempre empieza con un dígito, un nombre nunca —
+// alcanza para elegir el campo correcto sin tener que consultar los dos y descartar la mitad.
+// Sin esto, cada pantalla traía la colección ENTERA de clientes para filtrar en memoria — funcionaba
+// con los clientes de prueba, pero se vuelve pesado/lento en serio con miles de clientes reales
+// (ver migración de GBP). Ninguna consulta trae más de 8 resultados.
+export async function buscarClientesTexto(texto) {
+  const t = (texto || "").trim();
+  if (!t) return [];
+  return /^\d/.test(t) ? buscarClientesPorCuit(t) : buscarClientes(t);
 }
 
 // datosArca: opcional — lo que devuelve la consulta al padrón de ARCA. Sin eso, queda cargado a mano.

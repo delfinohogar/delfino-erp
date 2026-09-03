@@ -2,7 +2,7 @@
 // el elegido y, al abrirse, un panel con buscador (por nombre o CUIT/DNI), "+ Crear nuevo cliente"
 // fijo arriba, y la lista. A diferencia del de proveedor, el cliente es opcional (ventas sin cliente
 // son "Consumidor final") — por eso suma limpiarSeleccion().
-import { listarClientesTodos, crearCliente, buscarClientePorCuit } from "./clientes.js";
+import { crearCliente, buscarClientePorCuit, buscarClientesTexto } from "./clientes.js";
 import { pedirClienteModal } from "./cliente-modal.js";
 import { escapeHtml } from "./escape-html.js";
 
@@ -28,14 +28,13 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
   const crearEl = container.querySelector("#cp-crear");
 
   let seleccionado = seleccionActual;
-  let todos = [];
-  let cargados = false;
   let abierto = false;
+  let busquedaId = 0; // descarta una respuesta vieja si llega después de una más nueva
 
-  function render(items) {
+  function render(items, mensajeVacio) {
     listEl.innerHTML = "";
     if (items.length === 0) {
-      listEl.innerHTML = '<div class="hint" style="padding:8px 12px">Sin resultados.</div>';
+      listEl.innerHTML = `<div class="hint" style="padding:8px 12px">${mensajeVacio}</div>`;
       return;
     }
     items.forEach((c) => {
@@ -57,16 +56,12 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
     onSelect(c);
   }
 
-  async function abrir() {
+  function abrir() {
     abierto = true;
     panel.style.display = "block";
     searchInput.value = "";
     searchInput.focus();
-    if (!cargados) {
-      todos = await listarClientesTodos();
-      cargados = true;
-    }
-    render(todos);
+    render([], "Escribí un nombre o CUIT/DNI para buscar.");
   }
 
   function cerrar() {
@@ -76,14 +71,25 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
 
   toggle.addEventListener("click", () => (abierto ? cerrar() : abrir()));
 
+  // Búsqueda bajo demanda (Firestore, prefijo por nombre o CUIT — ver buscarClientesTexto) en vez de
+  // traer TODOS los clientes al abrir el panel y filtrar en memoria: con los clientes de prueba no se
+  // notaba, pero con miles reales (migración de GBP) esa carga inicial se volvía lenta o directamente
+  // se colgaba. Debounce de 300ms para no disparar una consulta por cada tecla, y un id de búsqueda
+  // para no pintar una respuesta vieja que llegó tarde si mientras tanto se siguió escribiendo.
+  let debounceTimer = null;
   searchInput.addEventListener("input", () => {
-    const texto = searchInput.value.trim().toLowerCase();
+    const texto = searchInput.value.trim();
+    clearTimeout(debounceTimer);
     if (!texto) {
-      render(todos);
+      render([], "Escribí un nombre o CUIT/DNI para buscar.");
       return;
     }
-    const filtrados = todos.filter((c) => (c.razonSocialLower || "").includes(texto) || (c.cuit || "").includes(texto));
-    render(filtrados);
+    const idActual = ++busquedaId;
+    debounceTimer = setTimeout(async () => {
+      const resultados = await buscarClientesTexto(texto);
+      if (idActual !== busquedaId) return; // llegó tarde, ya hay una búsqueda más nueva en curso
+      render(resultados, "Sin resultados.");
+    }, 300);
   });
 
   crearEl.addEventListener("mousedown", async (e) => {
@@ -106,7 +112,6 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
     }
 
     const nuevo = await crearCliente(datos.razonSocial, datos.cuit, datos.datosArca, datos.datosContacto);
-    cargados = false;
     elegir(nuevo);
   });
 
