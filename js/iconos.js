@@ -56,6 +56,7 @@ export const ICONOS_NAV = {
   "config-marcas": "etiqueta",
   "config-proveedores": "camion",
   "config-clientes": "usuario",
+  "config-proveedores": "camion",
   "config-precios": "lista",
   "config-usuarios": "usuarios",
   "config-empresa": "edificio",

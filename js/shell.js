@@ -71,6 +71,7 @@ export function renderShell({ active, titulo, usuario }) {
             nav("pagos", "/productos/pagos.html", "Pagos") +
             nav("gbp-proveedores-importar", "/productos/gbp-proveedores-importar.html", "Proveedores GBP — Excel")
         )}
+        ${nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores")}
         ${grupo(
           "contabilidad",
           "Contabilidad",

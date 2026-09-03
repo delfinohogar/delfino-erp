@@ -20,7 +20,6 @@ const ITEMS = [
   { key: "usuarios", label: "Usuarios y permisos", icono: "usuarios", href: "/configuracion/usuarios.html", soloAdmin: true },
   { key: "categorias", label: "Categorías", icono: "carpeta", href: "/configuracion/categorias.html" },
   { key: "marcas", label: "Marcas", icono: "etiqueta", href: "/configuracion/marcas.html" },
-  { key: "proveedores", label: "Proveedores", icono: "camion", href: "/configuracion/proveedores.html" },
   { key: "listas-precios", label: "Listas de precios", icono: "lista", href: "/configuracion/listas-precios.html" },
   { key: "general", label: "Configuración general", icono: "edificio", href: "/configuracion/general.html" },
 ];
