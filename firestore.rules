@@ -47,6 +47,14 @@ service cloud.firestore {
       // orden) sin poder tocar su rol ni ningún otro campo del perfil.
       allow update: if estaLogueado() && request.auth.uid == uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dashboardCards']);
+
+      // Auditoría de cambios de rol — mismo patrón que logAuditoria de productos (inmutable, solo
+      // quien tiene permiso para escribir el usuario puede dejar la entrada).
+      match /logAuditoria/{entryId} {
+        allow read: if estaLogueado();
+        allow create: if esAdministrador();
+        allow update, delete: if false;
+      }
     }
 
     // Necesaria además de la regla anidada de más abajo: las collection group queries (ej. "Movimientos",
@@ -156,6 +164,19 @@ service cloud.firestore {
       allow read: if estaLogueado();
       allow create: if puedeVender();
       allow update, delete: if false;
+    }
+
+    // Rastro de cada intento de crearVenta (js/ventas.js) — la venta en sí es inmutable y no alcanza
+    // a registrar si un intento se cortó a mitad de camino (stock ya descontado pero la venta nunca
+    // se llegó a crear). El documento lo crea y actualiza el mismo cliente que intenta la venta —
+    // por eso update queda acotado a los campos de estado, nunca a los datos de origen (usuario,
+    // creadoEn), para que no se pueda reescribir de qué venta se trataba.
+    match /ventasIdempotencia/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if puedeVender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'ventaId', 'resultado', 'error', 'actualizadoEn']);
+      allow delete: if false;
     }
 
     // Cobros a cliente, atados a una venta puntual — contraparte de /pagosProveedores.
@@ -419,7 +440,19 @@ service cloud.firestore {
       allow read: if estaLogueado();
       allow create: if puedeVender();
       allow update: if puedeVender() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'pagosRecibidos', 'totalCobrado', 'saldoPendiente', 'actualizadoEn']);
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'pagosRecibidos', 'totalCobrado', 'saldoPendiente', 'actualizadoEn', 'motivoAnulacion', 'anuladoPor']);
+      allow delete: if false;
+    }
+
+    // Rastro de cada intento de revertirVentaPorNotaCredito (js/ventas.js) — misma razón que
+    // ventasIdempotencia: la reversa toca stock + Tesorería + un asiento en varios pasos, y sin esto
+    // un intento cortado a mitad de camino (ej. se devolvió el stock pero después falló el asiento)
+    // no dejaría ningún rastro de que hay que revisarlo a mano.
+    match /reversasVenta/{ventaId} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if puedeVender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'error', 'pendientesRevision', 'productosNoEncontrados', 'numeroVenta', 'actualizadoEn']);
       allow delete: if false;
     }
   }
