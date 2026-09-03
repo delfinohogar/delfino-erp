@@ -7,6 +7,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const gbp = require("./gbp");
+const { keywordsDeTextos } = require("./texto");
 
 // Igual que SKUS_EXCLUIDOS en js/importar-globalbluepoint.js (financiación/flete/notas de crédito
 // modeladas como ítems falsos en el ERP viejo, no son productos reales) — mantener sincronizado si
@@ -18,25 +19,11 @@ function numero(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
-// Mismo índice de búsqueda que camposBusqueda en js/productos.js (duplicado a propósito: ese archivo
-// depende del SDK cliente de Firebase, acá corre con el SDK admin) — recomputar cuando cambia la
-// descripción, si no el producto queda sin encontrarse por su descripción nueva en el buscador.
-function lower(v) {
-  return (v || "").toString().trim().toLowerCase();
-}
-function tokenizar(texto) {
-  return lower(texto).split(/[^a-z0-9áéíóúñ]+/i).filter(Boolean);
-}
-function generarPrefijos(palabra) {
-  const prefijos = [];
-  for (let i = Math.min(2, palabra.length); i <= palabra.length; i++) prefijos.push(palabra.slice(0, i));
-  return prefijos;
-}
+// Mismo índice de búsqueda que camposBusqueda en js/productos.js (ver functions/texto.js) —
+// recomputar cuando cambia la descripción, si no el producto queda sin encontrarse por su
+// descripción nueva en el buscador.
 function searchKeywordsPara(sku, descripcion, marcaNombre) {
-  const palabras = [...tokenizar(sku), ...tokenizar(descripcion), ...tokenizar(marcaNombre)];
-  const keywords = new Set();
-  palabras.forEach((p) => generarPrefijos(p).forEach((pre) => keywords.add(pre)));
-  return Array.from(keywords);
+  return keywordsDeTextos(sku, descripcion, marcaNombre);
 }
 
 async function armarCatalogoGbp() {

@@ -15,6 +15,7 @@ import {
   serverTimestamp,
   writeBatch,
 } from "./firebase.js";
+import { tokenizar, keywordsDeTextos } from "./texto.js";
 
 // Firestore permite hasta 500 operaciones por batch; dejamos margen para el write del producto
 // + el de auditoría por cada uno (2 ops por producto) sin acercarnos al límite.
@@ -49,41 +50,11 @@ const CAMPOS_AUDITABLES = [
   "linkTiendaNube",
 ];
 
-function lower(v) {
-  return (v || "").toString().trim().toLowerCase();
-}
-
-// Separa en palabras (sin acentos raros de puntuación) para indexar por término, no por frase completa.
-function tokenizar(texto) {
-  return lower(texto)
-    .split(/[^a-z0-9áéíóúñ]+/i)
-    .filter(Boolean);
-}
-
-// Prefijos de una palabra desde 2 letras hasta la palabra completa (ej. "hepa" -> "he","hep","hepa"),
-// para poder buscar por "empieza con" sobre cada palabra individual, no solo sobre el string entero.
-function generarPrefijos(palabra) {
-  const prefijos = [];
-  for (let i = Math.min(2, palabra.length); i <= palabra.length; i++) {
-    prefijos.push(palabra.slice(0, i));
-  }
-  return prefijos;
-}
-
 // Índice de búsqueda: todas las palabras (y sus prefijos) de sku/código/descripción/marca, en un solo
-// array. Permite encontrar el producto escribiendo cualquier palabra suelta ("hepa", "ultracomb"),
-// no solo el principio de la descripción completa.
+// array (ver keywordsDeTextos en js/texto.js). Permite encontrar el producto escribiendo cualquier
+// palabra suelta ("hepa", "ultracomb"), no solo el principio de la descripción completa.
 export function camposBusqueda(producto, marcaNombre) {
-  const palabras = [
-    ...tokenizar(producto.sku),
-    ...tokenizar(producto.codigoInterno),
-    ...tokenizar(producto.codigoBarras),
-    ...tokenizar(producto.descripcion),
-    ...tokenizar(marcaNombre),
-  ];
-  const keywords = new Set();
-  palabras.forEach((p) => generarPrefijos(p).forEach((pre) => keywords.add(pre)));
-  return { searchKeywords: Array.from(keywords) };
+  return { searchKeywords: keywordsDeTextos(producto.sku, producto.codigoInterno, producto.codigoBarras, producto.descripcion, marcaNombre) };
 }
 
 export async function obtenerProducto(id) {

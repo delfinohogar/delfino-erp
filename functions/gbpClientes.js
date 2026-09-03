@@ -21,6 +21,7 @@
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const gbp = require("./gbp");
+const { keywordsDeTextos } = require("./texto");
 
 // Mismas claves que COLUMNAS en js/gbp-clientes-excel.js — a propósito duplicado (ese archivo corre
 // con el SDK cliente, éste con el admin): son las que exportarTodosLosClientesGbp() usa allá para
@@ -100,6 +101,7 @@ function mapearClienteGbp(g) {
   return {
     razonSocial: nombre,
     razonSocialLower: nombre.toLowerCase(),
+    searchKeywords: keywordsDeTextos(nombre),
     cuit: formatearCuit(g.cust_taxNumber),
     dni: dniDesdeCuit(g.cust_taxNumber),
     condicionIva: digitos && digitos.length <= 8 ? "Consumidor Final" : null,

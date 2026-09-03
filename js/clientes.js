@@ -3,7 +3,7 @@
 // domicilioEntrega/whatsapp/email son datos de contacto propios (no vienen de ARCA) — quedan
 // cargados a mano, como base para integraciones futuras (normalización de mapas, WhatsApp/Meta, mail).
 import { db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit } from "./firebase.js";
-import { capitalizarDireccion } from "./texto.js";
+import { capitalizarDireccion, keywordsDeTextos, tokenizar } from "./texto.js";
 import { dniDesdeCuit } from "./cuit.js";
 
 // Truco estándar de Firestore para range query "empieza con": el límite superior tiene que ser el
@@ -12,19 +12,24 @@ import { dniDesdeCuit } from "./cuit.js";
 // búsqueda EXACTA, no por prefijo (buscarClientes("aguero") no encontraba "Aguero Martin Gabriel").
 const COTA_SUPERIOR_UNICODE = "";
 
+// Por palabra suelta, en cualquier orden — "barbara saravia" y "saravia barbara" encuentran el mismo
+// cliente, y agregar una palabra más sigue filtrando (no hace falta que sea el principio del nombre
+// completo). Mismo patrón que buscarProductos (js/productos.js): la primera palabra tipeada filtra
+// en Firestore contra el índice de prefijos (searchKeywords, ver keywordsDeTextos en js/texto.js) y,
+// si hay más palabras, se exige que el cliente matchee todas — ya en memoria, sobre el resultado
+// acotado que devolvió Firestore, no sobre la colección entera.
 export async function buscarClientes(texto) {
-  if (!texto) return [];
-  const t = texto.trim().toLowerCase();
-  const snap = await getDocs(
-    query(
-      collection(db, "clientes"),
-      where("razonSocialLower", ">=", t),
-      where("razonSocialLower", "<=", t + COTA_SUPERIOR_UNICODE),
-      orderBy("razonSocialLower"),
-      limit(8)
-    )
-  );
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const palabras = tokenizar(texto);
+  if (palabras.length === 0) return [];
+
+  const snap = await getDocs(query(collection(db, "clientes"), where("searchKeywords", "array-contains", palabras[0]), limit(24)));
+  let resultados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  if (palabras.length > 1) {
+    resultados = resultados.filter((c) => palabras.slice(1).every((palabra) => (c.searchKeywords || []).includes(palabra)));
+  }
+
+  return resultados.slice(0, 8);
 }
 
 // Mismo criterio que buscarClientes pero por prefijo de CUIT/DNI en vez de nombre — ver
@@ -76,6 +81,7 @@ export async function crearCliente(razonSocial, cuit = "", datosArca = null, dat
   const cliente = {
     razonSocial: razonSocial.trim(),
     razonSocialLower: razonSocial.trim().toLowerCase(),
+    searchKeywords: keywordsDeTextos(razonSocial),
     cuit: cuit.trim(),
     dni: dniDesdeCuit(cuit),
     condicionIva: datosArca?.condicionIva || null,
@@ -106,6 +112,7 @@ export async function actualizarCliente(id, razonSocial, cuit, datosArca = null,
   const cambios = {
     razonSocial: razonSocial.trim(),
     razonSocialLower: razonSocial.trim().toLowerCase(),
+    searchKeywords: keywordsDeTextos(razonSocial),
     cuit: cuit.trim(),
     dni: dniDesdeCuit(cuit),
     domicilioEntrega: capitalizarDireccion(datosContacto.domicilioEntrega?.trim()) || null,

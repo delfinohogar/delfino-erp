@@ -3,7 +3,7 @@
 // Mismas columnas en export e import, así lo que se descarga es directamente la plantilla de vuelta.
 import { db, collection, getDocs, doc, writeBatch, query, where, functions, httpsCallable } from "./firebase.js";
 import { exportarExcel } from "./report-engine.js";
-import { capitalizarDireccion } from "./texto.js";
+import { capitalizarDireccion, keywordsDeTextos } from "./texto.js";
 import { dniDesdeCuit } from "./cuit.js";
 
 const COLUMNAS = [
@@ -118,6 +118,7 @@ export async function confirmarImportacionClientes(clientesValidos, onProgreso =
       const datos = {
         razonSocial: c.razonSocial,
         razonSocialLower: c.razonSocial.toLowerCase(),
+        searchKeywords: keywordsDeTextos(c.razonSocial),
         cuit: c.cuit || "",
         dni: dniDesdeCuit(c.cuit),
         condicionIva: c.condicionIva || null,
