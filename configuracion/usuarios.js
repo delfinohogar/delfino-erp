@@ -1,7 +1,8 @@
 import { requireAuth } from "/js/auth.js";
 import { renderConfigShell } from "/js/configuracion-shell.js";
-import { listarUsuarios, crearUsuarioCompleto, actualizarPerfilUsuario, ROLES } from "/js/usuarios.js";
+import { listarUsuarios, crearUsuarioCompleto, actualizarPerfilUsuario, listarAuditoriaRoles, ROLES } from "/js/usuarios.js";
 import { listarSucursalesActivas } from "/js/sucursales.js";
+import { formatFechaHora } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -51,6 +52,7 @@ content.innerHTML = `
         <select id="f-rol">
           ${ROLES.map((r) => `<option value="${r}">${ROL_LABEL[r]}</option>`).join("")}
         </select>
+        <button type="button" id="btn-historial-rol" class="link-btn" style="display:none; margin-top:4px">Ver historial de rol</button>
       </div>
       <div class="field">
         <label for="f-sucursal">Sucursal</label>
@@ -105,9 +107,23 @@ function abrirFormulario(u) {
   document.getElementById("f-email").value = u?.email || "";
   document.getElementById("f-rol").value = u?.rol || "vendedor";
   document.getElementById("f-sucursal").value = u?.sucursalId || "";
+  document.getElementById("btn-historial-rol").style.display = u ? "inline" : "none";
   formCard.style.display = "block";
   document.getElementById(u ? "f-nombre" : "f-nombre").focus();
 }
+
+document.getElementById("btn-historial-rol").addEventListener("click", async () => {
+  if (!editandoUid) return;
+  const historial = await listarAuditoriaRoles(editandoUid);
+  if (historial.length === 0) {
+    alert("Este usuario no tiene cambios de rol registrados.");
+    return;
+  }
+  const texto = historial
+    .map((h) => `${formatFechaHora(h.fecha)} — ${h.valorAnterior || "(sin rol)"} → ${h.valorNuevo}, por ${h.usuarioNombre}`)
+    .join("\n");
+  alert(`Historial de rol:\n\n${texto}`);
+});
 
 function cerrarFormulario() {
   formCard.style.display = "none";
@@ -155,7 +171,7 @@ form.addEventListener("submit", async (e) => {
   submitBtn.disabled = true;
   try {
     if (editandoUid) {
-      await actualizarPerfilUsuario(editandoUid, datos);
+      await actualizarPerfilUsuario(editandoUid, datos, usuario);
     } else {
       const password = document.getElementById("f-password").value;
       await crearUsuarioCompleto({ ...datos, password });

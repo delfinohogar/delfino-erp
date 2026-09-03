@@ -20,6 +20,7 @@ import { descargarPdfComprobante } from "/js/facturacion-pdf.js";
 import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
 import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
 import { formatMoneda as formatMonto } from "/js/formato.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -82,7 +83,7 @@ function entregaTexto() {
   const badge = pendiente
     ? '<span class="badge warning">Pendiente</span> <button type="button" id="btn-marcar-entregado" class="link-btn">Marcar entregado</button>'
     : `<span class="badge success">Entregado</span> <span class="hint">por ${entrega.entregadoPorNombre}, ${formatFechaHora(entrega.entregadoEn)}</span>`;
-  return `${tipo}${venta.domicilioEntrega ? " — " + venta.domicilioEntrega : ""} ${badge}`;
+  return `${tipo}${venta.domicilioEntrega ? " — " + escapeHtml(venta.domicilioEntrega) : ""} ${badge}`;
 }
 
 // --- Rentabilidad estimada: CMV desde el costo que quedó congelado en cada ítem al vender ---------
@@ -233,19 +234,21 @@ content.innerHTML = `
         ${
           cliente
             ? `
-          <div style="font-weight:600">${cliente.razonSocial}</div>
+          <div style="font-weight:600">${escapeHtml(cliente.razonSocial)}</div>
           <div class="hint">${cliente.cuit ? `CUIT/DNI ${cliente.cuit}` : "Sin CUIT/DNI"}</div>
           ${cliente.email ? `<div class="hint" style="margin-top:6px">✉️ ${cliente.email}</div>` : ""}
-          ${cliente.whatsapp ? `<div class="hint">📱 ${cliente.whatsapp}</div>` : ""}
-          ${cliente.domicilioEntrega || cliente.domicilioFiscal ? `<div class="hint">📍 ${cliente.domicilioEntrega || cliente.domicilioFiscal}</div>` : ""}
-          ${cliente.condicionIva ? `<div class="hint" style="margin-top:6px">IVA: ${cliente.condicionIva}</div>` : ""}
+          ${cliente.whatsapp ? `<div class="hint">📱 ${escapeHtml(cliente.whatsapp)}</div>` : ""}
+          ${cliente.domicilioEntrega || cliente.domicilioFiscal ? `<div class="hint">📍 ${escapeHtml(cliente.domicilioEntrega || cliente.domicilioFiscal)}</div>` : ""}
+          ${cliente.condicionIva ? `<div class="hint" style="margin-top:6px">IVA: ${escapeHtml(cliente.condicionIva)}</div>` : ""}
           <a href="/productos/cuenta-corriente-clientes.html" class="hint" style="display:inline-block; margin-top:10px">Ver cuenta corriente →</a>
         `
             : `<div class="hint">Consumidor final</div>`
         }
       </div>
 
-      <div class="card" style="padding:20px">
+      ${
+        usuario.rol === "administrador"
+          ? `<div class="card" style="padding:20px">
         <div class="section-title">Rentabilidad</div>
         <div class="hint" style="display:flex; justify-content:space-between; margin-top:4px"><span>Total facturado</span><span style="color:var(--foreground); font-weight:600">${formatMonto(venta.total)}</span></div>
         <div class="hint" style="display:flex; justify-content:space-between; margin-top:4px"><span>CMV</span><span style="color:var(--foreground)">-${formatMonto(cmv)}</span></div>
@@ -253,7 +256,9 @@ content.innerHTML = `
           <span>Resultado estimado</span><span style="color:${resultadoEstimado >= 0 ? "var(--success)" : "var(--danger)"}">${formatMonto(resultadoEstimado)}</span>
         </div>
         <div class="hint" style="margin-top:10px">Estimado a partir del costo cargado en cada producto al momento de la venta — no incluye gastos generales.</div>
-      </div>
+      </div>`
+          : ""
+      }
     </div>
   </div>
 `;

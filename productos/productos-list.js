@@ -18,6 +18,9 @@ const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
 const esAdmin = usuario.rol === "administrador";
+// Quién puede abrir la ficha completa de un producto (expone costo/margen) — mismo criterio que
+// puedeEditarCatalogo() en firestore.rules: administrador y administrativo, no vendedor.
+const puedeEditarCatalogo = usuario.rol !== "vendedor";
 
 const content = renderShell({ active: "productos", titulo: "Productos", usuario });
 
@@ -33,7 +36,7 @@ content.innerHTML = `
       <option value="">Categoría: todas</option>
     </select>
     <a href="/productos/venta-nueva.html"><button>Registrar venta</button></a>
-    <a href="/productos/form.html"><button class="primary">+ Nuevo producto</button></a>
+    ${puedeEditarCatalogo ? '<a href="/productos/form.html"><button class="primary">+ Nuevo producto</button></a>' : ""}
   </div>
   ${
     esAdmin
@@ -55,7 +58,7 @@ content.innerHTML = `
             <th>SKU</th>
             <th>Descripción</th>
             <th>Stock</th>
-            <th>Costo s/IVA</th>
+            ${esAdmin ? "<th>Costo s/IVA</th>" : ""}
             <th>Precio de venta</th>
             <th>Estado</th>
           </tr>
@@ -131,14 +134,17 @@ function pintarProductos(productos) {
       <td>${p.sku || ""}</td>
       <td>${p.descripcion || ""}</td>
       <td>${p.stockTotal ?? 0}</td>
-      <td>${p.costoReferencia != null ? formatMoneda(p.costoReferencia, { decimales: 2 }) : "-"}</td>
+      ${esAdmin ? `<td>${p.costoReferencia != null ? formatMoneda(p.costoReferencia, { decimales: 2 }) : "-"}</td>` : ""}
       <td>${p.precioVenta != null ? formatMoneda(p.precioVenta) : "-"}</td>
       <td>${estadoBadge(p.estado)}</td>
     `;
-    tr.addEventListener("click", (e) => {
-      if (e.target.closest("[data-check]")) return;
-      location.href = `/productos/form.html?id=${p.id}`;
-    });
+    if (puedeEditarCatalogo) {
+      tr.style.cursor = "pointer";
+      tr.addEventListener("click", (e) => {
+        if (e.target.closest("[data-check]")) return;
+        location.href = `/productos/form.html?id=${p.id}`;
+      });
+    }
     if (esAdmin) {
       tr.querySelector("[data-check]").addEventListener("click", (e) => {
         e.stopPropagation();

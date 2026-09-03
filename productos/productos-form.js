@@ -22,6 +22,15 @@ import { imagenesActivas, agregarImagenManual, marcarImagenPrincipal, eliminarIm
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
+// La ficha completa expone costo/margen (costoOriginal, costoUltimo, historial de costos) — antes
+// cualquier vendedor podía abrirla igual (solo no podía guardar, bloqueado recién en
+// firestore.rules). Mismo criterio que el resto del catálogo: solo quien puede editarlo
+// (administrador/administrativo, ver puedeEditarCatalogo() en firestore.rules) puede siquiera verlo.
+if (usuario.rol === "vendedor") {
+  document.body.innerHTML = `<div class="empty-state">Esta sección es solo para administración. <a href="/productos/index.html">Volver a Productos</a></div>`;
+  throw new Error("sin permiso");
+}
+
 const params = new URLSearchParams(location.search);
 const productoId = params.get("id");
 const esEdicion = Boolean(productoId);
