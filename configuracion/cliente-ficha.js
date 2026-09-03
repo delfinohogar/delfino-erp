@@ -26,6 +26,7 @@ content.innerHTML = `
       <div>
         <div id="f-razonSocial" style="font-size:20px; font-weight:600"></div>
         <div class="hint" id="f-cuit" style="margin-top:4px"></div>
+        <div class="hint" id="f-gbp" style="margin-top:2px; display:none"></div>
       </div>
       <div style="display:flex; gap:8px; align-items:center">
         <span id="f-origen"></span>
@@ -103,6 +104,16 @@ function pintarCliente(c) {
   document.getElementById("f-cuit").textContent = c.cuit ? `CUIT/DNI ${c.cuit}` : "Sin CUIT/DNI cargado";
   document.getElementById("f-origen").innerHTML =
     c.fuenteDatos === "arca" ? '<span class="badge success">Origen: ARCA</span>' : '<span class="badge muted">Origen: Manual</span>';
+
+  // Referencia para cruzar a mano con GBP durante la migración — el dato ya se guardaba
+  // (identificadorExterno, usado para no duplicar al importar) pero no se mostraba en ningún lado.
+  const gbpEl = document.getElementById("f-gbp");
+  if (c.identificadorExterno) {
+    gbpEl.textContent = `ID GBP: ${c.identificadorExterno}`;
+    gbpEl.style.display = "block";
+  } else {
+    gbpEl.style.display = "none";
+  }
 
   document.getElementById("d-condicionIva").textContent = c.condicionIva || "-";
   document.getElementById("d-situacion").textContent = c.situacionTributaria || "-";
