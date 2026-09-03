@@ -77,6 +77,44 @@ body {
   line-height: 1.45;
 }
 
+/* Placeholder estático (sin JS) que se ve mientras requireAuth()+renderShell() todavía están
+   esperando la respuesta de Firebase — sin esto la pantalla queda vacía (negra en tema oscuro) y en
+   una conexión lenta da la sensación de que quedó colgada. Vive en el <body> de cada página protegida,
+   ANTES del <script type="module">, así el navegador lo pinta apenas parsea el HTML; renderShell()
+   reemplaza document.body.innerHTML entero apenas puede, así que desaparece solo, sin JS de limpieza. */
+.app-loading {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background: var(--page-bg);
+  color: var(--muted);
+  font-size: 14px;
+}
+.app-loading .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: app-loading-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-loading .dot {
+    animation: none;
+  }
+}
+@keyframes app-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 a {
   color: inherit;
 }
