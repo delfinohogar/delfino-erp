@@ -4,8 +4,6 @@
 //
 // Simplificaciones conocidas de este alcance v1 (documentadas, no escondidas):
 // - No hay asiento de apertura de capital: Patrimonio Neto queda en 0 hasta que se cargue a mano.
-// - Ventas no discrimina IVA (el sistema no factura fiscalmente todavía) — "Ventas" es el total tal
-//   cual se cobra. Compras sí lo discrimina (ya lo calculaba) contra "IVA Crédito Fiscal".
 // - Sin ajuste por inflación (RT6/FACPCE) ni centros de costo — quedan para más adelante si hacen falta.
 import { db, collection, doc, getDoc, getDocs, setDoc, addDoc, query, where, orderBy, limit, startAfter, serverTimestamp, runTransaction } from "./firebase.js";
 
@@ -25,6 +23,16 @@ export const PLAN_DE_CUENTAS = [
   { codigo: "2", nombre: "Pasivo", tipo: "pasivo", padre: null, imputable: false },
   { codigo: "2.1", nombre: "Pasivo Corriente", tipo: "pasivo", padre: "2", imputable: false },
   { codigo: "2.1.1", nombre: "Proveedores", tipo: "pasivo", padre: "2.1", imputable: true },
+  // El IVA que se cobró en cada venta — se le debe a AFIP, no es ingreso propio. Antes de esto,
+  // ventas.js debitaba el total (con IVA adentro) directo a "Ventas", así que el ingreso quedaba
+  // sobrestimado por el IVA de cada venta. Ver discriminarIva() más abajo.
+  { codigo: "2.1.2", nombre: "IVA Débito Fiscal", tipo: "pasivo", padre: "2.1", imputable: true },
+  // Retenciones que Delfino, como agente de retención, le practica a un proveedor al cargar su
+  // factura de compra — no es plata que se le vaya a pagar al proveedor, sino que hay que depositarla
+  // en AFIP/ARBA a su nombre. Ver js/compras.js: crearCompra.
+  { codigo: "2.1.3", nombre: "Retención de IVA a depositar", tipo: "pasivo", padre: "2.1", imputable: true },
+  { codigo: "2.1.4", nombre: "Retención de Ganancias a depositar", tipo: "pasivo", padre: "2.1", imputable: true },
+  { codigo: "2.1.5", nombre: "Retención de IIBB a depositar", tipo: "pasivo", padre: "2.1", imputable: true },
   { codigo: "3", nombre: "Patrimonio Neto", tipo: "patrimonio", padre: null, imputable: false },
   { codigo: "3.1", nombre: "Capital", tipo: "patrimonio", padre: "3", imputable: true },
   { codigo: "3.2", nombre: "Resultados Acumulados", tipo: "patrimonio", padre: "3", imputable: true },
@@ -44,6 +52,10 @@ export const CUENTA = {
   IVA_CREDITO_FISCAL: "1.1.4",
   DEUDORES_TARJETAS: "1.1.5",
   PROVEEDORES: "2.1.1",
+  IVA_DEBITO_FISCAL: "2.1.2",
+  RETENCION_IVA: "2.1.3",
+  RETENCION_GANANCIAS: "2.1.4",
+  RETENCION_IIBB: "2.1.5",
   VENTAS: "4.1",
   COSTO_MERCADERIA_VENDIDA: "5.1",
   GASTOS_GENERALES: "5.2",
@@ -77,6 +89,16 @@ export async function listarPlanDeCuentas() {
 export function normalizarFecha(fecha) {
   if (fecha instanceof Date) return fecha.toISOString().slice(0, 10);
   return fecha;
+}
+
+// Los precios de venta al público ya incluyen el IVA (así se cargan en productos.js: campo `iva`,
+// mismo criterio que usa el cálculo de margen ahí) — discriminarlo es "restar hacia atrás", no
+// sumarlo. Usado por facturacion.js (comprobantes) y ventas.js (asiento) para que ambos calculen
+// el mismo neto/IVA a partir del mismo monto, sin duplicar la fórmula en dos lugares.
+export function discriminarIva(montoConIva, ivaPct) {
+  const alicuota = ivaPct ?? 21;
+  const neto = alicuota > 0 ? montoConIva / (1 + alicuota / 100) : montoConIva;
+  return { neto: Math.round(neto * 100) / 100, iva: Math.round((montoConIva - neto) * 100) / 100 };
 }
 
 async function siguienteNumeroAsiento() {

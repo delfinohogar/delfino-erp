@@ -44,11 +44,14 @@ function fechaHoyArgentina() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date());
 }
 
-// Saldo pendiente de una factura de compra: su total menos la suma de pagos atados a esa compra.
+// Saldo pendiente de una factura de compra: lo que realmente se le paga al proveedor (total menos
+// retenciones, si las hay — ver compras.js: netoAPagarProveedor) menos la suma de pagos atados a esa
+// compra. Contra el total bruto una factura con retenciones nunca llegaba a saldo cero.
 function resumenFactura(compra, pagos) {
   const pagado = pagos
     .filter((p) => p.compraId === compra.id)
     .reduce((acc, p) => acc + (p.monto || 0), 0);
+  const netoAPagarProveedor = compra.netoAPagarProveedor ?? compra.total ?? 0;
   return {
     compraId: compra.id,
     proveedorNombre: compra.proveedorNombre,
@@ -57,8 +60,9 @@ function resumenFactura(compra, pagos) {
     fecha: compra.fecha,
     fechaVencimiento: compra.fechaVencimiento || null,
     total: compra.total || 0,
+    montoRetenciones: compra.montoRetenciones || 0,
     pagado: Math.round(pagado * 100) / 100,
-    saldoPendiente: Math.round(((compra.total || 0) - pagado) * 100) / 100,
+    saldoPendiente: Math.round((netoAPagarProveedor - pagado) * 100) / 100,
   };
 }
 
@@ -359,7 +363,9 @@ async function ejecutarHerramienta(nombre, input, rol) {
       const compras = comprasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const pagos = pagosSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      const totalCompras = compras.reduce((acc, c) => acc + (c.total || 0), 0);
+      // Contra netoAPagarProveedor, no el total bruto — una compra con retenciones nunca "termina de
+      // pagarse" si se la mide contra el bruto (esa diferencia va a AFIP, no al proveedor).
+      const totalCompras = compras.reduce((acc, c) => acc + (c.netoAPagarProveedor ?? c.total ?? 0), 0);
       const totalPagos = pagos.reduce((acc, p) => acc + (p.monto || 0), 0);
       const facturasPendientes = compras
         .map((c) => resumenFactura(c, pagos))

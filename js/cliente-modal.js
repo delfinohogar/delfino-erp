@@ -2,6 +2,7 @@ import { consultarPadronArca } from "./arca.js";
 import { soloDigitos, formatearCuit, validarCuit, cuitsPosiblesDesdeDni } from "./cuit.js";
 import { mostrarCentralDeudores } from "./bcra-modal.js";
 import { capitalizarDireccion } from "./texto.js";
+import { buscarLocalidadPorCodigoPostal } from "./clientes.js";
 
 // Modal para crear (o editar, si se pasa clienteExistente) un cliente. El documento va primero
 // (con "Buscar en ARCA" al lado) porque encontrar el CUIT/DNI completa la razón social sola —
@@ -43,7 +44,30 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
           <div class="field">
             <label>Domicilio de entrega <span class="hint mt-0" style="display:inline">(opcional)</span></label>
             <div id="cm-domicilio-resumen"></div>
-            <input type="text" id="cm-domicilio-entrega" value="${clienteExistente?.domicilioEntrega || ""}" placeholder="Calle, número, localidad…" style="display:none" />
+            <div id="cm-domicilio-campos" style="display:none">
+              <input type="text" id="cm-domicilio-entrega" value="${clienteExistente?.domicilioEntrega || ""}" placeholder="Calle, número…" style="width:100%; margin-bottom:8px" />
+              <div class="field-row">
+                <div class="field" style="max-width:130px">
+                  <label for="cm-cp-entrega">Código postal</label>
+                  <input type="text" id="cm-cp-entrega" value="${clienteExistente?.codigoPostalEntrega || ""}" />
+                  <div class="hint" id="cm-cp-estado" style="margin-top:2px"></div>
+                </div>
+                <div class="field">
+                  <label for="cm-localidad-entrega">Localidad</label>
+                  <input type="text" id="cm-localidad-entrega" value="${clienteExistente?.localidadEntrega || ""}" />
+                </div>
+              </div>
+              <div class="field-row">
+                <div class="field">
+                  <label for="cm-provincia-entrega">Provincia</label>
+                  <input type="text" id="cm-provincia-entrega" value="${clienteExistente?.provinciaEntrega || "Buenos Aires"}" />
+                </div>
+                <div class="field">
+                  <label for="cm-pais-entrega">País</label>
+                  <input type="text" id="cm-pais-entrega" value="${clienteExistente?.paisEntrega || "Argentina"}" />
+                </div>
+              </div>
+            </div>
           </div>
           <div class="field-row">
             <div class="field">
@@ -75,6 +99,12 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
     const consultarBtn = overlay.querySelector("#cm-consultar-arca");
     const domicilioEntregaInput = overlay.querySelector("#cm-domicilio-entrega");
     const domicilioResumenEl = overlay.querySelector("#cm-domicilio-resumen");
+    const domicilioCamposEl = overlay.querySelector("#cm-domicilio-campos");
+    const cpEntregaInput = overlay.querySelector("#cm-cp-entrega");
+    const cpEstadoEl = overlay.querySelector("#cm-cp-estado");
+    const localidadEntregaInput = overlay.querySelector("#cm-localidad-entrega");
+    const provinciaEntregaInput = overlay.querySelector("#cm-provincia-entrega");
+    const paisEntregaInput = overlay.querySelector("#cm-pais-entrega");
 
     // El domicilio arranca colapsado — como chip de solo lectura si ya hay algo cargado (a mano o
     // sugerido por ARCA), o como "+ Agregar domicilio" si está vacío. Nunca obliga a mirar un campo
@@ -84,26 +114,54 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
       const valor = domicilioEntregaInput.value.trim();
       if (domicilioEditando) {
         domicilioResumenEl.style.display = "none";
-        domicilioEntregaInput.style.display = "block";
+        domicilioCamposEl.style.display = "block";
         domicilioEntregaInput.focus();
         return;
       }
-      domicilioEntregaInput.style.display = "none";
+      domicilioCamposEl.style.display = "none";
       domicilioResumenEl.style.display = "flex";
       domicilioResumenEl.style.cssText = "display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--muted-bg); border-radius:8px; padding:8px 10px;";
-      domicilioResumenEl.innerHTML = valor
-        ? `<span style="font-size:13px">${valor}</span><button type="button" id="cm-domicilio-toggle" class="link-btn" style="flex-shrink:0">✏️ Editar</button>`
+      const resumenPartes = [valor, localidadEntregaInput.value.trim()].filter(Boolean).join(", ");
+      domicilioResumenEl.innerHTML = resumenPartes
+        ? `<span style="font-size:13px">${resumenPartes}</span><button type="button" id="cm-domicilio-toggle" class="link-btn" style="flex-shrink:0">✏️ Editar</button>`
         : `<button type="button" id="cm-domicilio-toggle" class="link-btn">+ Agregar domicilio</button>`;
       domicilioResumenEl.querySelector("#cm-domicilio-toggle").addEventListener("click", () => {
         domicilioEditando = true;
         pintarDomicilio();
       });
     }
-    domicilioEntregaInput.addEventListener("blur", () => {
+    // focusout (no blur) en todo el grupo de campos — así tabular de "Domicilio" a "CP" no colapsa
+    // el bloque a mitad de carga; relatedTarget dice a dónde va el foco, y si sigue adentro del
+    // grupo no se colapsa todavía.
+    domicilioCamposEl.addEventListener("focusout", (e) => {
+      if (domicilioCamposEl.contains(e.relatedTarget)) return;
       domicilioEntregaInput.value = capitalizarDireccion(domicilioEntregaInput.value.trim());
       domicilioEditando = false;
       pintarDomicilio();
     });
+
+    // Autocompletar localidad/provincia a partir de un CP que ya vimos en otro cliente (ver
+    // js/clientes.js) — nunca pisa lo que el vendedor ya haya escrito a mano en esos campos.
+    let cpBuscando = null;
+    cpEntregaInput.addEventListener("blur", async () => {
+      const cp = cpEntregaInput.value.trim();
+      if (!cp) {
+        cpEstadoEl.textContent = "";
+        return;
+      }
+      cpBuscando = cp;
+      cpEstadoEl.textContent = "Buscando localidad…";
+      const resultado = await buscarLocalidadPorCodigoPostal(cp).catch(() => null);
+      if (cpBuscando !== cp) return; // el usuario ya cambió el CP mientras esperábamos
+      if (!resultado) {
+        cpEstadoEl.textContent = "";
+        return;
+      }
+      if (resultado.localidad && !localidadEntregaInput.value.trim()) localidadEntregaInput.value = resultado.localidad;
+      if (resultado.provincia) provinciaEntregaInput.value = resultado.provincia;
+      cpEstadoEl.textContent = `✓ Completado con datos de otro cliente con ese CP.`;
+    });
+
     pintarDomicilio();
 
     cuitInput.focus();
@@ -157,11 +215,9 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
       // El domicilio fiscal de ARCA es solo una sugerencia para el de entrega — nunca pisa uno que
       // el vendedor ya haya cargado a mano, y sigue siendo editable/borrable desde la chip de arriba.
       if (datos.domicilioFiscal && !domicilioEntregaInput.value.trim()) {
-        // Todo en un solo capitalizarDireccion() para que quede igual la primera vez que al volver
-        // a tocarlo (blur re-capitaliza el string completo — si "CP" se agregaba aparte quedaba bien
-        // solo la primera vez y pasaba a "Cp" en cuanto se editaba una vez).
-        const partes = [datos.domicilioFiscal, datos.provincia, datos.codigoPostal ? `CP ${datos.codigoPostal}` : ""].filter(Boolean).join(", ");
-        domicilioEntregaInput.value = capitalizarDireccion(partes);
+        domicilioEntregaInput.value = capitalizarDireccion(datos.domicilioFiscal);
+        if (datos.codigoPostal && !cpEntregaInput.value.trim()) cpEntregaInput.value = datos.codigoPostal;
+        if (datos.provincia) provinciaEntregaInput.value = datos.provincia;
         domicilioEditando = false;
         pintarDomicilio();
       }
@@ -234,6 +290,10 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
         datosArca,
         datosContacto: {
           domicilioEntrega: domicilioEntregaNuevo,
+          codigoPostalEntrega: cpEntregaInput.value.trim(),
+          localidadEntrega: localidadEntregaInput.value.trim(),
+          provinciaEntrega: provinciaEntregaInput.value.trim(),
+          paisEntrega: paisEntregaInput.value.trim(),
           whatsapp: overlay.querySelector("#cm-whatsapp").value.trim(),
           email: overlay.querySelector("#cm-email").value.trim(),
           domicilioEntregaCambio: domicilioEntregaNuevo !== (clienteExistente?.domicilioEntrega || ""),

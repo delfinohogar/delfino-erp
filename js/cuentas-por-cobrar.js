@@ -10,13 +10,19 @@ import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria } from "./contabilid
 import { registrarMovimientoCaja } from "./cajas.js";
 import { registrarMovimientoBancario } from "./bancos.js";
 
+// Lista "de sistema" — sigue existiendo solo para sembrar mediosPago la primera vez (ver
+// MEDIOS_DE_SISTEMA en medios-pago.js). El medio real de cada cuenta por cobrar ya no se valida
+// contra esta lista fija: sale de medioCuentaPorCobrar de cada medio de pago configurado (ver
+// routearPagoATesoreria en ventas.js), que es dinámico — un admin puede dar de alta "Visa",
+// "Mastercard", etc. como medios de pago propios desde Configuración → Medios de Pago, cada uno con
+// su propia cuenta por cobrar, sin tocar código. Antes esta lista frenaba justo eso.
 export const MEDIOS_CUENTA_POR_COBRAR = ["Mercado Pago", "GoCuotas", "Boston Cred", "Tarjeta de crédito"];
 export const ESTADOS_CUENTA_POR_COBRAR = ["pendiente", "parcial", "cobrado", "vencido", "con_diferencia"];
 
 // datos: { medio, ventaId, clienteId?, clienteNombre, sucursalId?, fecha, importeBruto, comision?,
 //          impuestos?, fechaPrevista?, cuotas?, referencia? }
 export async function crearCuentaPorCobrar(datos, usuario) {
-  if (!MEDIOS_CUENTA_POR_COBRAR.includes(datos.medio)) throw new Error(`Medio de cobro no reconocido: ${datos.medio}`);
+  if (!datos.medio?.trim()) throw new Error("Falta el medio de cobro.");
   if (!(datos.importeBruto > 0)) throw new Error("El importe bruto tiene que ser mayor a cero.");
 
   const comision = datos.comision ?? null;

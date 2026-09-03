@@ -53,14 +53,17 @@ async function cargar() {
   tablaBody.innerHTML = "";
   compras.forEach((c) => {
     const pagado = pagos.filter((p) => p.compraId === c.id).reduce((acc, p) => acc + (p.monto || 0), 0);
+    // El estado se compara contra lo que realmente hay que pagarle al proveedor (total menos
+    // retenciones) — contra el bruto, una compra con retenciones nunca llegaba a "Pagada".
+    const netoAPagar = c.netoAPagarProveedor ?? c.total ?? 0;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${formatFecha(c.fecha)}</td>
       <td>${c.proveedorNombre || ""}</td>
       <td>${c.tipoComprobante || ""} ${c.numeroFactura || ""}</td>
       <td>${(c.items || []).length}</td>
-      <td>${(c.total ?? 0).toLocaleString("es-AR")}</td>
-      <td>${estadoBadge(c.total ?? 0, pagado)}</td>
+      <td>${(c.total ?? 0).toLocaleString("es-AR")}${c.montoRetenciones ? ` <span class="hint">(neto ${netoAPagar.toLocaleString("es-AR")})</span>` : ""}</td>
+      <td>${estadoBadge(netoAPagar, pagado)}</td>
     `;
     tablaBody.appendChild(tr);
   });

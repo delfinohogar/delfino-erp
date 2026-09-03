@@ -77,7 +77,10 @@ export async function posicionTesoreria(sucursalId = null) {
 
   const gastosMes = Math.round(gastosDelMes.filter((g) => g.estado !== "anulado").reduce((acc, g) => acc + g.importe, 0) * 100) / 100;
 
-  const totalCompras = compras.reduce((acc, c) => acc + (c.total || 0), 0);
+  // Contra lo que realmente hay que pagarle al proveedor (total menos retenciones, si las hay — ver
+  // compras.js: netoAPagarProveedor) — contra el bruto, las retenciones quedaban contadas como plata
+  // todavía comprometida para siempre, aunque esa parte nunca se le iba a pagar al proveedor.
+  const totalCompras = compras.reduce((acc, c) => acc + (c.netoAPagarProveedor ?? c.total ?? 0), 0);
   const totalPagosProveedores = pagos.reduce((acc, p) => acc + (p.monto || 0), 0);
   const egresosComprometidos = Math.round(Math.max(totalCompras - totalPagosProveedores, 0) * 100) / 100;
 

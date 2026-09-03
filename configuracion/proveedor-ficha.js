@@ -152,7 +152,9 @@ document.getElementById("btn-reconsultar").addEventListener("click", async () =>
 // --- Cuenta corriente (resumen) y compras recientes ---
 const [compras, pagos] = await Promise.all([listarComprasPorProveedor(proveedorId), listarPagosPorProveedor(proveedorId)]);
 
-const totalCompras = compras.reduce((acc, c) => acc + (c.total || 0), 0);
+// Contra netoAPagarProveedor, no el total bruto (ver compras.js) — con retenciones, esa diferencia
+// va a AFIP/ARBA, no al proveedor, así que no cuenta como saldo adeudado.
+const totalCompras = compras.reduce((acc, c) => acc + (c.netoAPagarProveedor ?? c.total ?? 0), 0);
 const totalPagos = pagos.reduce((acc, p) => acc + (p.monto || 0), 0);
 const saldo = totalCompras - totalPagos;
 

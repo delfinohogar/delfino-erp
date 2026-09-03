@@ -109,10 +109,10 @@ function pintarFacturas() {
       <td><input type="checkbox" data-role="check" ${sinSaldo ? "disabled" : ""} /></td>
       <td>${f.fecha?.toDate ? f.fecha.toDate().toLocaleDateString("es-AR") : "-"}</td>
       <td>${f.tipoComprobante || ""} ${f.numeroFactura || ""}</td>
-      <td>${f.total.toLocaleString("es-AR")}</td>
+      <td>${f.total.toLocaleString("es-AR")}${f.montoRetenciones ? ` <span class="hint">(neto ${f.netoAPagarProveedor.toLocaleString("es-AR")})</span>` : ""}</td>
       <td>${f.pagado.toLocaleString("es-AR")}</td>
       <td>${f.saldo.toLocaleString("es-AR")}</td>
-      <td>${estadoBadge(f.saldo, f.total)}</td>
+      <td>${estadoBadge(f.saldo, f.netoAPagarProveedor)}</td>
       <td><input type="number" data-role="monto" step="0.01" min="0" max="${f.saldo}" value="${f.saldo}" style="max-width:120px" disabled /></td>
     `;
     const check = tr.querySelector("[data-role=check]");
@@ -141,7 +141,11 @@ async function cargarFacturas(proveedor) {
   facturas = compras
     .map((c) => {
       const pagado = pagos.filter((p) => p.compraId === c.id).reduce((acc, p) => acc + (p.monto || 0), 0);
-      return { ...c, pagado, saldo: Math.round(((c.total || 0) - pagado) * 100) / 100 };
+      // El saldo es contra lo que realmente se le paga al proveedor (total menos retenciones, ver
+      // compras.js: netoAPagarProveedor) — contra el bruto, una factura con retenciones nunca
+      // llegaba a "Pagada" y esta pantalla dejaba pagar de más (hasta el bruto, no el neto real).
+      const netoAPagarProveedor = c.netoAPagarProveedor ?? c.total ?? 0;
+      return { ...c, pagado, netoAPagarProveedor, saldo: Math.round((netoAPagarProveedor - pagado) * 100) / 100 };
     })
     .sort((a, b) => (a.fecha?.toDate?.() || 0) - (b.fecha?.toDate?.() || 0));
 

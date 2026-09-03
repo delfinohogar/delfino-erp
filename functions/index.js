@@ -48,6 +48,34 @@ exports.mpWebhook = mercadoPago.mpWebhook;
 // configuracion/facturacion.arcaActivo sea false (siempre, por ahora).
 exports.arcaAutorizarComprobante = require("./arcaFacturacion").arcaAutorizarComprobante;
 
+// Tienda Nube — solo lectura de pedidos (app separada de la que usa GBP para stock/precio).
+exports.tnWebhook = require("./tiendanube").tnWebhook;
+
+// Tienda Nube — reconciliación de catálogo (previsualizar + aplicar a mano, nunca automático).
+const tnCatalogo = require("./tiendanubeCatalogo");
+exports.tnReconciliarCatalogo = tnCatalogo.tnReconciliarCatalogo;
+exports.tnVincularProductos = tnCatalogo.tnVincularProductos;
+exports.tnActualizarStock = tnCatalogo.tnActualizarStock;
+exports.tnImportarProductos = tnCatalogo.tnImportarProductos;
+exports.tnImportarImagenes = tnCatalogo.tnImportarImagenes;
+
+// Combos (productos compuestos por otros productos) — mantiene precio/costo/stock sincronizados
+// cada vez que cambia un componente. Ver js/combos.js y functions/combosSync.js.
+exports.onProductoActualizadoRecalcularCombos = require("./combosSync").onProductoActualizadoRecalcularCombos;
+
+// GBP — historial de facturas emitidas (solo lectura/consulta, no factura ni cruza cuenta corriente).
+exports.gbpSincronizarFacturas = require("./gbpFacturas").gbpSincronizarFacturas;
+
+// GBP — vincula clientes de Delfino con su cliente de GBP por CUIT/DNI (identificadorExterno).
+// Preview primero, aplicar después (mismo patrón que la reconciliación de Tiendanube).
+exports.gbpPreviewVincularClientes = require("./gbpClientes").gbpPreviewVincularClientes;
+exports.gbpAplicarVincularClientes = require("./gbpClientes").gbpAplicarVincularClientes;
+exports.gbpImportarClientePrueba = require("./gbpClientes").gbpImportarClientePrueba;
+
+// GBP — sincroniza precio/stock/descripción/IVA del catálogo existente (no crea productos nuevos).
+exports.gbpPreviewArticulos = require("./gbpArticulos").gbpPreviewArticulos;
+exports.gbpAplicarArticulos = require("./gbpArticulos").gbpAplicarArticulos;
+
 const afipCert = defineSecret("AFIP_CERT");
 const afipKey = defineSecret("AFIP_KEY");
 const afipCuit = defineSecret("AFIP_CUIT");

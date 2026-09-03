@@ -27,10 +27,16 @@ export async function listarComprasPorProveedor(proveedorId) {
 }
 
 // datos: { proveedorId, proveedorNombre, tipoComprobante, numeroFactura, fecha, fechaVencimiento,
-//          descuentoGlobal, percepciones, items }
+//          descuentoGlobal, percepciones, items, retencionIva?, retencionGanancias?, retencionIibb? }
 // items: [{ productoId, productoSku, productoDescripcion, cantidad, costoUnitario, descuentoPct, ivaPct, subtotal }]
 // El costo que impacta en el producto es el neto por unidad DESPUÉS del descuento de línea (sin IVA);
 // el IVA de cada línea es información del comprobante, no se mezcla con costoReferencia del producto.
+//
+// Retenciones: lo que Delfino, como agente de retención, le retiene al proveedor en esta factura —
+// no es plata que se le vaya a pagar (va a AFIP/ARBA en su nombre), así que se descuenta de entrada
+// de lo que la cuenta corriente del proveedor va a pedir pagar (ver netoAPagarProveedor y
+// reporteFacturasPorVencer en reportes.js). Se cargan acá, al recibir la factura — no al pagarla —
+// por pedido explícito del dueño (2026-09-02): quiere verlas reflejadas apenas entra la factura.
 export async function crearCompra(datos, usuario) {
   const ahora = serverTimestamp();
   // Antes guardaba lo que llegara en datos.fecha tal cual — productos/compras-nueva.js manda un
@@ -47,6 +53,13 @@ export async function crearCompra(datos, usuario) {
   const percepciones = datos.percepciones || 0;
   const total = importes - descuentoGlobal + ivaTotal + percepciones;
 
+  const retencionIva = Math.round((datos.retencionIva || 0) * 100) / 100;
+  const retencionGanancias = Math.round((datos.retencionGanancias || 0) * 100) / 100;
+  const retencionIibb = Math.round((datos.retencionIibb || 0) * 100) / 100;
+  const montoRetenciones = Math.round((retencionIva + retencionGanancias + retencionIibb) * 100) / 100;
+  if (montoRetenciones > total) throw new Error("Las retenciones no pueden ser mayores que el total de la factura.");
+  const netoAPagarProveedor = Math.round((total - montoRetenciones) * 100) / 100;
+
   const compraRef = await addDoc(collection(db, "compras"), {
     proveedorId: datos.proveedorId,
     proveedorNombre: datos.proveedorNombre,
@@ -60,6 +73,11 @@ export async function crearCompra(datos, usuario) {
     descuentoGlobal,
     percepciones,
     total,
+    retencionIva,
+    retencionGanancias,
+    retencionIibb,
+    montoRetenciones,
+    netoAPagarProveedor,
     usuario: usuario.uid,
     creadoEn: ahora,
   });
@@ -121,8 +139,14 @@ export async function crearCompra(datos, usuario) {
   }
 
   // Asiento contable: el neto (sin IVA) entra a Bienes de Cambio, el IVA de la factura es crédito
-  // fiscal (no es costo de mercadería), y todo junto se debe al proveedor.
+  // fiscal (no es costo de mercadería). Del lado del haber, lo que realmente se le va a pagar al
+  // proveedor es el total MENOS las retenciones — esas quedan como pasivo a depositar, no desaparecen.
   const netoSinIva = importes - descuentoGlobal + percepciones;
+  const movimientosRetenciones = [
+    retencionIva > 0 ? { cuenta: CUENTA.RETENCION_IVA, debe: 0, haber: retencionIva } : null,
+    retencionGanancias > 0 ? { cuenta: CUENTA.RETENCION_GANANCIAS, debe: 0, haber: retencionGanancias } : null,
+    retencionIibb > 0 ? { cuenta: CUENTA.RETENCION_IIBB, debe: 0, haber: retencionIibb } : null,
+  ].filter(Boolean);
   await generarAsiento(
     {
       fecha,
@@ -131,7 +155,8 @@ export async function crearCompra(datos, usuario) {
       movimientos: [
         { cuenta: CUENTA.BIENES_DE_CAMBIO, debe: Math.round(netoSinIva * 100) / 100, haber: 0 },
         { cuenta: CUENTA.IVA_CREDITO_FISCAL, debe: Math.round(ivaTotal * 100) / 100, haber: 0 },
-        { cuenta: CUENTA.PROVEEDORES, debe: 0, haber: Math.round(total * 100) / 100 },
+        { cuenta: CUENTA.PROVEEDORES, debe: 0, haber: netoAPagarProveedor },
+        ...movimientosRetenciones,
       ],
     },
     usuario

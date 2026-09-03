@@ -151,6 +151,7 @@ function renderizarFormulario() {
         cantidad: 1,
         precioUnitario: producto.precioVenta ?? 0,
         descuentoPct: 0,
+        iva: producto.iva ?? 21,
       });
     }
     searchInput.value = "";

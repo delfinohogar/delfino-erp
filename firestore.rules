@@ -283,10 +283,37 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // El registro real ahora lo hace el webhook (functions/tiendanube.js, Admin SDK) — desde el
+    // cliente ya no se puede fabricar una orden. "Procesar" una orden (crear la venta/factura) sí
+    // sigue siendo una acción de un vendedor logueado, así que puede actualizar el puñado de campos
+    // de resultado — nunca los datos de la orden en sí (items/cliente/total), que son los que llegó
+    // Tiendanube y no tiene sentido que el cliente pueda reescribir.
     match /ordenesTiendaNube/{id} {
       allow read: if estaLogueado();
-      allow create, update: if puedeEditarCatalogo();
+      allow create: if false;
+      allow update: if puedeVender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'ventaId', 'facturaId', 'procesadoEn', 'error']);
       allow delete: if false;
+    }
+
+    match /logIntegracionTiendaNube/{id} {
+      allow read: if estaLogueado();
+      allow write: if false;
+    }
+
+    // Historial de facturas importado desde GBP (solo lectura/consulta) — lo escribe únicamente
+    // gbpSincronizarFacturas (Admin SDK), nunca la app.
+    match /facturasGbp/{id} {
+      allow read: if estaLogueado();
+      allow write: if false;
+    }
+
+    // Fichas livianas de clientes de GBP que no son clientes reales de Delfino (no tienen cuenta
+    // corriente ni aparecen en el buscador de Nueva Venta) — solo para mostrar nombres en reportes.
+    // Las escribe únicamente gbpVincularClientes (Admin SDK).
+    match /clientesGbp/{id} {
+      allow read: if estaLogueado();
+      allow write: if false;
     }
 
     // --- Tesorería -------------------------------------------------------------------------------
@@ -343,6 +370,30 @@ service cloud.firestore {
       allow create: if puedeVender();
       allow update: if
         (puedeVender() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'conciliadoPor', 'conciliadoPorNombre', 'fechaConciliacion', 'movimientoRelacionado'])) ||
+        (esAdministrador() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'motivoAnulacion', 'anuladoPor', 'anuladoPorNombre', 'fechaAnulacion']));
+      allow delete: if false;
+    }
+
+    // Chequeras: cargar una (rango de números que asignó el banco) es una acción de setup, como dar de
+    // alta una cuenta bancaria — solo administrador. Consumir el próximo número al emitir un cheque
+    // (proximoNumero) sí lo puede hacer cualquiera que pueda vender/operar Tesorería.
+    match /chequeras/{id} {
+      allow read: if estaLogueado();
+      allow create: if esAdministrador();
+      allow update: if
+        (puedeVender() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proximoNumero'])) ||
+        (esAdministrador() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activa']));
+      allow delete: if false;
+    }
+
+    // Cheques emitidos: viven aparte de movimientosBancarios mientras están "pendiente" (cheque a
+    // fecha futura, todavía no debitado de verdad) — recién al efectivizarse generan un movimiento
+    // bancario real. Anular solo es posible pendiente, y solo administrador (mismo criterio que gastos).
+    match /chequesEmitidos/{id} {
+      allow read: if estaLogueado();
+      allow create: if puedeVender();
+      allow update: if
+        (puedeVender() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'movimientoBancarioId', 'fechaEfectivizacion'])) ||
         (esAdministrador() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'motivoAnulacion', 'anuladoPor', 'anuladoPorNombre', 'fechaAnulacion']));
       allow delete: if false;
     }

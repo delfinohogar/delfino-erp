@@ -1696,3 +1696,21 @@ details.card[open] summary::before {
     display: flex;
   }
 }
+
+/* iOS Safari hace zoom automático al enfocar un input/select/textarea con font-size computado
+   menor a 16px. Ya hay una regla general para esto (buscar "hace zoom automático" más arriba en
+   este archivo), pero .gsearch/.pos-buscar/.pos-cart-item tienen la MISMA especificidad que esa
+   regla (clase + tipo) y aparecen después en el archivo — en un empate de especificidad gana quien
+   esté último, así que la regla general quedaba pisada justo en el buscador de la topbar y en Nueva
+   Venta (buscador de productos y cantidad/precio del carrito), que es donde se notaba el zoom.
+   Repetirla acá, al final del archivo, hace que esta sea la que gane. */
+@media (max-width: 768px) {
+  .gsearch input[type="text"],
+  .pos-buscar input[type="text"],
+  .pos-cart-item input[type="number"],
+  .picker-panel input[type="text"],
+  #pos-domicilio-entrega,
+  #pos-nota-entrega {
+    font-size: 16px;
+  }
+}

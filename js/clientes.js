@@ -38,6 +38,10 @@ export async function crearCliente(razonSocial, cuit = "", datosArca = null, dat
     fuenteDatos: datosArca ? "arca" : "manual",
     fechaConsultaArca: datosArca ? new Date() : null,
     domicilioEntrega: capitalizarDireccion(datosContacto.domicilioEntrega?.trim()) || null,
+    codigoPostalEntrega: datosContacto.codigoPostalEntrega?.trim() || null,
+    localidadEntrega: datosContacto.localidadEntrega?.trim() || null,
+    provinciaEntrega: datosContacto.provinciaEntrega?.trim() || "Buenos Aires",
+    paisEntrega: datosContacto.paisEntrega?.trim() || "Argentina",
     whatsapp: datosContacto.whatsapp?.trim() || null,
     email: datosContacto.email?.trim() || null,
     domicilioEntregaNormalizado: null,
@@ -55,6 +59,10 @@ export async function actualizarCliente(id, razonSocial, cuit, datosArca = null,
     razonSocialLower: razonSocial.trim().toLowerCase(),
     cuit: cuit.trim(),
     domicilioEntrega: capitalizarDireccion(datosContacto.domicilioEntrega?.trim()) || null,
+    codigoPostalEntrega: datosContacto.codigoPostalEntrega?.trim() || null,
+    localidadEntrega: datosContacto.localidadEntrega?.trim() || null,
+    provinciaEntrega: datosContacto.provinciaEntrega?.trim() || "Buenos Aires",
+    paisEntrega: datosContacto.paisEntrega?.trim() || "Argentina",
     whatsapp: datosContacto.whatsapp?.trim() || null,
     email: datosContacto.email?.trim() || null,
   };
@@ -102,6 +110,20 @@ export async function listarClientesTodos() {
 export async function obtenerCliente(id) {
   const snap = await getDoc(doc(db, "clientes", id));
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+// Autocompletar localidad/provincia a partir de un CP que ya vimos en otro cliente — no depende de
+// ningún servicio externo (Georef no tiene búsqueda por código postal, se verificó a mano). Se arma
+// solo con los datos reales ya cargados, sobre todo los importados de GBP (que siempre traen
+// CP+localidad juntos) — mejora sola con el tiempo, sin mantener ninguna lista aparte.
+export async function buscarLocalidadPorCodigoPostal(cp) {
+  const limpio = (cp || "").trim();
+  if (!limpio) return null;
+  const snap = await getDocs(query(collection(db, "clientes"), where("codigoPostalEntrega", "==", limpio), limit(1)));
+  if (snap.empty) return null;
+  const c = snap.docs[0].data();
+  if (!c.localidadEntrega && !c.provinciaEntrega) return null;
+  return { localidad: c.localidadEntrega || null, provincia: c.provinciaEntrega || null };
 }
 
 // Para evitar altas duplicadas: crearCliente no valida nada solo, así que quien da de alta un

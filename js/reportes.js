@@ -2,6 +2,7 @@
 // Todo se calcula al vuelo sobre /ventas — sin totales pre-calculados, mismo criterio que el resto
 // del sistema (cuentas corrientes, Dashboard).
 import { db, collection, getDocs, query, where } from "./firebase.js";
+import { libroIvaVentas } from "./libro-iva.js";
 
 // Catálogo de reportes disponibles, agrupados por categoría — el catálogo de /reportes.html se arma
 // a partir de esto, así que sumar un reporte nuevo es agregarlo acá una sola vez.
@@ -201,10 +202,16 @@ export async function reportePosicionIva(desde, hasta) {
     });
   const creditoFiscalCompras = compras.reduce((acc, c) => acc + (c.ivaTotal || 0), 0);
   const percepcionesSufridas = compras.reduce((acc, c) => acc + (c.percepciones || 0), 0);
-  const debitoFiscalVentas = 0;
+  // Antes esto estaba hardcodeado en 0 — el sistema no discriminaba IVA en ninguna venta (ver
+  // js/facturacion.js: calcularTotales). Ahora sale del mismo agregado que usa Libro IVA Ventas.
+  const debitoFiscalVentas = (await libroIvaVentas(desde, hasta)).totales.iva;
   // Positivo = a favor nuestro (crédito > débito). Retenciones/percepciones que ya nos aplicaron
   // suman a favor — son IVA que ya "pagamos" de más y se puede usar contra el saldo técnico.
   const saldoTecnico = creditoFiscalCompras - debitoFiscalVentas;
+  // Retenciones que a Delfino le practican SUS clientes (agentes de retención) sobre sus propias
+  // ventas — un concepto distinto de las retenciones que Delfino le practica a SUS proveedores (ver
+  // js/compras.js: retencionIva/Ganancias/Iibb, que son la contraparte inversa). Nadie informa esto
+  // todavía (no hay integración que lo reporte), así que sigue en 0 — no se inventa.
   const retencionesSufridas = 0;
   const saldoAFavorEstimado = saldoTecnico + retencionesSufridas + percepcionesSufridas;
 
@@ -240,12 +247,17 @@ export async function reporteFacturasPorVencer() {
       // antes de que ese campo existiera con ese formato) puede tenerlo como Timestamp — se normaliza
       // acá para no romper el sort, mismo criterio que ya se usa con compras.fecha.
       const fechaVencimiento = c.fechaVencimiento?.toDate ? c.fechaVencimiento.toDate().toISOString().slice(0, 10) : c.fechaVencimiento || null;
+      // El saldo pendiente es contra lo que realmente se le va a pagar al proveedor (total menos
+      // retenciones, ver compras.js: netoAPagarProveedor) — no contra el bruto de la factura. Sin
+      // esto, una compra con retenciones nunca terminaba de saldarse aunque ya estuviera pagada del
+      // todo: el saldo quedaba clavado en el monto retenido para siempre.
+      const netoAPagar = c.netoAPagarProveedor ?? c.total ?? 0;
       return {
         proveedorNombre: c.proveedorNombre,
         numeroFactura: c.numeroFactura,
         fechaVencimiento,
         total: c.total || 0,
-        saldo: Math.round(((c.total || 0) - pagado) * 100) / 100,
+        saldo: Math.round((netoAPagar - pagado) * 100) / 100,
       };
     })
     .filter((c) => c.saldo > 0.01)

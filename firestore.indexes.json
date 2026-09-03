@@ -18,6 +18,14 @@
       ]
     },
     {
+      "collectionGroup": "facturasGbp",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "clienteId", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "sesionesCaja",
       "queryScope": "COLLECTION",
       "fields": [

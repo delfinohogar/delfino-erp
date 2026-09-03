@@ -8,7 +8,7 @@
 // caída, mal configurada, o no exista todavía. Por eso encolarSincronizacion() nunca tira una
 // excepción que pueda cortar una venta/compra/edición de producto — un fallo acá se guarda como
 // error en la cola, no se propaga.
-import { db, collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
+import { db, collection, doc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
 
 // --- Cola de sincronización (ERP -> Tienda Nube) ------------------------------------------------
 // Un doc por cambio real de stock/precio/imagen que HABRÍA que mandar. Se llena siempre (es gratis,
@@ -84,42 +84,11 @@ export async function buscarImagenTiendaNube(_sku) {
 }
 
 // --- Órdenes (Tienda Nube -> ERP) -----------------------------------------------------------------
-// Ver docs/tiendanube-integracion.md sección "Idempotencia": el id del documento ES el id externo de
-// la orden en Tienda Nube (setDoc con ese id, nunca addDoc) — así, si el webhook de Tienda Nube
-// reintenta la misma notificación (timeout, reintento automático, doble entrega), escribir de nuevo
-// el mismo id es un no-op idempotente en vez de crear una orden — y por lo tanto una venta — duplicada.
-//
-// datosOrden: { idExterno, numeroOrden, fecha, cliente: {nombre, email, telefono}, items: [{sku,
-//              cantidad, precioUnitario}], estado, estadoPago, estadoPreparacion, envio, descuentos,
-//              total }
-export async function registrarOrdenTiendaNube(datosOrden) {
-  const ref = doc(db, "ordenesTiendaNube", String(datosOrden.idExterno));
-  const existente = await getDoc(ref);
-  if (existente.exists()) {
-    // Ya la teníamos — no se pisa ni se vuelve a procesar. Esto es lo que evita el "no quiero que una
-    // orden online termine generando dos ventas" del pedido.
-    return { yaExistia: true, orden: existente.data() };
-  }
-
-  await setDoc(ref, {
-    idExterno: String(datosOrden.idExterno),
-    numeroOrden: datosOrden.numeroOrden || null,
-    fecha: datosOrden.fecha || null,
-    cliente: datosOrden.cliente || null,
-    items: datosOrden.items || [],
-    total: datosOrden.total ?? null,
-    estado: datosOrden.estado || "recibida", // recibida | procesada | error
-    estadoPago: datosOrden.estadoPago || "pendiente", // pendiente | aprobado | rechazado | reembolsado
-    estadoPreparacion: datosOrden.estadoPreparacion || null,
-    // Se completan recién cuando se procesa: no se inventa una venta/factura antes de tiempo.
-    ventaId: null,
-    facturaId: null,
-    procesadoEn: null,
-    error: null,
-    recibidaEn: serverTimestamp(),
-  });
-  return { yaExistia: false };
-}
+// El registro de la orden en sí YA NO pasa por acá — lo hace el webhook (functions/tiendanube.js,
+// Admin SDK), porque firestore.rules bloquea el create de ordenesTiendaNube desde el cliente a
+// propósito (una orden solo puede venir de Tiendanube de verdad, nunca fabricada desde el navegador).
+// Ver docs/tiendanube-integracion.md sección "Idempotencia" para el detalle de por qué el id del
+// documento es el id externo de la orden.
 
 // Procesa una orden ya registrada (recibida) → crea la venta + factura en el ERP, SOLO si el pago
 // está confirmado (ver punto 19 del pedido: no asumir cobrado solo porque la orden existe). Queda

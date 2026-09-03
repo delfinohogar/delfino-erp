@@ -37,7 +37,9 @@ const emptyState = document.getElementById("empty-state");
 let clientes = [];
 
 function origenBadge(fuente) {
-  return fuente === "arca" ? '<span class="badge success">ARCA</span>' : '<span class="badge muted">Manual</span>';
+  if (fuente === "arca") return '<span class="badge success">ARCA</span>';
+  if (fuente === "gbp") return '<span class="badge warning">GBP</span>';
+  return '<span class="badge muted">Manual</span>';
 }
 
 function pintar(lista) {

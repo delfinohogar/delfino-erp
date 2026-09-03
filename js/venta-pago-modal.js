@@ -19,7 +19,11 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
   // Antes de que un administrador entre a Configuración → Medios de pago por primera vez (lo que
   // siembra la colección real), un vendedor tiene que poder vender igual — cae a la misma lista de
   // siempre en memoria, sin escribir nada (sembrar la colección es admin-only, ver firestore.rules).
-  const nombres = mediosActivos.length > 0 ? mediosActivos.map((m) => m.nombre) : MEDIOS_DE_SISTEMA.map((m) => m.nombre);
+  const listaMedios = mediosActivos.length > 0 ? mediosActivos : MEDIOS_DE_SISTEMA;
+  const nombres = listaMedios.map((m) => m.nombre);
+  // Para saber en qué línea mostrar "N° de operación" — solo tiene sentido para medios que van a
+  // cuenta por cobrar (tarjetas, Mercado Pago, etc.), no para Efectivo/Transferencia.
+  const destinoPorMedio = new Map(listaMedios.map((m) => [m.nombre, m.destino]));
 
   return new Promise((resolve) => {
     const medios = [...nombres, ...(clienteSeleccionado ? ["Pendiente de pago"] : [])];
@@ -101,25 +105,36 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
         quitarBotones.forEach((b) => (b.disabled = quitarBotones.length <= 1));
       }
 
-      function agregarLinea(medioDefault, montoDefault) {
+      function agregarLinea(medioDefault, montoDefault, referenciaDefault) {
         const div = document.createElement("div");
-        div.className = "field-row";
         div.dataset.role = "linea";
-        div.style.alignItems = "end";
         div.innerHTML = `
-          <div class="field" style="margin-bottom:8px">
-            <label>Medio</label>
-            <select data-role="medio">
-              ${medios.map((m) => `<option ${m === medioDefault ? "selected" : ""}>${m}</option>`).join("")}
-            </select>
+          <div class="field-row" style="align-items:end">
+            <div class="field" style="margin-bottom:8px">
+              <label>Medio</label>
+              <select data-role="medio">
+                ${medios.map((m) => `<option ${m === medioDefault ? "selected" : ""}>${m}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field" style="margin-bottom:8px">
+              <label>Monto</label>
+              <input type="number" data-role="monto" step="0.01" min="0" value="${montoDefault}" />
+            </div>
+            <button type="button" data-role="quitar" style="margin-bottom:14px">✕</button>
           </div>
-          <div class="field" style="margin-bottom:8px">
-            <label>Monto</label>
-            <input type="number" data-role="monto" step="0.01" min="0" value="${montoDefault}" />
+          <div class="field" data-role="campo-referencia" style="display:none; margin-bottom:8px">
+            <label>N° de operación <span class="hint mt-0" style="display:inline">(opcional)</span></label>
+            <input type="text" data-role="referencia" value="${referenciaDefault || ""}" placeholder="Ej. el que da el posnet" />
           </div>
-          <button type="button" data-role="quitar" style="margin-bottom:14px">✕</button>
         `;
         lineasEl.appendChild(div);
+        const medioSelect = div.querySelector("[data-role=medio]");
+        const campoReferencia = div.querySelector("[data-role=campo-referencia]");
+        function actualizarCampoReferencia() {
+          campoReferencia.style.display = destinoPorMedio.get(medioSelect.value) === "cuentaPorCobrar" ? "block" : "none";
+        }
+        medioSelect.addEventListener("change", actualizarCampoReferencia);
+        actualizarCampoReferencia();
         div.querySelector("[data-role=monto]").addEventListener("input", recalcular);
         div.querySelector("[data-role=quitar]").addEventListener("click", () => {
           div.remove();
@@ -128,7 +143,7 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
       }
 
       if (pagosPrevios) {
-        pagosPrevios.forEach((p) => agregarLinea(p.medio, p.monto));
+        pagosPrevios.forEach((p) => agregarLinea(p.medio, p.monto, p.referencia));
       } else {
         agregarLinea(medios[0], total);
       }
@@ -147,6 +162,7 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
           .map((l) => ({
             medio: l.querySelector("[data-role=medio]").value,
             monto: parseFloat(l.querySelector("[data-role=monto]").value) || 0,
+            referencia: l.querySelector("[data-role=referencia]")?.value.trim() || null,
           }))
           .filter((p) => p.monto > 0);
 

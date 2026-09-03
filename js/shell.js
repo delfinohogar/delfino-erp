@@ -40,6 +40,12 @@ export function renderShell({ active, titulo, usuario }) {
           nav("venta-nueva", "/productos/venta-nueva.html", "Nueva venta") +
             nav("ventas", "/productos/ventas.html", "Ventas") +
             nav("entregas", "/productos/entregas.html", "Entregas") +
+            nav("tiendanube-ordenes", "/productos/tiendanube-ordenes.html", "Órdenes Tienda Nube") +
+            nav("tiendanube-catalogo", "/productos/tiendanube-catalogo.html", "Catálogo Tienda Nube") +
+            nav("facturas-gbp", "/productos/facturas-gbp.html", "Facturas GBP") +
+            nav("gbp-top-clientes", "/productos/gbp-top-clientes.html", "Top Clientes GBP") +
+            nav("gbp-clientes-importar", "/productos/gbp-clientes-importar.html", "Clientes GBP — Excel") +
+            nav("gbp-articulos-sync", "/productos/gbp-articulos-sync.html", "Sincronizar catálogo GBP") +
             nav("cuenta-corriente-clientes", "/productos/cuenta-corriente-clientes.html", "Cuenta corriente") +
             nav("cobros", "/productos/cobros.html", "Cobros")
         )}
@@ -49,6 +55,7 @@ export function renderShell({ active, titulo, usuario }) {
           "Productos",
           "caja",
           nav("productos", "/productos/", "Productos") +
+            nav("combos", "/productos/combos.html", "Combos") +
             nav("precios", "/productos/precios.html", "Precios") +
             nav("inventario", "/productos/inventario.html", "Inventario") +
             nav("movimientos", "/productos/movimientos.html", "Movimientos") +
@@ -71,6 +78,8 @@ export function renderShell({ active, titulo, usuario }) {
             nav("contabilidad-libro-mayor", "/contabilidad/libro-mayor.html", "Libro Mayor") +
             nav("contabilidad-sumas-saldos", "/contabilidad/sumas-saldos.html", "Sumas y Saldos") +
             nav("contabilidad-estado-resultados", "/contabilidad/estado-resultados.html", "Estado de Resultados") +
+            nav("contabilidad-libro-iva-ventas", "/contabilidad/libro-iva-ventas.html", "Libro IVA Ventas") +
+            nav("contabilidad-libro-iva-compras", "/contabilidad/libro-iva-compras.html", "Libro IVA Compras") +
             nav("contabilidad-plan-cuentas", "/contabilidad/plan-cuentas.html", "Plan de Cuentas")
         )}
         ${grupo(
@@ -87,6 +96,7 @@ export function renderShell({ active, titulo, usuario }) {
           nav("tesoreria-dashboard", "/tesoreria/dashboard.html", "Posición") +
             nav("tesoreria-cajas", "/tesoreria/cajas.html", "Cajas") +
             nav("tesoreria-bancos", "/tesoreria/bancos.html", "Bancos") +
+            nav("tesoreria-cheques-futuro", "/tesoreria/cheques-futuro.html", "Cheques a futuro") +
             nav("tesoreria-cxc", "/tesoreria/cuentas-por-cobrar.html", "Cuentas por cobrar") +
             nav("tesoreria-gastos", "/tesoreria/gastos.html", "Gastos") +
             nav("tesoreria-transferencias", "/tesoreria/transferencias.html", "Transferencias") +

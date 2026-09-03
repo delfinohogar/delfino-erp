@@ -31,6 +31,7 @@ import { listarSucursalesActivas } from "./sucursales.js";
 import { obtenerConfigFacturacion } from "./facturacion-config.js";
 import { obtenerConfigEmpresa } from "./configuracion-empresa.js";
 import { autorizarComprobanteArca } from "./arca-facturacion.js";
+import { discriminarIva } from "./contabilidad.js";
 
 // PROCESANDO_ARCA y RECHAZADA solo se usan del lado de ARCA (ver ArcaFiscalProvider) — un
 // comprobante interno nunca pasa por ninguno de los dos, nace directo en EMITIDA como siempre.
@@ -97,14 +98,28 @@ export function subtotalItem(item) {
   return Math.round(item.cantidad * item.precioUnitario * (1 - (item.descuentoPct || 0) / 100) * 100) / 100;
 }
 
-// IVA queda preparado (campo real, calculado en $0) pero no hay lógica fiscal todavía — el sistema
-// no discrimina IVA en ventas (no factura fiscalmente), mismo criterio que reportePosicionIva.
+// El precio de cada línea (precioUnitario) ya incluye IVA, como el resto del sistema — subtotal es
+// el NETO (sin IVA), total sigue siendo el bruto que paga el cliente (idéntico en $ al de antes de
+// discriminar; lo único que cambia es que ahora se sabe cuánto de eso es IVA). Cada item necesita
+// `iva` (la alícuota del producto, ver productos.js) para discriminarse correctamente — si falta
+// (comprobantes viejos, o un ítem sin producto vinculado) se asume 21%, la alícuota general.
 export function calcularTotales(items, descuentoGlobalPct = 0) {
   const subtotalBruto = items.reduce((acc, it) => acc + subtotalItem(it), 0);
   const descuento = Math.round(subtotalBruto * ((descuentoGlobalPct || 0) / 100) * 100) / 100;
-  const subtotal = Math.round((subtotalBruto - descuento) * 100) / 100;
-  const iva = 0;
-  const total = Math.round((subtotal + iva) * 100) / 100;
+  const factor = subtotalBruto > 0 ? (subtotalBruto - descuento) / subtotalBruto : 1;
+  const total = Math.round((subtotalBruto - descuento) * 100) / 100;
+
+  // iva se suma línea por línea (cada una puede tener su propia alícuota); subtotal sale de restarle
+  // ese iva al total ya redondeado, en vez de sumar los netos de cada línea por separado — así
+  // subtotal + iva da EXACTO el total siempre, sin quedar a un centavo de diferencia por acumular
+  // redondeos de cada línea (puede pasar con 3+ ítems de alícuotas distintas).
+  let iva = 0;
+  for (const it of items) {
+    const brutoItem = subtotalItem(it) * factor;
+    iva += discriminarIva(brutoItem, it.iva).iva;
+  }
+  iva = Math.round(iva * 100) / 100;
+  const subtotal = Math.round((total - iva) * 100) / 100;
   return { subtotal, descuento, iva, total };
 }
 
@@ -178,7 +193,7 @@ function datosClienteDesde(cliente) {
 
 // datos: { items, descuentoGlobalPct, cliente, formaPago, pagos?, observaciones, ventaId,
 //          tipoComprobanteCodigo, guardarComoBorrador }
-// items: [{ productoId?, productoSku?, productoDescripcion, cantidad, precioUnitario, descuentoPct }]
+// items: [{ productoId?, productoSku?, productoDescripcion, cantidad, precioUnitario, descuentoPct, iva? }]
 export async function crearComprobante(datos, usuario) {
   if (!datos.items || datos.items.length === 0) throw new Error("El comprobante necesita al menos un producto.");
   for (const it of datos.items) {
@@ -306,6 +321,7 @@ export function comprobanteDesdeVenta(venta, clienteCompleto, tipoComprobanteCod
       cantidad: it.cantidad,
       precioUnitario: it.precioUnitario,
       descuentoPct: it.descuentoPct || 0,
+      iva: it.iva,
     })),
     descuentoGlobalPct: 0, // el descuento de la venta ya está prorrateado en cada ítem
     cliente: clienteCompleto || null,

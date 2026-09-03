@@ -79,6 +79,7 @@ content.innerHTML = `
         <button type="button" id="btn-editar-cliente" class="link-btn" style="display:none">Editar</button>
         <button type="button" id="btn-quitar-cliente" class="link-btn" style="display:none">Quitar</button>
       </div>
+      <div id="pos-cliente-info" class="hint" style="display:none; margin:-8px 0 14px"></div>
       <div class="field" style="margin-bottom:14px">
         <label for="pos-tipo-entrega">Entrega</label>
         <select id="pos-tipo-entrega">
@@ -118,6 +119,7 @@ const errorEl = document.getElementById("pos-error");
 const btnVerCliente = document.getElementById("btn-ver-cliente");
 const btnQuitarCliente = document.getElementById("btn-quitar-cliente");
 const btnEditarCliente = document.getElementById("btn-editar-cliente");
+const clienteInfoEl = document.getElementById("pos-cliente-info");
 const tipoEntregaSelect = document.getElementById("pos-tipo-entrega");
 const domicilioEntregaInput = document.getElementById("pos-domicilio-entrega");
 const notaEntregaInput = document.getElementById("pos-nota-entrega");
@@ -133,6 +135,17 @@ async function cargarPreciosCliente(cliente) {
   preciosCliente = cliente ? ultimosPreciosPorProducto(await listarVentasPorCliente(cliente.id)) : new Map();
 }
 
+// Muestra, sin poder editarlo acá, el domicilio y teléfono que ya tiene cargados el cliente — para
+// que el vendedor pueda confirmárselo al comprador sin tener que ir a Clientes. Editable solo desde
+// "Editar" (btnEditarCliente) o desde Clientes.
+function actualizarInfoCliente(cliente) {
+  const partes = [];
+  if (cliente?.domicilioEntrega) partes.push(`📍 ${cliente.domicilioEntrega}`);
+  if (cliente?.whatsapp) partes.push(`📞 ${cliente.whatsapp}`);
+  clienteInfoEl.textContent = partes.join("   ·   ");
+  clienteInfoEl.style.display = partes.length > 0 ? "block" : "none";
+}
+
 const clientePicker = initClientePicker(document.getElementById("cliente-picker"), {
   placeholder: "Consumidor final",
   onSelect: (cliente) => {
@@ -140,6 +153,7 @@ const clientePicker = initClientePicker(document.getElementById("cliente-picker"
     btnVerCliente.style.display = cliente ? "inline-block" : "none";
     btnQuitarCliente.style.display = cliente ? "inline-block" : "none";
     btnEditarCliente.style.display = cliente ? "inline-block" : "none";
+    actualizarInfoCliente(cliente);
     if (cliente?.domicilioEntrega && !domicilioEntregaInput.value) {
       domicilioEntregaInput.value = cliente.domicilioEntrega;
     }
@@ -271,11 +285,21 @@ function agregarAlCarrito(producto) {
       cantidad: 1,
       precioUnitario: producto.precioVenta ?? 0,
       descuentoPct: 0,
+      iva: producto.iva ?? 21,
     });
   }
   searchInput.value = "";
   mostrarRecientes();
-  searchInput.focus();
+  // Reenfocar el buscador después de cada producto sirve para seguir tipeando rápido con teclado
+  // físico (el flujo pensado originalmente) — pero en un dispositivo táctil reabre el teclado
+  // virtual solo, sin que nadie lo haya pedido, y en iOS Safari eso dispara el zoom automático de
+  // la página al enfocar un input por código (no por un toque directo del usuario). "pointer: coarse"
+  // es la señal correcta de "el input principal es táctil" — no se basa en el ancho de pantalla
+  // (una tablet o un notebook con pantalla táctil también cuentan), a diferencia del breakpoint de
+  // CSS que sí usa max-width.
+  if (!window.matchMedia("(pointer: coarse)").matches) {
+    searchInput.focus();
+  }
   pintarCarrito();
 }
 
@@ -283,11 +307,16 @@ function miniatura(p) {
   return miniaturaProductoHtml(p);
 }
 
+// Se muestran como máximo 5 — con más, la lista empuja el carrito/total/comprobante fuera de la
+// pantalla en celular y el vendedor tiene que scrollear para llegar a "Continuar".
+const MAX_RESULTADOS_VISIBLES = 5;
+
 let resultadosActuales = [];
 function pintarResultados(productos, titulo) {
-  resultadosActuales = productos;
+  const visibles = productos.slice(0, MAX_RESULTADOS_VISIBLES);
+  resultadosActuales = visibles;
   resultadosEl.innerHTML = "";
-  if (productos.length === 0) {
+  if (visibles.length === 0) {
     resultadosEl.innerHTML = titulo ? "" : '<div class="hint" style="padding:12px 8px">Sin resultados.</div>';
     return;
   }
@@ -298,7 +327,7 @@ function pintarResultados(productos, titulo) {
     tituloEl.textContent = titulo;
     resultadosEl.appendChild(tituloEl);
   }
-  productos.forEach((p) => {
+  visibles.forEach((p) => {
     const sinStock = (p.stockTotal ?? 0) <= 0;
     // Referencia de precio, no un bloqueo: a diferencia de La Pyme (que abre un modal aparte antes
     // de agregar), acá se agrega directo — el precio anterior solo se muestra al lado, en la fila
@@ -348,7 +377,7 @@ searchInput.addEventListener("input", () => {
     mostrarRecientes();
     return;
   }
-  pintarResultados(filtrarProductosLocal(catalogoVenta, texto, 15));
+  pintarResultados(filtrarProductosLocal(catalogoVenta, texto, MAX_RESULTADOS_VISIBLES));
 });
 
 // Enter agrega el primer resultado sin soltar el teclado — mismo espíritu que el escaneo de
@@ -478,6 +507,7 @@ continuarBtn.addEventListener("click", async () => {
         cantidad: i.cantidad,
         precioUnitario: i.precioUnitario,
         descuentoPct: i.descuentoPct || 0,
+        iva: i.iva ?? 21,
         subtotal: subtotalItem(i),
       })),
       descuentoGlobal: 0,

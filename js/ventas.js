@@ -20,7 +20,7 @@ import {
   serverTimestamp,
   runTransaction,
 } from "./firebase.js";
-import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria } from "./contabilidad.js";
+import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria, discriminarIva } from "./contabilidad.js";
 import { resolverSucursalUsuario } from "./sucursales.js";
 import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
 import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
@@ -43,7 +43,7 @@ import { vincularVentaAOrden } from "./mercado-pago.js";
 // caja es opcional, para cuando el cajero eligió una puntual entre varias abiertas — viene con la
 // misma forma que devuelve listarCajasAbiertasPorSucursal, { caja, sesion }; sin ella, cae al
 // criterio de siempre (la "Principal", o la primera caja abierta de esa sucursal).
-async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clienteId, clienteNombre, fecha, sucursal, caja }, usuario) {
+async function routearPagoATesoreria({ medio, monto, referencia, ventaId, numeroVenta, clienteId, clienteNombre, fecha, sucursal, caja }, usuario) {
   if (medio === "Pendiente de pago" || monto <= 0) return { ruteado: false, motivo: "Pago a cuenta corriente — no mueve dinero todavía." };
 
   const config = await obtenerMedioPagoPorNombre(medio);
@@ -54,7 +54,7 @@ async function routearPagoATesoreria({ medio, monto, ventaId, numeroVenta, clien
     // medioCuentaPorCobrar permite que "Crédito" agrupe como "Tarjeta de crédito" en Tesorería; si
     // no está definido (medio nuevo), se usa el propio nombre del medio.
     const medioCxC = config.medioCuentaPorCobrar || medio;
-    await crearCuentaPorCobrar({ medio: medioCxC, ventaId, clienteId, clienteNombre, fecha, importeBruto: monto, sucursalId: sucursal?.id }, usuario);
+    await crearCuentaPorCobrar({ medio: medioCxC, ventaId, clienteId, clienteNombre, fecha, importeBruto: monto, sucursalId: sucursal?.id, referencia }, usuario);
     return { ruteado: true, destino: "cuentaPorCobrar", medio: medioCxC };
   }
 
@@ -126,42 +126,69 @@ export async function crearVenta(datos, usuario) {
   const ahora = serverTimestamp();
   const numeroVenta = await siguienteNumeroVenta();
 
-  const items = datos.items.map((item, i) => ({ ...item, costoUnitario: productoSnaps[i].data().costoReferencia ?? 0 }));
+  // Para un combo, costoReferencia YA es la suma de sus componentes (lo mantiene al día el trigger
+  // de functions/combosSync.js cada vez que cambia alguno) — no hace falta ningún caso especial acá,
+  // se lee igual que para un producto simple.
+  // iva sale del producto (no del carrito) por la misma razón que costoUnitario: es la foto real al
+  // momento de la venta, no lo que haya quedado cacheado del lado del cliente.
+  const items = datos.items.map((item, i) => ({ ...item, costoUnitario: productoSnaps[i].data().costoReferencia ?? 0, iva: productoSnaps[i].data().iva ?? 21 }));
 
-  for (const item of items) {
+  // Vender un combo NUNCA descuenta un stockTotal propio (es un valor calculado, no la fuente de
+  // verdad — ver js/combos.js) — descuenta el stock de SUS COMPONENTES, cada uno multiplicado por
+  // la cantidad que el combo necesita. Un producto simple se descuenta a sí mismo, como siempre. La
+  // venta en sí (datos.items / venta.pagos) sigue mostrando la línea del combo tal cual se vendió —
+  // esta expansión es solo para saber qué stock real hay que tocar.
+  const descuentosStock = [];
+  datos.items.forEach((item, i) => {
+    const producto = productoSnaps[i].data();
+    if (producto.tipoProducto === "combo") {
+      for (const c of producto.componentes || []) {
+        descuentosStock.push({
+          productoId: c.productoId,
+          productoSku: c.sku,
+          productoDescripcion: c.descripcion,
+          cantidad: c.cantidad * item.cantidad,
+          esComponenteDeCombo: true,
+          comboSku: item.productoSku,
+        });
+      }
+    } else {
+      descuentosStock.push({ productoId: item.productoId, productoSku: item.productoSku, productoDescripcion: item.productoDescripcion, cantidad: item.cantidad, esComponenteDeCombo: false, precioUnitario: item.precioUnitario });
+    }
+  });
+
+  for (const descuento of descuentosStock) {
     await runTransaction(db, async (tx) => {
-      const productoRef = doc(db, "productos", item.productoId);
+      const productoRef = doc(db, "productos", descuento.productoId);
       const snap = await tx.get(productoRef);
-      if (!snap.exists()) throw new Error(`Producto ${item.productoSku || item.productoId} no encontrado.`);
+      if (!snap.exists()) throw new Error(`Producto ${descuento.productoSku || descuento.productoId} no encontrado.`);
       const producto = snap.data();
       const stockAnterior = producto.stockTotal ?? 0;
-      const stockNuevo = stockAnterior - item.cantidad;
+      const stockNuevo = stockAnterior - descuento.cantidad;
       if (stockNuevo < 0) {
         throw new Error(
-          `Stock insuficiente para ${item.productoSku || ""} ${item.productoDescripcion || ""} (disponible: ${stockAnterior}).`
+          `Stock insuficiente para ${descuento.productoSku || ""} ${descuento.productoDescripcion || ""} (disponible: ${stockAnterior}).`
         );
       }
-      // ultimoPrecioVenta queda en el producto para que Nueva Venta pueda mostrar "última venta: $X"
-      // como referencia al buscarlo, y ultimaVentaEn es lo que ordena "vendidos recientemente" (la
-      // lista con la que arranca el buscador, antes de tipear nada) — sin tener que salir a
-      // consultar ventas viejas en cada tipeo (ver productos/venta-nueva.js).
-      tx.update(productoRef, {
-        stockTotal: stockNuevo,
-        ultimoPrecioVenta: item.precioUnitario,
-        ultimaVentaEn: ahora,
-        modificadoPor: usuario.uid,
-        modificadoEn: ahora,
-      });
-      tx.set(doc(collection(db, "productos", item.productoId, "logAuditoria")), {
+      // ultimoPrecioVenta/ultimaVentaEn son "a qué precio se vendió este producto solo" — un
+      // componente de combo no tiene ese precio individual (el combo se vendió por su propio precio
+      // total), así que esos dos campos NO se tocan para descuentos que vienen de un combo.
+      const cambios = { stockTotal: stockNuevo, modificadoPor: usuario.uid, modificadoEn: ahora };
+      if (!descuento.esComponenteDeCombo) {
+        cambios.ultimoPrecioVenta = descuento.precioUnitario;
+        cambios.ultimaVentaEn = ahora;
+      }
+      tx.update(productoRef, cambios);
+      tx.set(doc(collection(db, "productos", descuento.productoId, "logAuditoria")), {
         campo: "stockTotal",
         valorAnterior: stockAnterior,
         valorNuevo: stockNuevo,
         usuario: usuario.uid,
         fecha: ahora,
-        productoId: item.productoId,
-        productoSku: item.productoSku,
-        productoDescripcion: item.productoDescripcion,
-        motivo: `Venta #${numeroVenta}`,
+        productoId: descuento.productoId,
+        productoSku: descuento.productoSku,
+        productoDescripcion: descuento.productoDescripcion,
+        motivo: descuento.esComponenteDeCombo ? `Venta #${numeroVenta} (combo ${descuento.comboSku})` : `Venta #${numeroVenta}`,
       });
     });
   }
@@ -199,7 +226,7 @@ export async function crearVenta(datos, usuario) {
   for (const pago of datos.pagos) {
     if (pago.medio === "Pendiente de pago" || pago.monto <= 0) continue;
     const resultado = await routearPagoATesoreria(
-      { medio: pago.medio, monto: pago.monto, ventaId: ventaRef.id, numeroVenta, clienteId: datos.clienteId, clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final", fecha: datos.fecha, sucursal, caja: cajaSeleccionada },
+      { medio: pago.medio, monto: pago.monto, referencia: pago.referencia || null, ventaId: ventaRef.id, numeroVenta, clienteId: datos.clienteId, clienteNombre: datos.clienteId ? datos.clienteNombre : "Consumidor final", fecha: datos.fecha, sucursal, caja: cajaSeleccionada },
       usuario
     );
     routeo.push({ medio: pago.medio, monto: pago.monto, ...resultado });
@@ -312,9 +339,16 @@ export async function crearVenta(datos, usuario) {
   }
   if (montoPendiente > 0) sumar(CUENTA.DEUDORES_VENTAS, montoPendiente);
 
+  // El precio de cada ítem ya incluye IVA (ver productos.js: campo `iva`) — se discrimina acá para
+  // no seguir cargando todo el bruto a "Ventas" como si fuera ingreso propio (antes de esto, el IVA
+  // cobrado en cada venta quedaba mezclado con el ingreso real, sobrestimándolo).
+  const ivaVenta = redondear(items.reduce((acc, it) => acc + discriminarIva(it.subtotal, it.iva).iva, 0));
+  const ventaNeta = redondear(datos.total - ivaVenta);
+
   const movimientos = [
     ...Array.from(debePorCuenta, ([cuenta, monto]) => ({ cuenta, debe: redondear(monto), haber: 0 })),
-    { cuenta: CUENTA.VENTAS, debe: 0, haber: redondear(datos.total) },
+    { cuenta: CUENTA.VENTAS, debe: 0, haber: ventaNeta },
+    { cuenta: CUENTA.IVA_DEBITO_FISCAL, debe: 0, haber: ivaVenta },
     { cuenta: CUENTA.COSTO_MERCADERIA_VENDIDA, debe: redondear(costoTotal), haber: 0 },
     { cuenta: CUENTA.BIENES_DE_CAMBIO, debe: 0, haber: redondear(costoTotal) },
   ];

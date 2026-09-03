@@ -1,8 +1,9 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { listarCuentasPorCobrar, registrarCobroCuentaPorCobrar, MEDIOS_CUENTA_POR_COBRAR, estaVencida } from "/js/cuentas-por-cobrar.js";
+import { listarCuentasPorCobrar, registrarCobroCuentaPorCobrar, estaVencida } from "/js/cuentas-por-cobrar.js";
 import { listarCajas, sesionAbiertaDeCaja } from "/js/cajas.js";
 import { listarCuentasBancariasActivas } from "/js/bancos.js";
+import { listarMediosPagoActivos } from "/js/medios-pago.js";
 import { formatMoneda } from "/js/formato.js";
 
 const usuario = await requireAuth();
@@ -24,6 +25,13 @@ function badgeEstado(c) {
   return '<span class="badge muted">Pendiente</span>';
 }
 
+// La lista de medios ya no es fija (antes MEDIOS_CUENTA_POR_COBRAR, 4 valores hardcodeados) — sale
+// de los medios de pago configurados con destino "Cuenta por cobrar" (ver medios-pago.js), así que
+// dar de alta "Visa"/"Mastercard"/etc. como medios propios en Configuración alcanza para que
+// aparezcan acá solos, cada uno con su propio total — sin tocar código.
+const mediosPago = await listarMediosPagoActivos();
+const mediosCxC = [...new Set(mediosPago.filter((m) => m.destino === "cuentaPorCobrar").map((m) => m.medioCuentaPorCobrar || m.nombre))].sort();
+
 content.innerHTML = `
   <div class="toolbar">
     <a href="/tesoreria/dashboard.html" class="link-btn">← Tesorería</a>
@@ -34,7 +42,7 @@ content.innerHTML = `
       <label for="f-medio">Medio</label>
       <select id="f-medio">
         <option value="">Todos</option>
-        ${MEDIOS_CUENTA_POR_COBRAR.map((m) => `<option>${m}</option>`).join("")}
+        ${mediosCxC.map((m) => `<option>${m}</option>`).join("")}
       </select>
     </div>
   </div>
@@ -42,7 +50,7 @@ content.innerHTML = `
     <div class="table-scroll">
       <table>
         <thead>
-          <tr><th>Medio</th><th>Fecha</th><th>Cliente</th><th class="num">Bruto</th><th class="num">Comisión</th><th class="num">Neto</th><th>Prevista</th><th>Estado</th><th></th></tr>
+          <tr><th>Medio</th><th>N° operación</th><th>Fecha</th><th>Cliente</th><th class="num">Bruto</th><th class="num">Comisión</th><th class="num">Neto</th><th>Prevista</th><th>Estado</th><th></th></tr>
         </thead>
         <tbody id="tabla-body"></tbody>
       </table>
@@ -58,7 +66,7 @@ const resumenEl = document.getElementById("resumen");
 async function pintarResumen() {
   const todas = await listarCuentasPorCobrar();
   const pendientes = todas.filter((c) => c.estado !== "cobrado");
-  resumenEl.innerHTML = MEDIOS_CUENTA_POR_COBRAR.map((m) => {
+  resumenEl.innerHTML = mediosCxC.map((m) => {
     const total = pendientes.filter((c) => c.medio === m).reduce((acc, c) => acc + (c.saldoPendiente || 0), 0);
     return `<div class="card dashboard-card"><div class="hint mt-0">${m}</div><div class="dashboard-card-valor">${formatMonto(total)}</div></div>`;
   }).join("");
@@ -73,6 +81,7 @@ async function cargar() {
       (c) => `
     <tr>
       <td>${c.medio}</td>
+      <td>${c.referencia || "-"}</td>
       <td>${formatFecha(c.fecha)}</td>
       <td>${c.clienteNombre}${c.ventaId ? ` · <a href="/productos/venta-ficha.html?id=${c.ventaId}">Ver venta</a>` : ""}</td>
       <td class="num">${formatMonto(c.importeBruto)}</td>
