@@ -5,6 +5,7 @@ import { listarCajas, sesionAbiertaDeCaja } from "/js/cajas.js";
 import { listarCuentasBancariasActivas } from "/js/bancos.js";
 import { listarSucursalesActivas } from "/js/sucursales.js";
 import { formatMoneda as formatMonto } from "/js/formato.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -54,8 +55,8 @@ async function cargar() {
       (g) => `
     <tr style="${g.estado === "anulado" ? "opacity:0.5; text-decoration:line-through" : ""}">
       <td>${formatFecha(g.fecha)}</td>
-      <td>${g.categoria}</td>
-      <td>${g.concepto}${g.proveedorNombre ? ` — ${g.proveedorNombre}` : ""}</td>
+      <td>${escapeHtml(g.categoria)}</td>
+      <td>${escapeHtml(g.concepto)}${g.proveedorNombre ? ` — ${escapeHtml(g.proveedorNombre)}` : ""}</td>
       <td>${g.sucursalNombre || "-"}</td>
       <td>${g.destinoTipo === "caja" ? "🧾" : "🏦"} ${g.destinoNombre}</td>
       <td class="num">${formatMonto(g.importe)}</td>

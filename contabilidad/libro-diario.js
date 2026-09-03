@@ -2,6 +2,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarAsientosPagina, listarPlanDeCuentas } from "/js/contabilidad.js";
 import { formatMoneda } from "/js/formato.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -45,7 +46,7 @@ function pintar(asientos) {
         (a) => `
     <div class="card" style="padding:16px; margin-bottom:12px">
       <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px">
-        <div><strong>#${a.numero}</strong> — ${a.descripcion}</div>
+        <div><strong>#${a.numero}</strong> — ${escapeHtml(a.descripcion)}</div>
         <span class="hint mt-0">${formatFecha(a.fecha)}</span>
       </div>
       <div class="table-scroll">

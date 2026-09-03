@@ -5,6 +5,7 @@ import { listarCobrosConPagoSinUbicar } from "/js/cobros.js";
 import { listarPagosProveedorConPagoSinUbicar } from "/js/pagos.js";
 import { marcarPagoSinUbicarResuelto, mapaResolucionesPagoSinUbicar } from "/js/resoluciones-pago-sin-ubicar.js";
 import { formatMoneda as formatMonto } from "/js/formato.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -94,7 +95,7 @@ async function cargar() {
         <div style="min-width:220px; text-align:right">
           ${
             resolucion
-              ? `<div class="hint">Por ${resolucion.resueltoPorNombre}, ${formatFechaHora(resolucion.resueltoEn)}${resolucion.nota ? ` — "${resolucion.nota}"` : ""}</div>`
+              ? `<div class="hint">Por ${escapeHtml(resolucion.resueltoPorNombre)}, ${formatFechaHora(resolucion.resueltoEn)}${resolucion.nota ? ` — "${escapeHtml(resolucion.nota)}"` : ""}</div>`
               : `<button type="button" data-role="resolver">Marcar resuelto</button>`
           }
         </div>

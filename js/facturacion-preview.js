@@ -4,6 +4,7 @@
 // datos, medios de pago detallados) — el mismo esqueleto que va a usar el día de mañana un
 // comprobante fiscal real, solo que hoy con letra "X" y la leyenda de "sin validez fiscal".
 import { formatMoneda as formatMonto } from "./formato.js";
+import { escapeHtml } from "./escape-html.js";
 
 function formatFecha(fechaStr) {
   if (!fechaStr) return "";
@@ -15,8 +16,8 @@ export function renderizarComprobanteHtml(comprobante, configEmpresaYFacturacion
   const mostrarLogo = configEmpresa.mostrarLogoEnComprobante !== false;
   const textoLegal = configEmpresa.textoLegal || "Comprobante interno — sin validez fiscal.";
   const datosCliente = [
-    comprobante.clienteCuit ? `CUIT: ${comprobante.clienteCuit}` : null,
-    comprobante.clienteDireccion ? `Domicilio: ${comprobante.clienteDireccion}` : null,
+    comprobante.clienteCuit ? `CUIT: ${escapeHtml(comprobante.clienteCuit)}` : null,
+    comprobante.clienteDireccion ? `Domicilio: ${escapeHtml(comprobante.clienteDireccion)}` : null,
   ].filter(Boolean);
 
   const medios = comprobante.pagos?.length
@@ -63,7 +64,7 @@ export function renderizarComprobanteHtml(comprobante, configEmpresaYFacturacion
       <div class="comprobante-datos-grid">
         <div>
           <div class="comprobante-seccion-titulo">Cliente</div>
-          <div style="font-weight:600">${comprobante.clienteNombre}</div>
+          <div style="font-weight:600">${escapeHtml(comprobante.clienteNombre)}</div>
           ${datosCliente.map((l) => `<div>${l}</div>`).join("")}
         </div>
         <div>
@@ -84,7 +85,7 @@ export function renderizarComprobanteHtml(comprobante, configEmpresaYFacturacion
                 (it) => `
               <tr>
                 <td>${it.productoSku || "-"}</td>
-                <td>${it.productoDescripcion}</td>
+                <td>${escapeHtml(it.productoDescripcion)}</td>
                 <td class="num">${it.cantidad}</td>
                 <td class="num">${formatMonto(it.precioUnitario)}</td>
                 <td class="num">${it.descuentoPct ? it.descuentoPct + "%" : "-"}</td>
@@ -111,7 +112,7 @@ export function renderizarComprobanteHtml(comprobante, configEmpresaYFacturacion
         ${medios.map((m) => `<div><span>${m.medio}</span><span>${formatMonto(m.monto)}</span></div>`).join("")}
       </div>
 
-      ${comprobante.observaciones ? `<div class="hint" style="margin-top:12px">${comprobante.observaciones}</div>` : ""}
+      ${comprobante.observaciones ? `<div class="hint" style="margin-top:12px">${escapeHtml(comprobante.observaciones)}</div>` : ""}
 
       <div class="comprobante-footer">
         <span>${textoLegal}</span>

@@ -1,6 +1,7 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarPlanDeCuentas, obtenerLibroMayor } from "/js/contabilidad.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -46,7 +47,7 @@ async function cargar() {
               <tr>
                 <td>${formatFecha(m.fecha)}</td>
                 <td>#${m.numero}</td>
-                <td>${m.descripcion}</td>
+                <td>${escapeHtml(m.descripcion)}</td>
                 <td>${m.debe ? m.debe.toLocaleString("es-AR") : ""}</td>
                 <td>${m.haber ? m.haber.toLocaleString("es-AR") : ""}</td>
                 <td>${m.saldo.toLocaleString("es-AR")}</td>

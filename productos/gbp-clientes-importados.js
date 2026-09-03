@@ -7,6 +7,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarClientesGbpLiviano } from "/js/gbp-facturas.js";
 import { listarClientesTodos } from "/js/clientes.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -62,7 +63,7 @@ function pintar(filtro) {
     .map(
       (c) => `
     <tr>
-      <td>${c.nombre}</td>
+      <td>${escapeHtml(c.nombre)}</td>
       <td>${c.cuit || "-"}</td>
       <td>${c.ciudad || "-"}</td>
       <td>${c.tipo === "real" ? '<span class="badge success">Cliente vinculado</span>' : '<span class="badge muted">Ficha liviana</span>'}</td>

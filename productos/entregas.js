@@ -4,6 +4,7 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarEntregas, marcarEntregado } from "/js/entregas.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -68,7 +69,7 @@ async function cargar() {
       <td>${entrega.clienteNombre || "Consumidor final"}</td>
       <td>${entrega.sucursalNombre || "-"}</td>
       <td>${entrega.tipoEntrega}</td>
-      <td>${entrega.domicilioEntrega || entrega.notaEntrega || "-"}</td>
+      <td>${escapeHtml(entrega.domicilioEntrega || entrega.notaEntrega || "-")}</td>
       <td>${
         entrega.estado === "entregado"
           ? `<span class="badge success">Entregado</span> <span class="hint">${entrega.entregadoPorNombre}, ${formatFechaHora(entrega.entregadoEn)}</span>`

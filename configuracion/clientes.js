@@ -2,6 +2,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { pedirClienteModal } from "/js/cliente-modal.js";
 import { listarClientesTodos, crearCliente } from "/js/clientes.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -48,9 +49,9 @@ function pintar(lista) {
   lista.forEach((c) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${c.razonSocial || ""}</td>
-      <td>${c.cuit || "-"}</td>
-      <td>${c.condicionIva || "-"}</td>
+      <td>${escapeHtml(c.razonSocial || "")}</td>
+      <td>${escapeHtml(c.cuit || "-")}</td>
+      <td>${escapeHtml(c.condicionIva || "-")}</td>
       <td>${origenBadge(c.fuenteDatos)}</td>
     `;
     tr.addEventListener("click", () => {

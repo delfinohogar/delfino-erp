@@ -3,6 +3,7 @@
 // mismo patrón de overlay que cliente-modal.js.
 import { calcularCuentaCorriente } from "./cuenta-corriente.js";
 import { formatMoneda as formatMonto } from "./formato.js";
+import { escapeHtml } from "./escape-html.js";
 
 function formatFecha(fecha) {
   if (!fecha) return "-";
@@ -17,7 +18,7 @@ export async function mostrarDetalleCliente(cliente) {
     <div class="modal-card card" style="max-width:480px">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:14px">
         <div>
-          <div style="font-size:17px; font-weight:600">${cliente.razonSocial}</div>
+          <div style="font-size:17px; font-weight:600">${escapeHtml(cliente.razonSocial)}</div>
           <div class="hint mt-0">${cliente.cuit ? `CUIT/DNI ${cliente.cuit}` : "Sin CUIT/DNI cargado"}</div>
         </div>
         <a href="/configuracion/cliente-ficha.html?id=${cliente.id}" target="_blank" rel="noopener" class="link-btn">Ficha completa ↗</a>

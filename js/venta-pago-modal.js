@@ -13,6 +13,7 @@
 // de este mismo modal — no hay una pantalla aparte de "venta rápida con Point".
 import { listarMediosPagoActivos, MEDIOS_DE_SISTEMA } from "./medios-pago.js";
 import { obtenerConfigMercadoPago, iniciarCobroMercadoPago } from "./mercado-pago.js";
+import { escapeHtml } from "./escape-html.js";
 
 export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
   const mediosActivos = await listarMediosPagoActivos();
@@ -65,7 +66,7 @@ export async function pedirMedioPagoVenta(total, clienteSeleccionado) {
     function montarVistaNormal(pagosPrevios) {
       vista = "normal";
       card.innerHTML = `
-        <div class="section-title">Confirmar venta${clienteSeleccionado ? ` a ${clienteSeleccionado.razonSocial}` : ""}</div>
+        <div class="section-title">Confirmar venta${clienteSeleccionado ? ` a ${escapeHtml(clienteSeleccionado.razonSocial)}` : ""}</div>
         <div style="font-size:20px; font-weight:600; margin-bottom:14px">$${total.toLocaleString("es-AR")}</div>
         <div id="vp-lineas"></div>
         <button type="button" id="vp-agregar-medio" class="link-btn">+ Agregar otro medio de pago</button>

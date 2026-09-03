@@ -4,12 +4,13 @@
 // son "Consumidor final") — por eso suma limpiarSeleccion().
 import { listarClientesTodos, crearCliente, buscarClientePorCuit } from "./clientes.js";
 import { pedirClienteModal } from "./cliente-modal.js";
+import { escapeHtml } from "./escape-html.js";
 
 export function initClientePicker(container, { onSelect, seleccionActual = null, placeholder = "Elegir cliente…" } = {}) {
   container.classList.add("picker");
   container.innerHTML = `
     <button type="button" class="picker-toggle" id="cp-toggle">
-      <span id="cp-label">${seleccionActual ? seleccionActual.razonSocial : placeholder}</span>
+      <span id="cp-label">${seleccionActual ? escapeHtml(seleccionActual.razonSocial) : placeholder}</span>
       <span class="picker-chevron">▾</span>
     </button>
     <div class="picker-panel" id="cp-panel" style="display:none">
@@ -40,7 +41,7 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
     items.forEach((c) => {
       const row = document.createElement("div");
       row.className = "picker-item";
-      row.innerHTML = `<div>${c.razonSocial}</div><div class="hint">CUIT ${c.cuit || "-"}</div>`;
+      row.innerHTML = `<div>${escapeHtml(c.razonSocial)}</div><div class="hint">CUIT ${escapeHtml(c.cuit || "-")}</div>`;
       row.addEventListener("mousedown", (e) => {
         e.preventDefault();
         elegir(c);

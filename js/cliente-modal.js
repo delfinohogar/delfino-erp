@@ -3,6 +3,7 @@ import { soloDigitos, formatearCuit, validarCuit, cuitsPosiblesDesdeDni } from "
 import { mostrarCentralDeudores } from "./bcra-modal.js";
 import { capitalizarDireccion } from "./texto.js";
 import { buscarLocalidadPorCodigoPostal } from "./clientes.js";
+import { escapeHtml } from "./escape-html.js";
 
 // Modal para crear (o editar, si se pasa clienteExistente) un cliente. El documento va primero
 // (con "Buscar en ARCA" al lado) porque encontrar el CUIT/DNI completa la razón social sola —
@@ -32,7 +33,7 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
           </div>
           <div class="field">
             <label for="cm-razonSocial">Nombre / Razón social</label>
-            <input type="text" id="cm-razonSocial" value="${clienteExistente?.razonSocial || razonSocialInicial || ""}" required />
+            <input type="text" id="cm-razonSocial" value="${escapeHtml(clienteExistente?.razonSocial || razonSocialInicial || "")}" required />
           </div>
           <div id="cm-arca-preview" style="display:${clienteExistente?.condicionIva ? "block" : "none"}" class="hint">
             <div id="cm-arca-preview-content">${
@@ -45,7 +46,7 @@ export function pedirClienteModal(razonSocialInicial, clienteExistente = null) {
             <label>Domicilio de entrega <span class="hint mt-0" style="display:inline">(opcional)</span></label>
             <div id="cm-domicilio-resumen"></div>
             <div id="cm-domicilio-campos" style="display:none">
-              <input type="text" id="cm-domicilio-entrega" value="${clienteExistente?.domicilioEntrega || ""}" placeholder="Calle, número…" style="width:100%; margin-bottom:8px" />
+              <input type="text" id="cm-domicilio-entrega" value="${escapeHtml(clienteExistente?.domicilioEntrega || "")}" placeholder="Calle, número…" style="width:100%; margin-bottom:8px" />
               <div class="field-row">
                 <div class="field" style="max-width:130px">
                   <label for="cm-cp-entrega">Código postal</label>
