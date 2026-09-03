@@ -14,19 +14,29 @@ const COTA_SUPERIOR_UNICODE = "";
 
 // Por palabra suelta, en cualquier orden — "barbara saravia" y "saravia barbara" encuentran el mismo
 // cliente, y agregar una palabra más sigue filtrando (no hace falta que sea el principio del nombre
-// completo). Mismo patrón que buscarProductos (js/productos.js): la primera palabra tipeada filtra
-// en Firestore contra el índice de prefijos (searchKeywords, ver keywordsDeTextos en js/texto.js) y,
-// si hay más palabras, se exige que el cliente matchee todas — ya en memoria, sobre el resultado
-// acotado que devolvió Firestore, no sobre la colección entera.
+// completo). Mismo patrón que buscarProductos (js/productos.js): UNA palabra filtra en Firestore
+// contra el índice de prefijos (searchKeywords, ver keywordsDeTextos en js/texto.js) y, si hay más,
+// se exige que el cliente matchee todas — ya en memoria, sobre el resultado acotado que devolvió
+// Firestore, no sobre la colección entera.
+//
+// Se usa la palabra MÁS LARGA tipeada para esa consulta, no la primera que se haya escrito: con
+// 31.000 clientes reales, una palabra corta como "sara" ya matchea a más de 90 personas — si la
+// consulta solo trae limit(100) y la palabra corta fuera la elegida, un cliente real (que sí cumple
+// con TODO lo tipeado) puede quedar afuera simplemente porque Firestore no la devolvió entre las
+// primeras 100 de esas 90+ (sin orden particular). La palabra más larga suele ser más selectiva —
+// entre menos candidatos haya que traer, menos chance de que el límite corte al que se busca.
 export async function buscarClientes(texto) {
   const palabras = tokenizar(texto);
   if (palabras.length === 0) return [];
 
-  const snap = await getDocs(query(collection(db, "clientes"), where("searchKeywords", "array-contains", palabras[0]), limit(24)));
+  const palabraPrincipal = [...palabras].sort((a, b) => b.length - a.length)[0];
+  const restoPalabras = palabras.filter((p) => p !== palabraPrincipal);
+
+  const snap = await getDocs(query(collection(db, "clientes"), where("searchKeywords", "array-contains", palabraPrincipal), limit(100)));
   let resultados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-  if (palabras.length > 1) {
-    resultados = resultados.filter((c) => palabras.slice(1).every((palabra) => (c.searchKeywords || []).includes(palabra)));
+  if (restoPalabras.length > 0) {
+    resultados = resultados.filter((c) => restoPalabras.every((palabra) => (c.searchKeywords || []).includes(palabra)));
   }
 
   return resultados.slice(0, 8);
