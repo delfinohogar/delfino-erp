@@ -126,6 +126,11 @@ const notaEntregaInput = document.getElementById("pos-nota-entrega");
 
 let carrito = []; // { productoId, productoSku, productoDescripcion, cantidad, precioUnitario, descuentoPct }
 let clienteSeleccionado = null;
+// Identifica un mismo intento de venta ante crearVenta (js/ventas.js) para que un reintento — falla
+// de red, o el cajero clickeando Confirmar de nuevo tras un error — no vuelva a descontar stock ni a
+// rutear el pago dos veces. Se genera al confirmar y se reutiliza mientras el carrito no cambie; se
+// descarta (pintarCarrito) al agregar/quitar un ítem, porque ahí ya es un pedido distinto.
+let idempotencyKeyVenta = null;
 // Precio → productoId de la última vez que se le vendió algo a ESTE cliente (se recalcula al elegir
 // cliente). Se muestra junto al resultado de búsqueda como referencia — igual que "Última venta a
 // este cliente" en La Pyme — sin bloquear el agregado al carrito con un modal aparte.
@@ -231,6 +236,7 @@ function actualizarTotal() {
 }
 
 function pintarCarrito() {
+  idempotencyKeyVenta = null;
   carritoVacioEl.style.display = carrito.length === 0 ? "block" : "none";
   carritoItemsEl.innerHTML = "";
   carrito.forEach((item, idx) => {
@@ -492,8 +498,13 @@ continuarBtn.addEventListener("click", async () => {
   if (!pagos) return;
 
   continuarBtn.disabled = true;
+  // Se genera una sola vez por pedido y se reutiliza en un reintento (ver comentario junto a la
+  // declaración) — así crearVenta puede reconocer "este es el mismo intento de antes" en vez de
+  // procesarlo de nuevo.
+  if (!idempotencyKeyVenta) idempotencyKeyVenta = crypto.randomUUID();
   try {
     const datos = {
+      idempotencyKey: idempotencyKeyVenta,
       fecha: new Date().toISOString().slice(0, 10),
       clienteId: clienteSeleccionado?.id || null,
       clienteNombre: clienteSeleccionado?.razonSocial || null,
@@ -538,6 +549,10 @@ continuarBtn.addEventListener("click", async () => {
       usuario
     );
 
+    // Recién acá se descarta la clave: si crearComprobante hubiera fallado más arriba, un reintento
+    // necesita reusar la MISMA clave para que crearVenta reconozca la venta ya hecha (devuelve el
+    // resultado guardado, sin volver a tocar stock/Tesorería) y solo reintente el comprobante.
+    idempotencyKeyVenta = null;
     mostrarConfirmacion(resultado.numeroVenta, tipoEntrega, comprobante, resultado.routeoTesoreria);
   } catch (err) {
     // El pago con Mercado Pago ya se cobró de verdad ANTES de llegar acá (venta-pago-modal.js solo

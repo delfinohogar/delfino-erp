@@ -5,7 +5,7 @@
 // Comisión/neto/fecha prevista: NUNCA se inventan. Si no hay dato real (por ejemplo, todavía no hay
 // integración que informe la comisión de Mercado Pago sobre una venta puntual), quedan en null y la
 // UI tiene que mostrar "No disponible" — no un valor calculado a ojo.
-import { db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, serverTimestamp, runTransaction } from "./firebase.js";
+import { db, collection, doc, getDoc, getDocs, addDoc, updateDoc, query, where, orderBy, limit, serverTimestamp, runTransaction } from "./firebase.js";
 import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria } from "./contabilidad.js";
 import { registrarMovimientoCaja } from "./cajas.js";
 import { registrarMovimientoBancario } from "./bancos.js";
@@ -17,7 +17,7 @@ import { registrarMovimientoBancario } from "./bancos.js";
 // "Mastercard", etc. como medios de pago propios desde Configuración → Medios de Pago, cada uno con
 // su propia cuenta por cobrar, sin tocar código. Antes esta lista frenaba justo eso.
 export const MEDIOS_CUENTA_POR_COBRAR = ["Mercado Pago", "GoCuotas", "Boston Cred", "Tarjeta de crédito"];
-export const ESTADOS_CUENTA_POR_COBRAR = ["pendiente", "parcial", "cobrado", "vencido", "con_diferencia"];
+export const ESTADOS_CUENTA_POR_COBRAR = ["pendiente", "parcial", "cobrado", "vencido", "con_diferencia", "anulada"];
 
 // datos: { medio, ventaId, clienteId?, clienteNombre, sucursalId?, fecha, importeBruto, comision?,
 //          impuestos?, fechaPrevista?, cuotas?, referencia? }
@@ -148,6 +148,38 @@ export async function registrarCobroCuentaPorCobrar(cuentaId, { importeRecibido,
   );
 
   return { pago, totalCobrado: resultado.totalCobrado, saldoPendiente: resultado.saldoPendiente, estado: resultado.estado, diferencia: resultado.diferencia };
+}
+
+// Cancela lo que quede PENDIENTE de cobrar de la cuenta por cobrar que generó una venta, cuando esa
+// venta se revierte por nota de crédito (ver revertirVentaPorNotaCredito en js/ventas.js). Nunca toca
+// plata que ya se cobró de verdad — eso es un reembolso real (hay que devolver dinero por el mismo
+// medio o a mano), no una cancelación contable, y se deja fuera a propósito para que lo resuelva un
+// administrador; devuelve anulada:false con el motivo para que el llamador lo registre como pendiente
+// de revisión en vez de darlo por hecho.
+export async function anularCuentaPorCobrarPendiente(ventaId, motivo, usuario) {
+  const snap = await getDocs(query(collection(db, "cuentasPorCobrar"), where("ventaId", "==", ventaId), limit(1)));
+  if (snap.empty) return { anulada: false, motivo: "No se encontró ninguna cuenta por cobrar para esta venta." };
+
+  const cuentaRef = snap.docs[0].ref;
+  const cuenta = snap.docs[0].data();
+  if (cuenta.estado === "anulada") return { anulada: true, yaEstaba: true };
+
+  const saldoAAnular = cuenta.saldoPendiente || 0;
+  if (saldoAAnular <= 0) {
+    return {
+      anulada: false,
+      motivo: `Ya tiene $${cuenta.totalCobrado} cobrado — el reembolso de esa plata hay que gestionarlo a mano (Tesorería) antes de poder cerrarla.`,
+    };
+  }
+
+  await updateDoc(cuentaRef, {
+    estado: "anulada",
+    saldoPendiente: 0,
+    motivoAnulacion: motivo,
+    anuladoPor: usuario.uid,
+    actualizadoEn: serverTimestamp(),
+  });
+  return { anulada: true, saldoAnulado: saldoAAnular, cuentaId: cuentaRef.id };
 }
 
 // Para "Vencido" / "Próximo a vencer" del dashboard — compara fechaPrevista contra hoy. Si no hay

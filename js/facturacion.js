@@ -24,6 +24,7 @@ import {
   where,
   orderBy,
   limit,
+  startAfter,
   serverTimestamp,
   runTransaction,
 } from "./firebase.js";
@@ -32,6 +33,7 @@ import { obtenerConfigFacturacion } from "./facturacion-config.js";
 import { obtenerConfigEmpresa } from "./configuracion-empresa.js";
 import { autorizarComprobanteArca } from "./arca-facturacion.js";
 import { discriminarIva } from "./contabilidad.js";
+import { revertirVentaPorNotaCredito } from "./ventas.js";
 
 // PROCESANDO_ARCA y RECHAZADA solo se usan del lado de ARCA (ver ArcaFiscalProvider) — un
 // comprobante interno nunca pasa por ninguno de los dos, nace directo en EMITIDA como siempre.
@@ -195,6 +197,26 @@ function datosClienteDesde(cliente) {
 //          tipoComprobanteCodigo, guardarComoBorrador }
 // items: [{ productoId?, productoSku?, productoDescripcion, cantidad, precioUnitario, descuentoPct, iva? }]
 export async function crearComprobante(datos, usuario) {
+  // Evita duplicar el comprobante si esta función se llama dos veces para la misma venta — por
+  // ejemplo, crearVenta ya tuvo éxito pero crearComprobante falló (red, ARCA) y el cajero reintentó:
+  // gracias a la idempotencia de crearVenta (ver js/ventas.js) esa segunda vuelta llega hasta acá, y
+  // sin este chequeo generaría un SEGUNDO comprobante con otro numeroCompleto para la misma venta. Una
+  // venta real solo tiene un comprobante propio (una nota de crédito no lleva ventaId, se relaciona
+  // por comprobanteRelacionadoId — ver más abajo), así que devolver el existente es siempre correcto.
+  if (datos.ventaId) {
+    const existente = await obtenerComprobantePorVenta(datos.ventaId);
+    if (existente) return existente;
+  }
+  // Mismo criterio para una nota de crédito: crearNotaCredito revierte la venta (idempotente) y
+  // RECIÉN DESPUÉS crea este comprobante — si esa segunda parte se reintenta (el original sigue
+  // "EMITIDA" hasta el último paso), sin este chequeo se generaría una segunda NC para el mismo
+  // comprobante original, cada una con su propio numeroCompleto.
+  if (datos.comprobanteRelacionadoId) {
+    const snapNc = await getDocs(
+      query(collection(db, "comprobantes"), where("comprobanteRelacionadoId", "==", datos.comprobanteRelacionadoId), where("tipoComprobanteCodigo", "==", datos.tipoComprobanteCodigo), limit(1))
+    );
+    if (!snapNc.empty) return { id: snapNc.docs[0].id, ...snapNc.docs[0].data() };
+  }
   if (!datos.items || datos.items.length === 0) throw new Error("El comprobante necesita al menos un producto.");
   for (const it of datos.items) {
     if (!(it.cantidad > 0)) throw new Error(`Cantidad inválida para "${it.productoDescripcion}".`);
@@ -360,6 +382,29 @@ export async function listarComprobantes({ desde, hasta, maxResultados = 200 } =
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// TODOS los comprobantes del rango, sin tope — para el Libro IVA Ventas y cualquier otro total
+// fiscal/contable que no se pueda dar el lujo de truncar en silencio. Antes libro-iva.js llamaba a
+// listarComprobantes con maxResultados:5000 — un período con más de 5.000 comprobantes emitidos
+// (a ritmo de ~30/día, unos 5-6 meses) hacía que el IVA Débito Fiscal declarado quedara subestimado
+// sin ningún aviso. Pagina de a 500 (mismo patrón que listarTodosLosAsientos en contabilidad.js)
+// hasta agotar el rango, sin importar cuántos comprobantes haya.
+export async function listarComprobantesTodos({ desde, hasta } = {}) {
+  const TAMANIO_PAGINA = 500;
+  const comprobantes = [];
+  let ultimo = null;
+  for (;;) {
+    let clausulas = [orderBy("fechaEmision", "desc"), ...(ultimo ? [startAfter(ultimo)] : []), limit(TAMANIO_PAGINA)];
+    if (desde) clausulas.unshift(where("fechaEmision", ">=", desde));
+    if (hasta) clausulas.unshift(where("fechaEmision", "<=", hasta));
+    const snap = await getDocs(query(collection(db, "comprobantes"), ...clausulas));
+    if (snap.empty) break;
+    comprobantes.push(...snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    if (snap.docs.length < TAMANIO_PAGINA) break;
+    ultimo = snap.docs[snap.docs.length - 1];
+  }
+  return comprobantes;
+}
+
 export async function marcarPdfGenerado(id) {
   await updateDoc(doc(db, "comprobantes", id), { pdfGenerado: true, actualizadoEn: serverTimestamp() });
 }
@@ -374,6 +419,16 @@ export async function crearNotaCredito(comprobanteOriginalId, motivo, usuario) {
   const original = await obtenerComprobante(comprobanteOriginalId);
   if (!original) throw new Error("No se encontró el comprobante original.");
   if (original.estado !== "EMITIDA") throw new Error("Solo se puede generar una nota de crédito de un comprobante emitido.");
+
+  // Si el comprobante viene de una venta real, primero se revierten sus efectos (stock, Tesorería,
+  // asiento) — ANTES de crear la nota de crédito y marcar el original ANULADA. En ese orden, si algo
+  // se corta a mitad de camino, el original sigue "EMITIDA" (el guard de arriba lo permite reintentar)
+  // y revertirVentaPorNotaCredito es idempotente por ventaId, así que retomar no duplica nada. Al
+  // revés (anular primero) un corte a mitad de camino dejaría el comprobante anulado sin que el stock
+  // ni la Tesorería se hubieran revertido nunca, y sin guard que lo detecte.
+  if (original.ventaId) {
+    await revertirVentaPorNotaCredito(original.ventaId, motivo.trim(), usuario);
+  }
 
   // Mapeo Factura → Nota de Crédito de la misma letra fiscal (antes de esta corrección, un comprobante
   // fiscal (FACTURA_A/B/C) generaba una "nota de crédito" con el código de la FACTURA original — un

@@ -24,7 +24,7 @@ import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria, discriminarIva } fr
 import { resolverSucursalUsuario } from "./sucursales.js";
 import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
 import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
-import { crearCuentaPorCobrar } from "./cuentas-por-cobrar.js";
+import { crearCuentaPorCobrar, anularCuentaPorCobrarPendiente } from "./cuentas-por-cobrar.js";
 import { obtenerMedioPagoPorNombre } from "./medios-pago.js";
 import { crearEntrega } from "./entregas.js";
 import { vincularVentaAOrden } from "./mercado-pago.js";
@@ -94,6 +94,46 @@ async function routearPagoATesoreria({ medio, monto, referencia, ventaId, numero
 // necesita tocar para agregar/quitar opciones (ej. "Envío programado", "Retiro en depósito").
 export const TIPOS_ENTREGA = ["Retira ahora", "Envío a domicilio", "Otro"];
 
+// Idempotencia de crearVenta — un pedido puede reintentarse (falla de red a mitad de camino, o el
+// cajero reintenta tras un error) y sin esto cada reintento vuelve a descontar stock y a rutear el
+// pago de nuevo. La clave la genera quien llama (productos/venta-nueva.js: una por intento de
+// carrito, se reutiliza en un reintento del MISMO pedido y se descarta al modificar el carrito o al
+// confirmar con éxito). Sin datos.idempotencyKey (cualquier otro llamador presente o futuro),
+// crearVenta se comporta exactamente igual que antes de este cambio — es puramente aditivo.
+async function reservarIdempotenciaVenta(idempotencyKey, usuario) {
+  if (!idempotencyKey) return { ref: null, previa: null };
+  const ref = doc(db, "ventasIdempotencia", idempotencyKey);
+  const snap = await getDoc(ref);
+  if (snap.exists()) return { ref, previa: snap.data() };
+  await setDoc(ref, {
+    estado: "procesando",
+    ventaId: null,
+    resultado: null,
+    error: null,
+    usuario: usuario.uid,
+    creadoEn: serverTimestamp(),
+    actualizadoEn: serverTimestamp(),
+  });
+  return { ref, previa: null };
+}
+
+async function marcarIdempotenciaError(ref, error) {
+  if (!ref) return;
+  try {
+    await setDoc(ref, { estado: "error", error: error?.message || String(error), actualizadoEn: serverTimestamp() }, { merge: true });
+  } catch (e) {
+    // Best-effort: si esto falla, el error real de la venta (el que importa) igual sigue su curso
+    // hacia quien llamó — ver el catch en crearVenta. Perder la constancia acá es peor UX (un admin
+    // no ve el porqué en ventasIdempotencia) pero no debe tapar el error original.
+    console.error("No se pudo dejar constancia del error en ventasIdempotencia:", e);
+  }
+}
+
+async function marcarIdempotenciaCompleta(ref, resultado) {
+  if (!ref) return;
+  await setDoc(ref, { estado: "completa", ventaId: resultado.id, resultado, actualizadoEn: serverTimestamp() }, { merge: true });
+}
+
 async function siguienteNumeroVenta() {
   const contadorRef = doc(db, "contadores", "ventas");
   return runTransaction(db, async (tx) => {
@@ -109,6 +149,33 @@ async function siguienteNumeroVenta() {
 // items: [{ productoId, productoSku, productoDescripcion, cantidad, precioUnitario, descuentoPct, subtotal }]
 // pagos: [{ medio, monto }] — la suma debe ser igual a datos.total (se valida en la UI).
 export async function crearVenta(datos, usuario) {
+  const { ref: idemRef, previa } = await reservarIdempotenciaVenta(datos.idempotencyKey, usuario);
+  if (previa) {
+    if (previa.estado === "completa") return previa.resultado;
+    if (previa.estado === "procesando") {
+      throw new Error(
+        "Esta venta ya se está procesando (puede ser un reintento muy rápido) — esperá unos segundos y revisá la lista de ventas antes de volver a confirmar."
+      );
+    }
+    // estado === "error": un intento anterior con este mismo pedido falló a mitad de camino — puede
+    // haber quedado stock ya descontado o un movimiento de Tesorería ya creado sin que la venta se
+    // haya llegado a registrar. Reintentar a ciegas con la misma clave podría duplicarlo, así que se
+    // corta acá en vez de reprocesar — hay que revisar ventasIdempotencia a mano antes de reintentar.
+    // Recargar la página (ver productos/venta-nueva.js) genera una clave nueva y permite una venta nueva.
+    throw new Error(
+      `Un intento anterior de esta venta falló (${previa.error || "error desconocido"}). Recargá la página antes de reintentar — puede haber quedado stock o un movimiento de Tesorería a medio registrar; si es así, un administrador tiene que revisarlo.`
+    );
+  }
+
+  try {
+    return await crearVentaInterno(datos, usuario, idemRef);
+  } catch (err) {
+    await marcarIdempotenciaError(idemRef, err);
+    throw err;
+  }
+}
+
+async function crearVentaInterno(datos, usuario, idemRef) {
   // Se valida el stock ANTES de escribir nada — si algo no alcanza, no queda ninguna venta a medio
   // registrar. (Se vuelve a revisar dentro de cada transacción, por si cambió stock en el medio tiempo.)
   const productoSnaps = await Promise.all(datos.items.map((item) => getDoc(doc(db, "productos", item.productoId))));
@@ -357,13 +424,187 @@ export async function crearVenta(datos, usuario) {
     usuario
   );
 
-  return {
+  const resultado = {
     id: ventaRef.id,
     numeroVenta,
     routeoTesoreria: routeo,
     sucursal: sucursal ? { id: sucursal.id, nombre: sucursal.nombre } : null,
     sucursalAsumida,
   };
+  await marcarIdempotenciaCompleta(idemRef, resultado);
+  return resultado;
+}
+
+// Revierte lo que generó una venta cuando se anula por nota de crédito (ver crearNotaCredito en
+// js/facturacion.js, que llama a esto ANTES de marcar el comprobante original ANULADA). La venta es
+// inmutable, así que esto nunca la toca a ella — reversa sus EFECTOS: devuelve el stock, revierte
+// cada pago en Tesorería a donde había ido, y genera un asiento contable espejado.
+//
+// Idempotente por ventaId (reversasVenta/{ventaId}): una venta solo se puede revertir una vez, así
+// que la misma clave sirve de idempotencia y de "ya se hizo" — un reintento con estado "completa"
+// devuelve el resultado guardado sin volver a tocar nada; con "procesando" o "error" corta con un
+// mensaje claro en vez de arriesgarse a duplicar stock o Tesorería (mismo criterio que crearVenta).
+//
+// Un tramo de Tesorería que no se puede revertir TODAVÍA (caja cerrada, cuenta por cobrar que ya se
+// cobró de verdad y necesita un reembolso real) nunca frena el resto — stock y los demás tramos se
+// revierten igual, y ese tramo queda en pendientesRevision para que un administrador lo resuelva a
+// mano. Contablemente se imputa a Deudores por Ventas mientras tanto (mismo criterio que un pago sin
+// rutear en la venta original), así el asiento siempre queda balanceado sin importar cuántos tramos
+// se pudieron revertir de una.
+export async function revertirVentaPorNotaCredito(ventaId, motivo, usuario) {
+  const reversaRef = doc(db, "reversasVenta", ventaId);
+  const previaSnap = await getDoc(reversaRef);
+  if (previaSnap.exists()) {
+    const previa = previaSnap.data();
+    if (previa.estado === "completa") return previa;
+    throw new Error(
+      `Ya hay un intento de reversa para esta venta en estado "${previa.estado}"${previa.error ? ` (${previa.error})` : ""}. Revisá reversasVenta/${ventaId} a mano antes de reintentar — puede haber quedado stock o Tesorería a medio revertir.`
+    );
+  }
+  await setDoc(reversaRef, {
+    estado: "procesando",
+    ventaId,
+    motivo: motivo.trim(),
+    usuario: usuario.uid,
+    error: null,
+    creadoEn: serverTimestamp(),
+    actualizadoEn: serverTimestamp(),
+  });
+
+  try {
+    const venta = await obtenerVenta(ventaId);
+    if (!venta) throw new Error(`No se encontró la venta ${ventaId} para revertir.`);
+    const ahora = serverTimestamp();
+
+    // 1) Stock — devolver cada ítem, expandiendo combos igual que al vender (ver crearVentaInterno).
+    // Un producto borrado desde la venta no se puede devolver a algo que ya no existe — queda
+    // anotado en productosNoEncontrados para revisar a mano, sin frenar el resto de la reversa.
+    const productoSnaps = await Promise.all(venta.items.map((item) => getDoc(doc(db, "productos", item.productoId))));
+    const productosNoEncontrados = [];
+    const devolucionesStock = [];
+    venta.items.forEach((item, i) => {
+      const snap = productoSnaps[i];
+      if (!snap.exists()) {
+        productosNoEncontrados.push(item.productoSku || item.productoId);
+        return;
+      }
+      const producto = snap.data();
+      if (producto.tipoProducto === "combo") {
+        for (const c of producto.componentes || []) {
+          devolucionesStock.push({ productoId: c.productoId, productoSku: c.sku, cantidad: c.cantidad * item.cantidad });
+        }
+      } else {
+        devolucionesStock.push({ productoId: item.productoId, productoSku: item.productoSku, cantidad: item.cantidad });
+      }
+    });
+    for (const dev of devolucionesStock) {
+      await runTransaction(db, async (tx) => {
+        const productoRef = doc(db, "productos", dev.productoId);
+        const prodSnap = await tx.get(productoRef);
+        if (!prodSnap.exists()) return;
+        const stockAnterior = prodSnap.data().stockTotal ?? 0;
+        const stockNuevo = stockAnterior + dev.cantidad;
+        tx.update(productoRef, { stockTotal: stockNuevo, modificadoPor: usuario.uid, modificadoEn: ahora });
+        tx.set(doc(collection(db, "productos", dev.productoId, "logAuditoria")), {
+          campo: "stockTotal",
+          valorAnterior: stockAnterior,
+          valorNuevo: stockNuevo,
+          usuario: usuario.uid,
+          fecha: ahora,
+          productoId: dev.productoId,
+          productoSku: dev.productoSku,
+          motivo: `Devolución venta #${venta.numeroVenta} (nota de crédito)`,
+        });
+      });
+    }
+
+    // 2) Tesorería + 3) cuentas del asiento — en un solo recorrido: por cada tramo de la venta
+    // original se decide a qué cuenta contable va (la real, si se pudo revertir en Tesorería;
+    // Deudores por Ventas como placeholder, si no) y, de paso, se revierte Tesorería de verdad.
+    const pendientesRevision = [];
+    const haberPorCuenta = new Map();
+    const sumar = (cuenta, monto) => haberPorCuenta.set(cuenta, (haberPorCuenta.get(cuenta) || 0) + monto);
+
+    for (const r of venta.routeoTesoreria || []) {
+      if (!r.ruteado) {
+        sumar(CUENTA.DEUDORES_VENTAS, r.monto);
+        continue;
+      }
+      if (r.destino === "caja") {
+        const sesion = await sesionAbiertaDeCaja(r.id);
+        if (!sesion) {
+          pendientesRevision.push(`Caja (id ${r.id}) está cerrada — el egreso de $${r.monto} por la devolución de la venta #${venta.numeroVenta} hay que registrarlo a mano cuando se reabra.`);
+          sumar(CUENTA.DEUDORES_VENTAS, r.monto);
+          continue;
+        }
+        await registrarMovimientoCaja(
+          { cajaId: r.id, sesionId: sesion.id, sucursalId: venta.sucursalId, tipo: "egreso", concepto: `Devolución venta #${venta.numeroVenta} (NC)`, importe: r.monto, medio: r.medio, clienteId: venta.clienteId, clienteNombre: venta.clienteNombre, origen: { tipo: "notaCredito", id: ventaId } },
+          usuario
+        );
+        sumar(cuentaParaDestinoTesoreria("caja"), r.monto);
+      } else if (r.destino === "banco") {
+        await registrarMovimientoBancario(
+          { cuentaId: r.id, fecha: venta.fecha, tipo: "egreso", concepto: `Devolución venta #${venta.numeroVenta} (NC)`, importe: r.monto, clienteId: venta.clienteId, clienteNombre: venta.clienteNombre, origen: { tipo: "notaCredito", id: ventaId } },
+          usuario
+        );
+        sumar(cuentaParaDestinoTesoreria("banco"), r.monto);
+      } else if (r.destino === "cuentaPorCobrar") {
+        const resultado = await anularCuentaPorCobrarPendiente(ventaId, motivo.trim(), usuario);
+        if (resultado.anulada) {
+          sumar(cuentaParaDestinoTesoreria("cuentaPorCobrar"), r.monto);
+        } else {
+          pendientesRevision.push(`Cuenta por cobrar de la venta #${venta.numeroVenta}: ${resultado.motivo}`);
+          sumar(CUENTA.DEUDORES_VENTAS, r.monto);
+        }
+      } else {
+        // Destino no reconocido (no debería pasar — routearPagoATesoreria solo genera estos tres) —
+        // se imputa igual a Deudores por Ventas para no dejar el asiento desbalanceado, y se avisa.
+        pendientesRevision.push(`Tramo con destino "${r.destino}" de la venta #${venta.numeroVenta} no se pudo revertir automáticamente.`);
+        sumar(CUENTA.DEUDORES_VENTAS, r.monto);
+      }
+    }
+    if (venta.montoPendiente > 0) sumar(CUENTA.DEUDORES_VENTAS, venta.montoPendiente);
+
+    const costoTotal = venta.items.reduce((acc, it) => acc + (it.costoUnitario || 0) * (it.cantidad || 0), 0);
+    const redondear = (v) => Math.round(v * 100) / 100;
+    const ivaVenta = redondear(venta.items.reduce((acc, it) => acc + discriminarIva(it.subtotal, it.iva).iva, 0));
+    const ventaNeta = redondear(venta.total - ivaVenta);
+
+    // Mismos montos que generó la venta original, con debe/haber invertidos — así el reverso cancela
+    // exactamente lo que se había registrado, sin recalcular nada por su cuenta.
+    const movimientos = [
+      ...Array.from(haberPorCuenta, ([cuenta, monto]) => ({ cuenta, debe: 0, haber: redondear(monto) })),
+      { cuenta: CUENTA.VENTAS, debe: ventaNeta, haber: 0 },
+      { cuenta: CUENTA.IVA_DEBITO_FISCAL, debe: ivaVenta, haber: 0 },
+      { cuenta: CUENTA.COSTO_MERCADERIA_VENDIDA, debe: 0, haber: redondear(costoTotal) },
+      { cuenta: CUENTA.BIENES_DE_CAMBIO, debe: redondear(costoTotal), haber: 0 },
+    ];
+    await generarAsiento(
+      {
+        fecha: new Date().toISOString().slice(0, 10),
+        descripcion: `Devolución venta #${venta.numeroVenta} (NC) — ${motivo.trim()}`,
+        origen: { tipo: "notaCredito", id: ventaId, numero: venta.numeroVenta },
+        movimientos,
+      },
+      usuario
+    );
+
+    const resultado = {
+      estado: "completa",
+      ventaId,
+      numeroVenta: venta.numeroVenta,
+      pendientesRevision,
+      productosNoEncontrados,
+      actualizadoEn: serverTimestamp(),
+    };
+    await setDoc(reversaRef, resultado, { merge: true });
+    return resultado;
+  } catch (err) {
+    await setDoc(reversaRef, { estado: "error", error: err?.message || String(err), actualizadoEn: serverTimestamp() }, { merge: true }).catch((e) =>
+      console.error("No se pudo dejar constancia del error en reversasVenta:", e)
+    );
+    throw err;
+  }
 }
 
 export async function listarVentas(maxResultados = 100) {
