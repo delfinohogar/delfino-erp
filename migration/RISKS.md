@@ -288,3 +288,36 @@ Mitigación vigente: toda tarea con tests exige la demostración de que el test 
 inventa otra; y se sospecha de toda verificación que use el mismo canal que la operación
 verificada. Aplicado en TASK-001 (mutación del migrador) y TASK-011 (segundo emulador): en los
 dos casos apareció algo que no se sabía.
+
+
+## R21 — [BAJA] Dos corridas simultáneas de la suite se pisan por el barrido de huérfanos
+Registrado por el auditor el 2026-09-04, en la confirmación de TASK-011.
+
+El barrido de huérfanos que pide el criterio 7 del ADDENDUM (`safety.test.js:111-145`) borra, al
+empezar, TODA cuenta `safety-<uuid v4>@test.local` que encuentre en Auth — incluida la de otra
+corrida que esté en marcha en ese mismo momento. Si dos invocaciones de la suite corren en
+paralelo contra el mismo emulador, la que arranca segunda le borra el usuario y el perfil a la
+primera, y la primera falla con `PERMISSION_DENIED` en su `setDoc`.
+
+Por qué BAJA y por qué no bloquea: es estrictamente mejor que lo que había (antes las dos corridas
+se peleaban por el usuario compartido del entorno; ahora sólo se alcanzan recursos que el propio
+test creó, y ninguna cuenta ajena puede ser tocada). El escenario exige dos corridas simultáneas
+sobre el mismo emulador, que no es el uso normal: `npm run test:integration` levanta su propio
+emulador con `emulators:exec` y el segundo intento falla antes por "port taken". El efecto es un
+rojo ruidoso en el emulador, nunca una pérdida de datos ni nada que toque producción.
+
+Si alguna vez molesta, la salida es acotar el barrido por antigüedad (`metadata.creationTime` más
+viejo que, digamos, una hora) en vez de barrer todo lo que matchea el patrón.
+
+## R22 — [INFORMATIVO] `borrarUsuarioEfimero` borra el perfil sin re-verificar si `getUser` falla por otra causa
+Registrado por el auditor el 2026-09-04, en la confirmación de TASK-011.
+
+`safety.test.js:92-103` re-verifica contra Auth que el email de la cuenta siga el patrón efímero
+antes de borrar nada. Si `authAdmin.getUser(uid)` lanza, el `catch` asume "ya no existe" y deja
+`email = null`, y con `email === null` la función igual borra `/usuarios/{uid}`. Un fallo
+transitorio del emulador —no un "user not found"— toma ese mismo camino.
+
+Por qué INFORMATIVO y no un riesgo real: el uid que llega ahí es siempre propio (o el que devolvió
+`createUser` de esta corrida, o uno cuyo email ya matcheó el patrón en el barrido), así que la
+re-verificación es una segunda red, no la única. Ninguna cuenta ajena queda al alcance por este
+camino. Se anota para que quede escrito que el `catch` es más ancho que su comentario.
