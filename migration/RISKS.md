@@ -1,7 +1,14 @@
 # Riesgos
 
-Escribe solo el auditor (más las entradas iniciales de la FASE -1, que quedan como base).
+Escribe el auditor (más las entradas iniciales de la FASE -1 y las correcciones del director,
+que quedan como base). Es una convención de trabajo, no una barrera técnica: ver R12.
 Orden: severidad descendente.
+
+Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto original de R5 a R12 suponía
+seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
+sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
+sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
+R12 sin huecos y son los definitivos.
 
 ---
 
@@ -41,9 +48,7 @@ Mercado Pago, ARCA y las funciones de IA no funcionan en el entorno local de FAS
 interviene en la PoC (clientes, productos, venta). Si hiciera falta, se agrega el emulador de
 Functions con un `.secret.local` de valores inventados.
 
----
-
-## R12 — [ALTA] Sesión de administrador abierta en el navegador
+## R6 — [ALTA] Sesión de administrador abierta en el navegador
 Una sesión autenticada del ERP en el navegador saltea TODAS las barreras técnicas: protección
 de rama, reglas de deny de Claude Code, filtro de publicación. Desde ahí se escribe directo en
 Firestore de producción con permisos de administrador, y las Firestore Rules no lo impiden
@@ -52,7 +57,7 @@ Descubierto el 2026-09-04: había una sesión de delfinohogar@gmail.com abierta 
 que usaban las pruebas automatizadas. Se cerró y se verificó.
 Mitigación obligatoria: ninguna sesión de admin abierta mientras trabajen agentes.
 
-## R13 — [RESUELTO 2026-09-04] Código fuente público en Netlify
+## R7 — [RESUELTO 2026-09-04] Código fuente público en Netlify
 `netlify.toml` tenía `publish = "."`, que sube el directorio de trabajo completo. Un
 `.netlifyignore` presente en el repo NO tenía ningún efecto: Netlify nunca lee ese archivo, y
 dejó de aplicar `.gitignore` al publish en 2020. Estuvieron públicos `functions/index.js`
@@ -63,15 +68,26 @@ estructura exacta de las reglas de seguridad.
 Resuelto con `build.js` armando una carpeta `publicar/` curada (lista de permitidos) y
 `publish = "publicar"`. Verificado: las 9 rutas dan 404 y el control positivo da 200.
 
-## R14 — [MEDIA] ARCA WSFEv1 completo y apagado, con frontend en producción
+## R8 — [MEDIA] ARCA WSFEv1 completo y apagado; qué está desplegado es DESCONOCIDO
 El commit 902ef3c agregó la integración fiscal con ARCA (WSFEv1): determinación de tipo de
 comprobante, cálculo de IVA y solicitud de CAE. Queda inactiva por `arcaActivo = false` y sin
-UI para activarla. El frontend (`js/arca-facturacion.js`, `js/facturacion.js`) SÍ está
-desplegado en producción; el backend (`functions/arcaFacturacion.js`, `arcaWsfe.js`) NO.
-Consecuencia: existe código de facturación fiscal real a un flag de distancia. Activar ARCA es
-Nivel 3 explícito y requiere revisión previa completa.
+UI para activarla. Existe código de facturación fiscal real a un flag de distancia. Activar
+ARCA es Nivel 3 explícito y requiere revisión previa completa.
 
-## R15 — [MEDIA] Líneas de GBP sin artículo, con importe
+Qué está efectivamente desplegado NO se sabe, y no se puede saber leyendo el repositorio.
+`functions/index.js:49` **exporta** `arcaAutorizarComprobante`, pero exportada no es lo mismo
+que desplegada: los deploys se hacen con `firebase deploy --only <función>` —hoy solo
+`gbpSincronizarFacturas`— así que cada función puede estar o no en Firebase según lo que se
+haya desplegado en sesiones anteriores.
+
+Una versión previa de este riesgo afirmaba que el backend (`functions/arcaFacturacion.js`,
+`arcaWsfe.js`) NO estaba desplegado. Esa afirmación no tenía respaldo verificable y se retira.
+
+PENDIENTE DE VERIFICACIÓN: el inventario de Cloud Functions realmente desplegadas se consulta
+en Firebase Console. Lo hace Gastón; ningún agente toca producción. Hasta entonces, el estado
+de `arcaAutorizarComprobante` se asume DESCONOCIDO y se planifica como si pudiera existir.
+
+## R9 — [MEDIA] Líneas de GBP sin artículo, con importe
 De 2.181 líneas en `facturasGbp`, 117 llegan sin `item_id`. De esas, 8 tienen precio real (una
 de $1.404.958) y `costoUnitario: 0`, por lo que contaban como margen puro: inflaban el margen
 bruto en $2.155.983 sobre el período completo. El filtro las excluye del detalle; el total de
@@ -81,12 +97,18 @@ Distinto de las 497 líneas con `item_id` válido pero sin producto catalogado e
 son ventas legítimas de artículos no importados todavía y NO se filtran (decisión de Gastón,
 2026-09-03).
 
-## R16 — [BAJA] Contadores fuera de transacción queman números
+## R10 — [BAJA] Contadores fuera de transacción queman números
 `js/ventas.js` incrementa `contadores/ventas` en una transacción propia antes de escribir la
 venta. Una venta que falla después deja un hueco en la numeración. En el diseño PostgreSQL el
 contador vive dentro de la misma transacción y hace rollback — verificado empíricamente.
 
-## R17 — [BAJA] Órdenes de Tiendanube durante la reconciliación shadow
+## R11 — [BAJA] Órdenes de Tiendanube durante la reconciliación shadow
 Un pedido de Tiendanube que entre durante la ventana de reconciliación aparece como diferencia,
 porque la PoC corre en local y no lo ve. No es un error: se excluyen esas órdenes del alcance
 de comparación o se marcan como diferencia esperada.
+
+## R12 — [MEDIA] Los guards de rol no aplican fuera de las sesiones con `--agent`
+Las notas "Escribe solo el director" en los archivos de `migration/` son convención de texto, no
+barrera técnica. El hook `guard.ps1` vive en el frontmatter de las definiciones de agente y solo
+corre cuando la sesión arranca con `claude --agent <rol>`. Una sesión normal escribe esos
+archivos sin ningún control. Verificado el 2026-09-04.

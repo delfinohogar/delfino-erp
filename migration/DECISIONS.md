@@ -86,3 +86,282 @@ ser fuente de verdad de stock; el webhook de Tiendanube no escribe stock operati
 los pedidos entran al backend del ERP; el ERP determina la afectación de stock; el ERP publica
 stock y precios hacia Tiendanube.
 No habrá dos caminos operativos paralelos después del corte.
+
+---
+
+## Procedencia de las decisiones que siguen
+
+Las 30 entradas de abajo se tomaron el 2026-09-03 en una conversación que nunca se versionó, y
+se incorporaron textualmente al repositorio el 2026-09-04. Hasta ese día `MIGRATION_STATUS.md`
+las daba por presentes en este archivo y no lo estaban.
+
+Componen: P1–P12 (12), Q1–Q4 (4), 8 entradas [GASTÓN] sin numerar, 5 [NIVEL 2] y 1 [ALCANCE].
+
+Aviso de rótulo: P9 aparece dos veces con significados distintos. La P9 del 2026-09-03 es
+"Corte limpio: solo maestros y stock". Las tres entradas del 2026-09-04 más arriba usan
+[P9 · GASTÓN] como marca de sesión, no como número de decisión. Ambas se preservan tal cual.
+
+---
+
+## 2026-09-03 — [P1 · GASTÓN] Stock por depósito desde el inicio
+La fuente de verdad es el stock por producto y depósito. Cualquier total general se deriva de
+ahí. `stockTotal` NO puede ser una segunda fuente de verdad independiente. Durante la PoC puede
+existir un único depósito principal. El modelo distingue stock físico, reservas y disponible.
+CONTRADICCIÓN CON EL CÓDIGO: hoy la venta descuenta solo `productos.stockTotal` y nunca toca
+`productos/{id}/stockPorDeposito`, que se edita a mano. Los dos valores pueden desincronizarse.
+Prevalece esta decisión.
+
+## 2026-09-03 — [P2 · GASTÓN] No hay saldo pendiente sin cliente
+`monto_pendiente > 0` exige `cliente_id`. Validado en tres capas: UI, backend y constraint en
+PostgreSQL. No se admite deuda anónima en Deudores por Ventas.
+NOTA: la UI ya lo aplica (`js/venta-pago-modal.js` filtra "Pendiente de pago" sin cliente). Esta
+decisión formaliza la regla en backend y base, donde hoy no existe.
+
+## 2026-09-03 — [P3 · GASTÓN] Precio en la PoC: comportamiento actual, modelo preparado
+La PoC conserva el precio basado en `producto.precioVenta`, editable en la línea según permisos.
+La PoC NO reimplementa listas de precios. El modelo queda preparado para determinar precios por
+lista, cliente o sucursal sin migración destructiva: la venta guarda una referencia opcional a la
+lista utilizada.
+
+## 2026-09-03 — [P4 · GASTÓN] Precio y costo congelados en la línea de venta
+Cada línea conserva permanentemente: precio unitario, costo unitario, descuento, IVA cuando
+corresponda, subtotal, y todo valor necesario para reconstruir el resultado económico. Los
+cambios posteriores sobre el producto NO modifican una venta histórica. Es la invariante
+HISTORICO_INMUTABLE.
+
+## 2026-09-03 — [P5 · GASTÓN] El costo maestro no se actualiza solo
+Método de costeo por producto: `ultimo` o `promedio`. Default para producto nuevo: `ultimo`.
+Separación obligatoria:
+- COSTO DE COMPRA: el costo real registrado en una factura puntual.
+- COSTO MAESTRO: el costo vigente que el ERP usa para precios, márgenes y operaciones futuras.
+Una factura puede registrar un costo distinto SIN modificar el maestro.
+El maestro cambia solo por: (1) modificación manual de un usuario autorizado, o (2) aceptación
+explícita de una actualización propuesta desde una factura. Si el usuario no acepta, la compra se
+registra a su costo real y el maestro no cambia. Al aceptar: `ultimo` → el maestro pasa a ser el
+costo aceptado; `promedio` → se recalcula el ponderado. Nunca en silencio.
+Todo cambio de costo maestro genera historial inmutable con: producto, costo anterior, costo
+nuevo, fecha/hora, usuario, origen (manual | factura_compra), compra relacionada, método de
+costeo, motivo. Los cambios futuros nunca alteran compras ni ventas históricas.
+CONTRADICCIÓN CON EL CÓDIGO: hoy `js/compras.js → crearCompra()` actualiza `costoReferencia`
+automáticamente en cada compra, sin intervención del usuario. Prevalece esta decisión. Es un
+cambio funcional visible en el flujo de compras.
+
+## 2026-09-03 — [P6 · GASTÓN] IVA en ventas: estructura sí, lógica fiscal no
+Las líneas de venta almacenan `iva_pct` e `iva_monto` desde ahora, aunque queden en cero según el
+funcionamiento actual. Preparación estructural para ARCA/WSFE, NO activación de facturación
+fiscal.
+
+## 2026-09-03 — [P7 · GASTÓN] Continuidad de numeración en el corte
+Las numeraciones que deban conservar continuidad continúan desde su último valor válido. No se
+reinician en silencio por cambiar de base de datos.
+TAREA DEL DIRECTOR: determinar y documentar cuáles necesitan continuidad real. La continuidad
+importa aunque no se migre historial (P9), porque existen comprobantes ya impresos y entregados.
+
+## 2026-09-03 — [P8 · GASTÓN] Dos fechas, nunca mezcladas
+`fecha_operacion date`: el día comercial/contable al que pertenece la operación.
+`creado_en timestamptz`: el momento real de creación. Dato de auditoría inmutable.
+CONTRADICCIÓN CON EL CÓDIGO: hoy ventas, compras y `facturasGbp` guardan `fecha` como string
+"YYYY-MM-DD", cobros y pagos la guardan como Date, y `contabilidad.js → normalizarFecha` las
+unifica al vuelo. Prevalece esta decisión.
+
+## 2026-09-03 — [P9 · GASTÓN] Corte limpio: solo maestros y stock. DEFINITIVO.
+Se migran EXCLUSIVAMENTE: artículos/productos, stock vigente al corte, clientes, proveedores.
+NO se migran, y la decisión es definitiva: ventas, compras, cobros, pagos, cuentas corrientes,
+deudas de clientes, deudas con proveedores, saldos de caja, saldos bancarios, asientos contables,
+comprobantes, movimientos históricos de stock, reservas históricas, entregas pendientes
+históricas, historial de costos, historial de precios, logs históricos, auditorías históricas.
+PostgreSQL comienza su propio historial operativo desde cero. El stock trasladado es el stock
+inicial: no se reconstruye reproduciendo compras ni ventas anteriores.
+Firestore puede quedar como consulta histórica, pero NO sigue siendo fuente operacional después
+del corte. La reconciliación del corte se limita a: artículos + stock + clientes + proveedores.
+Delfino Histórico (GBP) es un proyecto separado y no entra acá.
+
+## 2026-09-03 — [P10 · GASTÓN] Las reservas surgen de operaciones, no de un campo manual
+El concepto de stock reservado se conserva, pero no como un campo editable a mano. La reserva
+surge de operaciones concretas y trazables: pedidos y ventas pendientes de entrega/retiro.
+
+## 2026-09-03 — [P11 · GASTÓN] Stock físico, reservas y disponible; ciclo Pedido → Venta → Entrega
+Definiciones:
+- STOCK FÍSICO: mercadería que está en el depósito.
+- RESERVADO: mercadería que sigue físicamente en el depósito pero está comprometida por un pedido
+  o una venta pendiente de entrega/retiro.
+- DISPONIBLE = físico − reservas activas. No se almacenan tres saldos independientes.
+
+Venta con retiro inmediato: se genera la venta, se descuenta el físico, no queda reserva.
+Venta pendiente de entrega: se genera la venta, se genera reserva, el físico no cambia; al
+entregar se consume la reserva y se descuenta el físico.
+Cancelación antes de la entrega: se libera la reserva, el físico no se modifica.
+
+PEDIDOS: un pedido confirmado reserva stock sin generar venta ni descontar físico. Otro vendedor
+no puede vender unidades ya comprometidas.
+
+FACTURAR (en el contexto de Pedidos) significa CONVERTIR UN PEDIDO EN UNA VENTA REGISTRADA en
+Delfino ERP. NO significa emitir un comprobante fiscal ante ARCA: no implica CAE, ni Factura
+A/B/C, ni comunicación con ARCA. Dos procesos conceptualmente separados:
+  conversión comercial: Pedido → Venta
+  emisión fiscal futura: Venta → Comprobante fiscal ARCA
+La conversión Pedido → Venta NO puede depender de que ARCA esté activo.
+
+REGLA CRÍTICA al convertir: la mercadería del pedido YA está reservada. Al facturar NO se crea
+una segunda reserva, NO se vuelve a bajar el disponible, NO se descuenta dos veces el físico.
+  físico 10, pedido 2 → físico 10, reservado 2, disponible 8
+  se factura, sigue pendiente de entrega → físico 10, reservado 2, disponible 8  (NO 4 / 6)
+  se entrega → físico 8, reservado 0, disponible 8
+Si al facturar la mercadería también se retira: se consume la reserva y se descuenta el físico,
+todo en una única transacción.
+
+TRAZABILIDAD de cada reserva: producto, depósito, cantidad, estado, origen, pedido relacionado,
+venta relacionada, usuario, fecha de creación, fecha de consumo/liberación, motivo de cierre.
+
+El sistema debe impedir: reservar más que el disponible; vender unidades reservadas por otra
+operación; doble reserva al convertir pedido en venta; doble descuento físico; consumir dos veces
+una reserva; liberar una reserva ya consumida; entregar más unidades que las correspondientes;
+dejar reservas activas de pedidos cancelados; perder la relación Pedido → Venta → Reserva →
+Entrega. Todo probado también bajo concurrencia.
+
+## 2026-09-03 — [P12 · GASTÓN] Cloud SQL postergado
+La PoC corre sobre PostgreSQL local en Docker. No se decide tamaño de instancia ni configuración
+ni costos hasta que haya GO.
+
+## 2026-09-03 — [GASTÓN] "Pendiente de pago" no es un medio de pago
+`venta_pagos` contiene únicamente pagos reales: Efectivo, Transferencia, Tarjeta, Mercado Pago,
+GoCuotas, BostonCred y otros medios configurados. La parte no cobrada se representa con
+`monto_pendiente` y su tratamiento en cuenta corriente.
+Debe cumplirse: sum(pagos reales) + monto_pendiente = total, salvo funcionalidades futuras
+expresamente diseñadas para anticipos o saldos a favor.
+CONTRADICCIÓN CON EL CÓDIGO: hoy `MEDIOS_PAGO_VENTA` incluye "Pendiente de pago" y se guarda como
+una fila más de `pagos[]`. Además `js/reportes.js` lo cuenta como un medio de pago en los
+reportes. Prevalece esta decisión. Impacta la UI de venta, el modal de pagos y los reportes.
+
+## 2026-09-03 — [GASTÓN] PostgreSQL como última barrera
+Arquitectura: UI → Adapter/Repository → Backend API → Servicio de dominio → Transacción
+PostgreSQL → constraints/locks/invariantes → COMMIT.
+La UI valida para experiencia. El backend revalida las reglas de negocio. PostgreSQL es la última
+barrera para las invariantes que razonablemente puedan garantizarse a nivel de base. Una
+operación crítica no puede quedar guardada a medias.
+
+## 2026-09-03 — [GASTÓN] Atomicidad
+Una venta completa es una única unidad transaccional: venta, ítems, pagos, cuenta corriente o
+cobro, stock, reservas, movimientos de stock, asiento y movimientos contables. Falla una parte
+crítica → ROLLBACK completo. Lo mismo para pedidos, conversión Pedido → Venta, entregas,
+cancelaciones y compras.
+
+## 2026-09-03 — [GASTÓN] Capa Repository/Adapter antes de reemplazar js/*.js
+No se reemplaza directamente `js/ventas.js`, `js/clientes.js` ni `js/productos.js`. Primero se
+establece una frontera clara entre UI y persistencia, con adaptadores intercambiables (Firestore,
+Postgres/API, y shadow cuando corresponda). Los nombres exactos los define el Director.
+PRINCIPIO OBLIGATORIO: la UI no debe necesitar conocer si la persistencia final es Firestore o
+PostgreSQL.
+
+## 2026-09-03 — [GASTÓN] El trigger de asiento balanceado no está aprobado como implementación
+La REGLA queda aprobada: ningún asiento puede confirmarse con Debe ≠ Haber. La implementación
+concreta en PostgreSQL debe revisarse específicamente. El Auditor debe probar como mínimo:
+inserción en varias sentencias, asiento desbalanceado al COMMIT, rollback, modificación,
+eliminación, múltiples asientos en una transacción, concurrencia, y comportamiento de las
+restricciones diferidas.
+
+## 2026-09-03 — [GASTÓN] Sin objetivos de porcentaje de rechazo
+Queda eliminado de todo documento rector cualquier objetivo del tipo "30 % de rechazo del
+Auditor". El Auditor rechaza todo lo que corresponda, sin porcentaje esperado. Las estimaciones
+de tokens sirven para planificar y nunca condicionan el comportamiento de los agentes.
+
+## 2026-09-03 — [GASTÓN] Shadow: qué se compara y qué no
+La PoC ejecuta operaciones equivalentes contra Firestore y PostgreSQL para comparar
+comportamiento: venta, ítems, pagos, deuda, stock, reservas, movimientos, asiento, totales y
+errores esperados. El objetivo no es demostrar que PostgreSQL "funciona", sino que reproduce el
+comportamiento empresarial aprobado Y resuelve atomicidad, concurrencia, doble envío e
+integridad. Las diferencias que correspondan a cambios empresariales aprobados NO son errores de
+reconciliación: se documentan como diferencias intencionales.
+
+## 2026-09-03 — [GASTÓN] Firestore known-failing
+FALLO_INTERMEDIO y CONCURRENCIA pueden fallar contra la implementación Firestore actual si
+reproducen correctamente los problemas identificados. Se documentan como known-failing.
+PROHIBIDO modificar la implementación Firestore para conseguir una suite verde.
+
+## 2026-09-03 — [ALCANCE · GASTÓN] PoC con alcance (B): migración + módulo completo
+La PoC incluye Pedidos, Reservas y Entregas completos, no tablas preparadas para después. Se
+acepta conscientemente que la PoC es más grande. La prioridad no es acortarla, sino no aprobar
+una arquitectura sin haber probado uno de sus cambios estructurales más importantes.
+
+Los dos alcances se evalúan por separado y POC_REPORT.md informa GO/ADJUST/NO-GO para cada uno
+más una conclusión general. Un problema menor del módulo nuevo no invalida la evaluación técnica
+de PostgreSQL, ni un buen resultado de la migración aprueba un módulo de reservas defectuoso.
+
+Alcance A se valida con reconciliación contra Firestore donde exista contraparte.
+Alcance B no se valida contra Firestore —la funcionalidad no existe— sino contra DECISIONS.md,
+las invariantes y las pruebas del Auditor.
+
+Circuitos obligatorios en la PoC:
+  Pedido → Reserva → FACTURAR → Venta → Entrega
+  Pedido → Reserva → Cancelación → Liberación
+  Venta pendiente de entrega → Reserva → Entrega
+
+## 2026-09-03 — [Q1 · GASTÓN] Pedido confirmado editable hasta que se convierte en venta
+Se pueden agregar y quitar productos, subir y bajar cantidades, y modificar precios y descuentos
+según permisos comerciales, mientras el pedido no haya sido convertido en venta.
+
+Toda modificación ajusta las reservas dentro de la MISMA transacción:
+- disminuir una cantidad libera exactamente la diferencia, que vuelve al disponible en el acto;
+- aumentar una cantidad o agregar un producto exige verificar y reservar el disponible adicional;
+- si algún aumento o alta no tiene disponible, la modificación COMPLETA se rechaza y el pedido
+  queda exactamente como estaba. No hay modificaciones parciales accidentales;
+- quitar un producto libera por completo la cantidad pendiente de esa línea.
+
+Pedido + ítems + reservas + stock.reservado es una única operación transaccional: falla una
+parte, ROLLBACK completo.
+
+## 2026-09-03 — [NIVEL 2] `reservas.cantidad` es acumulada, no vigente
+Con el pedido editable, una línea puede bajar y volver a subir. `cantidad` solo crece: los
+aumentos la incrementan, las reducciones incrementan `cantidad_liberada`, y `cantidad_pendiente`
+(generada) es el número que retiene stock.
+Motivo: preserva la historia completa de la reserva, mantiene exacta la fórmula
+stock.reservado = suma de cantidad_pendiente, y conserva el significado auditable del CHECK
+cantidad_consumida + cantidad_liberada <= cantidad.
+Nomenclatura: `pedido_items.cantidad` es lo pedido AHORA; `reservas.cantidad` es lo reservado a
+lo largo de la vida de la línea. Los une la invariante PEDIDO_RESERVA_COHERENTE.
+
+## 2026-09-03 — [NIVEL 2] Las líneas de pedido no se borran
+Quitar un producto marca `quitado_en` y libera su reserva; nunca borra la fila. Mismo criterio
+que logAuditoria, historialCostos y compras en el ERP actual: el historial no se borra.
+Cada reserva de pedido se vincula a `pedido_item_id`, no solo a `pedido_id`: sin eso, con dos
+líneas del mismo producto no se sabe cuál liberar.
+
+## 2026-09-03 — [Q2 · GASTÓN] Un pedido se convierte completo en una única venta
+No hay facturación parcial en la PoC: 1 pedido → 1 venta, garantizado por constraint única sobre
+`pedidos.venta_id`. La necesidad de entregar de a poco se resuelve con ENTREGAS parciales.
+Ejemplo: pedido de 5 → FACTURAR → venta de 5. El cliente retira 2: entregado 2, pendiente de
+entrega 3, las 3 siguen reservadas. Después retira las 3 y se completa la entrega.
+La arquitectura queda preparada para facturación parcial en el futuro (`ventas.pedido_id` ya
+existe; habilitarla es caer la constraint única y agregar cantidad facturada por línea), pero NO
+se implementa en esta PoC.
+
+## 2026-09-03 — [Q3 · GASTÓN] `valido_hasta` informativo: el vencimiento no libera stock
+Los pedidos tienen `valido_hasta` desde ahora, con carácter informativo y de gestión. Superada la
+fecha, el pedido se muestra como vencido, aparece identificado en el listado y hay un filtro de
+pedidos vencidos; un usuario autorizado decide si lo mantiene, lo modifica o lo cancela.
+NINGÚN proceso libera una reserva automáticamente por llegar a `valido_hasta`. Cancelar el pedido
+sí libera la cantidad pendiente.
+Motivo: el ERP no puede volver disponible una mercadería que un vendedor tiene comprometida con
+un cliente. "Vencido" es una condición derivada, no un estado almacenado.
+
+## 2026-09-03 — [Q4 · GASTÓN] Dos orígenes de reserva, ninguno obligatorio
+Una reserva nace de un pedido confirmado o de una venta pendiente de entrega/retiro. No hace
+falta que exista un pedido para usar el sistema de reservas: el "Envío a domicilio" que ya existe
+hoy es el segundo caso.
+
+## 2026-09-03 — [NIVEL 2] Orden de bloqueo obligatorio
+Toda transacción que toque stock o reservas bloquea primero las filas de `stock` con
+SELECT ... FOR UPDATE ordenadas por (producto_id, deposito_id) ascendente, y recién después toca
+`reservas`. Aplica a venta, pedido, FACTURAR, entrega y cancelación. Verificado empíricamente:
+con orden inverso, PostgreSQL detecta deadlock y mata una transacción.
+
+## 2026-09-03 — [NIVEL 2] El estado de entrega de la venta se deriva de sus reservas
+`entregado` cuando ninguna reserva de la venta tiene cantidad pendiente; `pendiente` mientras
+quede algo. Deja de ser un campo que alguien escribe.
+
+## 2026-09-03 — [NIVEL 2] FACTURAR y modificar bloquean la fila del pedido, y hay un guard
+Ambas operaciones hacen SELECT ... FOR UPDATE sobre `pedidos` al inicio, además del bloqueo de
+`stock`. VERIFICADO EMPÍRICAMENTE: el lock solo NO alcanza — serializa las operaciones pero no
+impide que la modificación se aplique sobre un pedido que quedó facturado mientras esperaba. Sin
+un trigger que rechace modificar un pedido no confirmado, el resultado es una venta por 3
+unidades con 1 sola unidad reservada, sin ningún error.
