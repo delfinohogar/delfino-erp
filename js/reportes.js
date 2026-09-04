@@ -1,7 +1,9 @@
 // Módulo de Reportes: series y agregados sobre ventas, para el Dashboard y la pantalla de Reportes.
 // Todo se calcula al vuelo sobre /ventas — sin totales pre-calculados, mismo criterio que el resto
-// del sistema (cuentas corrientes, Dashboard).
-import { db, collection, getDocs, query, where } from "./firebase.js";
+// del sistema (cuentas corrientes, Dashboard). Los reportes de ventas además mezclan las facturas de
+// GBP ya sincronizadas (ver ventasUnificadasEnRango) — Delfino ERP está en fase de pruebas y el
+// volumen real todavía pasa por GBP, así que sin esto los números no reflejan el negocio real.
+import { db, collection, doc, getDoc, getDocs, query, where } from "./firebase.js";
 import { libroIvaVentas } from "./libro-iva.js";
 
 // Catálogo de reportes disponibles, agrupados por categoría — el catálogo de /reportes.html se arma
@@ -86,10 +88,84 @@ async function ventasEnRango(desde, hasta) {
   return snap.docs.map((d) => d.data());
 }
 
+// Nombre de cliente para las facturas de GBP del rango — resuelto en bloque (Promise.all, acotado a
+// los clientes DISTINTOS que aparecen en ese período, nunca los 31.000 completos), no una consulta
+// por factura. Mismo criterio de prioridad que resolverNombreClienteGbp (js/gbp-facturas.js): cliente
+// real vinculado primero, ficha liviana (clientesGbp) si no, "Cliente GBP #id" si ninguna existe.
+async function nombresClientesGbpEnRango(facturas) {
+  const nombrePorClienteId = new Map();
+  const clienteIdsVinculados = Array.from(new Set(facturas.filter((f) => f.clienteId).map((f) => f.clienteId)));
+  await Promise.all(
+    clienteIdsVinculados.map(async (id) => {
+      const snap = await getDoc(doc(db, "clientes", id));
+      if (snap.exists()) nombrePorClienteId.set(id, snap.data().razonSocial);
+    })
+  );
+
+  const nombrePorExterno = new Map();
+  const idsExternosSinVincular = Array.from(new Set(facturas.filter((f) => !f.clienteId && f.clienteIdExterno).map((f) => f.clienteIdExterno)));
+  await Promise.all(
+    idsExternosSinVincular.map(async (id) => {
+      const snap = await getDoc(doc(db, "clientesGbp", id));
+      if (snap.exists() && snap.data().nombre) nombrePorExterno.set(id, snap.data().nombre);
+    })
+  );
+
+  return { nombrePorClienteId, nombrePorExterno };
+}
+
+// Ventas nativas de Delfino + facturas de GBP ya sincronizadas (facturasGbp), mapeadas a la MISMA
+// forma que un documento de /ventas (fecha, total, clienteId, clienteNombre, items[], pagos[]) — así
+// cada reporteXxx de acá abajo sigue sumando/agrupando exactamente igual, sin saber de dónde vino
+// cada fila. Ver plan de diseño: reportePosicionIva NO usa esto a propósito (las facturas de GBP ya
+// están declaradas fiscalmente por GBP ante ARCA — mezclarlas ahí sería doble conteo fiscal).
+async function ventasUnificadasEnRango(desde, hasta) {
+  const [ventas, facturasSnap] = await Promise.all([
+    ventasEnRango(desde, hasta),
+    getDocs(query(collection(db, "facturasGbp"), where("fecha", ">=", desde), where("fecha", "<=", hasta))),
+  ]);
+
+  // Una factura anulada no es una venta real — mismo criterio que las ventas nativas, que nunca
+  // incluyen canceladas (se revierten vía Nota de Crédito, no quedan sueltas como "anuladas").
+  const facturas = facturasSnap.docs.map((d) => d.data()).filter((f) => !f.anulada);
+  const { nombrePorClienteId, nombrePorExterno } = await nombresClientesGbpEnRango(facturas);
+
+  const ventasGbp = facturas.map((f) => {
+    // Clave sintética para quien no está vinculado — nunca colisiona con un ID real de Firestore
+    // (que nunca lleva ":"), así cada comprador de GBP se agrupa como su propia fila en vez de
+    // mezclarse todos en "Consumidor final".
+    const clienteId = f.clienteId || (f.clienteIdExterno ? `gbp:${f.clienteIdExterno}` : "consumidor-final-gbp");
+    const clienteNombre = f.clienteId
+      ? nombrePorClienteId.get(f.clienteId) || "Consumidor final"
+      : nombrePorExterno.get(f.clienteIdExterno) || (f.clienteIdExterno ? `Cliente GBP #${f.clienteIdExterno}` : "Consumidor final");
+    const numeroVenta = `${f.letra || ""} ${String(f.puntoVenta ?? "").padStart(4, "0")}-${String(f.numero ?? "").padStart(8, "0")}`.trim();
+    return {
+      fecha: f.fecha,
+      total: f.total || 0,
+      clienteId,
+      clienteNombre,
+      numeroVenta,
+      items: (f.lineas || []).map((l) => ({
+        productoId: l.productoId,
+        productoDescripcion: l.descripcion || `#${l.itemIdExterno} (sin vincular)`,
+        cantidad: l.cantidad || 0,
+        costoUnitario: l.costoUnitario || 0,
+        subtotal: (l.cantidad || 0) * (l.precioUnitario || 0),
+      })),
+      // GBP no registra el medio de pago real — se declara así en vez de inventar "Efectivo", y
+      // mantiene "Formas de pago" cuadrando contra el total (con pagos:[] el total de "Resumen de
+      // ventas" ya no coincidiría con la suma de "Formas de pago").
+      pagos: [{ medio: "GBP (sin discriminar)", monto: f.total || 0 }],
+    };
+  });
+
+  return [...ventas, ...ventasGbp];
+}
+
 // Serie diaria de ventas (total $ y cantidad), con todos los días del rango presentes aunque no
 // hayan tenido ventas — para que el gráfico no tenga huecos.
 export async function reporteVentasPorDia(desde, hasta) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const porDia = {};
   for (let f = desde; f <= hasta; f = sumarDias(f, 1)) {
     porDia[f] = { fecha: f, total: 0, cantidad: 0 };
@@ -103,7 +179,7 @@ export async function reporteVentasPorDia(desde, hasta) {
 }
 
 export async function reporteVentasPorMedioPago(desde, hasta) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const porMedio = {};
   ventas.forEach((v) => {
     (v.pagos || []).forEach((p) => {
@@ -119,7 +195,7 @@ export async function reporteVentasPorMedioPago(desde, hasta) {
 // — la foto del costo que se guarda en cada ítem al momento de vender, ver ventas.js). Ninguna otra
 // parte del sistema calcula esto todavía, así que vive acá.
 export async function reporteResumenVentas(desde, hasta) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   let total = 0;
   let unidades = 0;
   let margenBruto = 0;
@@ -141,7 +217,7 @@ export async function reporteResumenVentas(desde, hasta) {
 }
 
 export async function reporteMejoresClientes(desde, hasta, top = 8) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const porCliente = {};
   ventas.forEach((v) => {
     const key = v.clienteId || "consumidor-final";
@@ -155,7 +231,7 @@ export async function reporteMejoresClientes(desde, hasta, top = 8) {
 }
 
 export async function reporteVentasPorVendedor(desde, hasta) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const porVendedor = {};
   ventas.forEach((v) => {
     const key = v.vendedorId || "-";
@@ -265,7 +341,7 @@ export async function reporteFacturasPorVencer() {
 }
 
 export async function reporteProductosMasVendidos(desde, hasta, top = 8) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const porProducto = {};
   ventas.forEach((v) => {
     (v.items || []).forEach((it) => {
@@ -301,7 +377,7 @@ async function mapaCategorias() {
 // Listado completo de ventas del período, una fila por venta, con costo/margen/forma de pago —
 // la tabla de detalle que pide el reporte de ventas (no solo los totales de reporteResumenVentas).
 export async function reporteVentasDetalle(desde, hasta) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   return ventas
     .map((v) => {
       const costo = (v.items || []).reduce((acc, it) => acc + (it.costoUnitario || 0) * (it.cantidad || 0), 0);
@@ -324,7 +400,7 @@ export async function reporteVentasDetalle(desde, hasta) {
 // Cantidad de operaciones, importe y % sobre el total vendido, por cada medio de pago usado
 // (incluye "Pendiente de pago" como un medio más — es lo que efectivamente se registró al vender).
 export async function reporteFormasDePago(desde, hasta) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const totalVentas = ventas.reduce((acc, v) => acc + (v.total || 0), 0);
   const porMedio = {};
   ventas.forEach((v) => {
@@ -347,7 +423,7 @@ export async function reporteFormasDePago(desde, hasta) {
 // ACTUAL del producto, no la que tenía al momento de venderse — mismo criterio que valorización de
 // stock, que también usa el estado actual del catálogo).
 export async function reporteVentasPorCategoria(desde, hasta) {
-  const [ventas, productos, categorias] = await Promise.all([ventasEnRango(desde, hasta), mapaProductos(), mapaCategorias()]);
+  const [ventas, productos, categorias] = await Promise.all([ventasUnificadasEnRango(desde, hasta), mapaProductos(), mapaCategorias()]);
   const porCategoria = {};
   ventas.forEach((v) => {
     (v.items || []).forEach((it) => {
@@ -372,7 +448,7 @@ export async function reporteVentasPorCategoria(desde, hasta) {
 }
 
 export async function reporteRentabilidadPorProducto(desde, hasta, top = 30) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const porProducto = {};
   ventas.forEach((v) => {
     (v.items || []).forEach((it) => {
@@ -396,7 +472,7 @@ export async function reporteRentabilidadPorProducto(desde, hasta, top = 30) {
 // Cantidad de compras, total comprado, ticket promedio y fecha de la última compra, por cliente —
 // "Consumidor final" queda agrupado en una sola fila, igual que en reporteMejoresClientes.
 export async function reporteClientesDetalle(desde, hasta) {
-  const ventas = await ventasEnRango(desde, hasta);
+  const ventas = await ventasUnificadasEnRango(desde, hasta);
   const porCliente = {};
   ventas.forEach((v) => {
     const key = v.clienteId || "consumidor-final";

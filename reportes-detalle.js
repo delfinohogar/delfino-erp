@@ -39,6 +39,21 @@ if (!reporte) {
 
 const SIN_PERIODO = ["valorizacion-stock", "stock-critico", "facturas-vencer", "fletes"].includes(tipo);
 
+// Reportes cuya fuente es ventasUnificadasEnRango (js/reportes.js) — mezclan /ventas con las facturas
+// de GBP ya sincronizadas. Posición IVA queda deliberadamente afuera (ver esa función).
+const INCLUYE_GBP = [
+  "resumen-ventas",
+  "ventas-detalle",
+  "productos-mas-vendidos",
+  "mejores-clientes",
+  "clientes-detalle",
+  "formas-pago",
+  "ventas-por-categoria",
+  "rentabilidad",
+  "rentabilidad-categorias",
+  "rentabilidad-productos",
+].includes(tipo);
+
 content.innerHTML = `
   <div class="toolbar">
     <a href="/reportes.html" class="link-btn">← Reportes</a>
@@ -53,6 +68,7 @@ content.innerHTML = `
     `
     }
   </div>
+  ${INCLUYE_GBP ? `<div class="hint" style="margin:-8px 0 12px">Incluye ventas históricas de GBP ya sincronizadas.</div>` : ""}
   <div id="reporte-exportar-top"></div>
   <div id="reporte-contenido"></div>
 `;
