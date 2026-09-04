@@ -112,3 +112,33 @@ Las notas "Escribe solo el director" en los archivos de `migration/` son convenc
 barrera técnica. El hook `guard.ps1` vive en el frontmatter de las definiciones de agente y solo
 corre cuando la sesión arranca con `claude --agent <rol>`. Una sesión normal escribe esos
 archivos sin ningún control. Verificado el 2026-09-04.
+
+## R13 — [BAJA] El guard de loopback de `pool.js` es una baranda, no una barrera
+`backend/src/db/pool.js:52-68` corta si la URL de PostgreSQL apunta a un host que no sea
+loopback, con escape `DELFINO_DB_REMOTO_OK=1`. Es alcance no pedido por TASK-001, aceptado por
+el auditor el 2026-09-04 porque va en la dirección de las reglas del proyecto. Sus límites:
+el escape viaja por el mismo canal que `DATABASE_URL`, así que quien puede apuntar a un host
+remoto también puede desactivar el guard; falla abierto con una URL no parseable (`catch` que
+devuelve sin chequear) y con host vacío (`postgres:///base`), caso en el que `pg` cae en
+`PGHOST`. Verificado que el primer caso no llega a ningún host remoto: `pg-connection-string`
+no interpreta el formato `key=value` y la conexión falla. Ningún test cubre la rama del escape.
+No es defensa contra un atacante; sirve contra el error de configuración, que es para lo que
+está.
+
+## R14 — [BAJA] Un flag mal tipeado del migrador cae en el modo que aplica
+`backend/src/db/migrar.js:131-132` decide el modo con `argv.includes()` y no valida los
+argumentos desconocidos. `node backend/src/db/migrar.js --estad` no informa: aplica las
+migraciones de verdad. En la dirección peligrosa el riesgo es nulo (`--marcar-aplicada`, mal
+escrito, aplica en vez de marcar), pero un typo en `--estado` ejecuta SQL que el operador creía
+estar solo consultando. Además `--estado` sí crea la tabla `schema_migrations` si no existe
+(`migrar.js:140`), mientras `backend/README.md:65` dice "informa, no escribe esquema".
+
+## R15 — [BAJA] Dos aserciones de los tests de TASK-001 podrían pasar de forma vacua
+`tests/unit/backend-higiene.test.js:63-85` parchea `listen()` y después importa `pool.js` y
+`migrar.js`: si el registro de módulos de Vitest ya los tuviera cacheados, el cuerpo no se
+reejecuta y el conteo daría 0 sin probar nada. La propiedad igual está cubierta de verdad por
+el bloque de proceso hijo limpio (líneas 88-123), que es el que manda.
+`tests/integration/postgres/migrador.test.js:358-361` cuenta locks advisory no otorgados sin
+filtrar por la clave 5150419, así que otro lock advisory del cluster lo satisfaría; las
+aserciones vecinas (no existe `schema_migrations` mientras espera, existe después de liberar)
+son las que sostienen el caso.

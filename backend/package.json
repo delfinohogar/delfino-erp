@@ -1,0 +1,14 @@
+{
+  "name": "delfino-backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend de la PoC de migracion a PostgreSQL. Sin HTTP: por ahora solo acceso a la base y migrador.",
+  "scripts": {
+    "migrar": "node src/db/migrar.js",
+    "migrar:estado": "node src/db/migrar.js --estado"
+  },
+  "dependencies": {
+    "pg": "^8.13.0"
+  }
+}
