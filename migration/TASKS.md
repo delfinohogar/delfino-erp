@@ -45,7 +45,7 @@ accept:
 - `npm test` sigue en verde y los 21 tests de invariantes siguen pasando
 
 ### TASK-011 — El test de aislamiento se autentica con un usuario efímero propio
-status: IN_REVIEW
+status: DONE
 owner: tester
 depends: TASK-001
 files:
