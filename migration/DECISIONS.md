@@ -48,6 +48,16 @@ Es falso —el IVA está discriminado e imputado a 2.1.2— y contradice la deci
 mientras siga ahí, todo agente que lea las instrucciones del proyecto parte de una premisa
 equivocada sobre el dominio que TASK-002 implementa.
 
+### 2026-09-04 — El test `_safety` está en rojo y la salida requiere tocar `firestore.rules`
+`tests/integration/safety.test.js` tiene un test en rojo con `PERMISSION_DENIED`. Tester y
+auditor lo verificaron por vías independientes y coinciden: es **preexistente a TASK-001** y
+falla por **lógica de reglas, no por infraestructura** — el emulador está corriendo y responde;
+`firestore.rules` no tiene ningún `match /_safety/{id}` ni regla catch-all, y el test escribe sin
+autenticar. Hay dos salidas y ninguna la puede tomar un agente: agregar la regla de `/_safety` a
+`firestore.rules`, que solo modifica Gastón, o que el test se autentique. Impacto: mientras siga
+rojo, la suite de integración no tiene un verde limpio, y un rojo crónico entrena a ignorar los
+rojos. No bloquea ninguna tarea del lote.
+
 ### 2026-09-04 — El adaptador necesita `js/firebase.js`, que solo modifica Gastón
 El punto de interposición natural entre la UI y la persistencia es `js/firebase.js`, único acceso
 al SDK, y está en la lista de archivos que solo modifica Gastón. Además las páginas cargan desde
