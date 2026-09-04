@@ -8,8 +8,9 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R16 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
-auditor en TASK-001 y R16 el director el 2026-09-04.
+R20 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011 y R20 el director, todos el
+2026-09-04.
 
 ---
 
@@ -208,3 +209,23 @@ O sea: `safety.test.js` prueba que *una escritura de este test* aterriza en el e
 en verde. Es una limitación **preexistente** (el test anterior a TASK-011 tenía la misma), no una
 regresión introducida por la tarea. Se cierra el día que haya un test de `js/firebase.js` con
 `location.hostname` simulado, que verifique que se llamó a los cuatro `connect*Emulator`.
+
+## R20 — [MEDIA] Tests que pasan sin discriminar: confianza falsa en toda la suite
+Riesgo transversal, no de un archivo. Registrado por el director el 2026-09-04 a partir del
+hallazgo de TASK-011; la decisión completa está en DECISIONS.md.
+
+El test de aislamiento de FASE -1 escribía un documento y lo leía de vuelta **con el mismo
+cliente**. Contra un Firestore equivocado escribe ahí y lee ahí: el assert pasa igual. El test
+que existía para detectar una fuga a producción no podía detectarla, y estuvo así desde que se
+escribió. El rojo por `PERMISSION_DENIED` lo tapaba: se leía como problema de reglas, no como
+"este test no prueba nada". Tester y auditor lo reprodujeron por separado.
+
+Por qué MEDIA y transversal: la PoC se evalúa con las invariantes de TEST_MATRIX.md. Una
+invariante cubierta por un test que no discrimina produce un GO apoyado en evidencia vacía, y el
+modo de falla es silencioso — no hay rojo que avise.
+
+Mitigación vigente: toda tarea con tests exige la demostración de que el test **puede fallar**
+(romper la propiedad a propósito y mostrar el rojo); el auditor la reproduce por su cuenta o
+inventa otra; y se sospecha de toda verificación que use el mismo canal que la operación
+verificada. Aplicado en TASK-001 (mutación del migrador) y TASK-011 (segundo emulador): en los
+dos casos apareció algo que no se sabía.

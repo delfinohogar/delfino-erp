@@ -74,6 +74,33 @@ que además es falsa.
 Se implementa en TASK-011, que va antes que TASK-002: la suite tiene que estar verde antes de
 tocar reglas de negocio.
 
+## 2026-09-04 — [GASTÓN] Un test verde que no discrimina es peor que no tener test
+LECCIÓN GENERAL, aplica a toda la suite que viene, no solo al caso que la originó.
+
+Hallazgo de TASK-011: el test de aislamiento escribía un documento y lo leía de vuelta **con el
+mismo cliente**. Cuando el tester forzó el escenario de aislamiento roto —un segundo Firestore en
+otro puerto— el `getDoc` de vuelta **pasó igual**: si el cliente apunta al lugar equivocado,
+escribe ahí y lee ahí, y el test da verde. El assert no discriminaba nada. El auditor lo confirmó
+reproduciéndolo por su cuenta.
+
+O sea que el test que existía desde FASE -1 para detectar una fuga a producción no podía
+detectarla. Estuvo así todo el tiempo, y el rojo por `PERMISSION_DENIED` lo venía tapando: se
+leía como "problema de reglas", no como "este test no prueba nada".
+
+Regla para todas las tareas siguientes: **un test verde que no discrimina es peor que no tener
+test, porque da confianza falsa.** Un test que no puede fallar es un test que no existe, con el
+costo agregado de que nadie lo revisa. En consecuencia:
+
+- Todo test de una invariante tiene que venir con la demostración de que **puede fallar**: se
+  rompe deliberadamente la propiedad y se muestra el rojo. Ya se exigió en TASK-001 (mutación del
+  migrador) y en TASK-011 (segundo emulador), y en los dos casos apareció algo que no se sabía.
+- El auditor no da por buena esa demostración: la reproduce por su cuenta o inventa otra.
+- Sospechar en particular de las verificaciones que usan **el mismo canal** que la operación que
+  quieren verificar. El assert que sirve es el que llega por una vía independiente — en TASK-011,
+  la lectura REST contra `127.0.0.1` con token `owner`, que producción nunca respondería.
+
+Queda como R20 en RISKS.md para que aparezca también en la lista de riesgos.
+
 ## 2026-09-04 — [GASTÓN] El desfasaje de `projectId` del seed es un bug, y se corrige
 Relevando TASK-011 apareció que `scripts/seed-emulator.mjs` usa
 `GCLOUD_PROJECT || "demo-delfino"` mientras el emulador corre con `--project delfino-hogar-erp`.
