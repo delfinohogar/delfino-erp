@@ -98,7 +98,7 @@ accept:
 - R16 queda actualizado en RISKS.md como mitigado, con la fecha
 
 ### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
-status: PENDING
+status: IN_PROGRESS
 owner: implementador
 depends: TASK-001, TASK-011
 files:
@@ -109,6 +109,8 @@ accept:
 - `crear_venta()` calcula `iva_pct` e `iva_monto` por línea restando hacia atrás sobre el precio, que ya incluye IVA, y llena `ventas.iva_total`
 - el asiento imputa el neto a 4.1 y el IVA a 2.1.2; cada pago a 1.1.1 o 1.1.5 según su destino; el pendiente a 1.1.2
 - el asiento cierra Debe = Haber en todos los casos, incluido el de alícuotas mixtas 21 % y 10,5 %
+- el centavo de redondeo lo absorbe el **neto**, no el IVA: `iva_total = round(SUM(iva_linea))` y `neto_total = round(total − iva_total)` como residuo, igual que `js/ventas.js:412-413` (decisión Nivel 3 del 2026-09-04). El neto **no** se calcula por línea ni se suma
+- Debe = Haber NO alcanza como verificación: con el neto como tapón el asiento cierra igual aunque el centavo esté mal repartido. Hay que verificar el monto imputado a **2.1.2** contra el cálculo por línea
 - invariantes IVA_DISCRIMINADO e IMPUTACION_PAGOS de TEST_MATRIX.md
 - si algún test existente asumía IVA en cero, el implementador lo reporta y NO lo modifica: los tests son del tester
 - `ventas.fecha_operacion` es `date` en hora local, nunca derivada de `toISOString()`: una venta registrada a las 21:00 hora Argentina queda con la fecha de ese día y no con la del día siguiente (cambio 8 de ARCHITECTURE §2.3, P8 + bug de UTC)
