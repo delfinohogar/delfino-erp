@@ -169,7 +169,21 @@ clone el repo y siga INSTALAR.md.
 **CORRECCIÓN PENDIENTE — TASK-013.** El default tiene que ser `delfino-hogar-erp`, o el seed debe
 abortar con un mensaje claro si el proyecto que usa no coincide con el del emulador.
 
-## R17 — [BAJA — CORRECCIÓN PENDIENTE, BLOQUEA TASK-011] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
+## R17 — [ELIMINADO 2026-09-04] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
+
+**ESTADO: ELIMINADO (no mitigado) — 2026-09-04, verificado contra el emulador.**
+`tests/integration/safety.test.js` ya no toma prestado ningún usuario del entorno: crea el suyo
+(`safety-<uuid>@test.local`) y borra exclusivamente lo que creó esa corrida. No queda ninguna
+rama que pueda borrar un perfil ajeno, porque no hay estado previo que restaurar. Demostrado con
+las cuatro inyecciones de "falla a la mitad" del `beforeAll` (antes de `createUser`, justo
+después, después de escribir el perfil y después del `signIn`): en las cuatro, la cuenta de
+desarrollo siguió existiendo, su perfil conservó `rol: administrador`, el login documentado
+respondió **200** contra el emulador de Auth con el mismo uid, y no quedó ningún
+`clientes/safety-check-*`. Evidencia completa en `migration/TEST_RESULTS.md` (TASK-011,
+corrección 2026-09-04). Se descarta el flag `perfilLeido`: mitigaba la ventana, no la clase.
+
+Texto histórico del riesgo, para trazabilidad:
+
 `tests/integration/safety.test.js:88-93` asigna `uid = usuario.uid` **antes** de leer
 `existiaPerfil = snapPerfil.exists`. Si algo lanza en esa ventana de una sola sentencia (el
 `refPerfil.get()`), `afterAll` corre con `uid` seteado y `existiaPerfil = false`, y toma la rama
@@ -209,7 +223,19 @@ allí: usuarios huérfanos si el proceso muere sin `afterAll` (acotado por un ba
 `emulators:exec` no exporta al salir, pero `npm run emulators` sí, con `--export-on-exit`).
 
 
-## R18 — [BAJA — CORRECCIÓN PENDIENTE, BLOQUEA TASK-011] `safety.test.js` le pisa la contraseña al usuario de desarrollo y no la restaura
+## R18 — [ELIMINADO 2026-09-04] `safety.test.js` le pisa la contraseña al usuario de desarrollo y no la restaura
+
+**ESTADO: ELIMINADO (no mitigado) — 2026-09-04, verificado contra el emulador.**
+El test ya no llama a `updateUser` ni a `getUserByEmail`, y no nombra la cuenta de desarrollo en
+ninguna parte: `grep -n "admin@delfino.local\|updateUser\|getUserByEmail"` sobre
+`tests/integration/safety.test.js` no devuelve ninguna coincidencia. Usa una identidad propia por
+corrida con **password aleatoria** (`randomBytes(24).toString("hex")`), que no coincide con
+ninguna password documentada. Sin `updateUser` sobre la cuenta compartida no hay password que
+pisar. Verificado además de forma directa: después de las cuatro inyecciones y de las dos
+mutaciones, el login documentado sigue respondiendo 200 contra el emulador de Auth.
+
+Texto histórico del riesgo, para trazabilidad:
+
 `tests/integration/safety.test.js:80` hace `authAdmin.updateUser(uid, { password: PASSWORD })`
 sobre `admin@delfino.local` cada vez que corre la suite de integración, y `afterAll` no la
 devuelve al valor anterior (sólo borra el usuario si el propio test lo creó).

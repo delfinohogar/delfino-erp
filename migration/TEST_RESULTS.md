@@ -174,3 +174,145 @@ sí mismo. **No se modificó el seed**: queda como observación para el director
 Después de las inyecciones: el segundo emulador se apagó, el archivo de inyección se borró,
 `git status` muestra solo `tests/integration/safety.test.js` modificado, y el emulador real
 quedó con `clientes: cliente-dev` y el perfil de admin intacto (sin residuos del test).
+
+---
+
+## TASK-011 (corrección 2026-09-04) — El test de aislamiento usa un usuario efímero propio y no toca la cuenta de desarrollo
+
+- **Fecha:** 2026-09-04
+- **Rama / commit bajo prueba:** `task/TASK-011` sobre `f418870`
+- **Motivo:** decisión de Gastón + ADDENDUM del auditor en
+  `migration/approvals/TASK-011.approved`. R17 y R18 pasaron de residuales a **bloqueantes**:
+  el test tomaba prestado un recurso compartido y mutable (la cuenta de desarrollo del emulador)
+  y después tenía que devolverlo. La corrección elimina la clase, no la ventana.
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, emulador de Firebase de larga vida en
+  8080/9099/9199 (`npm run emulators`, con `--export-on-exit`), Postgres 16 en Docker 5432.
+- **Veredicto: VERDE.** Los 11 criterios del ADDENDUM se verifican y pasan.
+
+### Comandos
+
+    # npm run test:integration NO ARRANCA con el emulador de larga vida en marcha
+    # ("port taken") -> infraestructura, no rojo de la tarea. Vía usada, contra ESE emulador,
+    # pasando igual por tests/integration/setup.mjs:
+    FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+      GCLOUD_PROJECT=delfino-hogar-erp npx vitest run -c vitest.integration.config.js
+    npm test
+    npm run check
+
+### Resultado
+
+| Suite | Resultado |
+|---|---|
+| `tests/integration/safety.test.js` | **VERDE** 4/4 |
+| Invariantes (`postgres/invariantes.test.js`) | **VERDE** 21/21 |
+| Migrador (`postgres/migrador.test.js`) | **VERDE** 18/18 |
+| Integración completa (3 archivos) | **VERDE** 43/43, cuatro corridas (dos seguidas + dos finales) |
+| `npm test` (unitarios) | **VERDE** 32/32 |
+| `npm run check` | OK, 162 archivos |
+
+Ninguna invariante del dominio cambia de estado: la tarea es exclusivamente de tests.
+
+### Qué cambió
+
+- Identidad propia por corrida: `safety-<uuid>@test.local` con password **aleatoria**
+  (`randomBytes(24).toString("hex")`). El test no menciona la cuenta de desarrollo compartida en
+  ningún lado: un `grep` de su email, de su password documentada, de `updateUser` y de
+  `getUserByEmail` sobre `tests/integration/safety.test.js` devuelve **cero coincidencias**.
+- Perfil `/usuarios/{uid}` con rol **mínimo** `vendedor` (lo que `puedeVender()` exige en
+  `/clientes`) y **sin campo `nombre`**: `js/usuarios.js:9` lista con `orderBy("nombre")` y
+  Firestore excluye del `orderBy` los documentos sin ese campo, así que un huérfano es invisible
+  en la pantalla de usuarios del ERP local. Mismo criterio ya usado para el doc de `/clientes`.
+- Limpieza guardada por **una sola** variable, `uidCreadoPorEstaCorrida`, seteada *después* de
+  que `createUser()` devolvió y con el uid de esa llamada. Si sigue en `null`, `afterAll` no
+  borra ningún usuario ni perfil. Red extra: `borrarUsuarioEfimero()` re-verifica contra el
+  emulador que el email de esa cuenta siga el patrón antes de tocarla.
+- **Barrido de huérfanos** al inicio, por patrón exacto de email `safety-<uuid v4>@test.local`
+  (cuentas de Auth + perfiles sueltos) y de id `safety-check-<uuid v4>` (documentos de
+  `/clientes`).
+- Se conserva lo que ya estaba bien: la lectura por REST contra `127.0.0.1` con
+  `Authorization: Bearer owner` como assert que discrimina (R20), el id propio en `/clientes`, y
+  los otros tres tests del archivo.
+
+### Punto 6 — Prueba de falla a la mitad (cierra R17). Evidencia
+
+Cuatro copias del test con un `throw` inyectado en el `beforeAll`, generadas fuera del control de
+versiones y borradas después de cada corrida (`git status` limpio al terminar). Puntos: (1) antes
+de `createUser`, (2) inmediatamente después de `createUser`, (3) después de escribir el perfil,
+(4) después del `signIn`. En las cuatro el archivo quedó en ROJO por la inyección, y el estado del
+emulador se verificó **contra el emulador**, no leyendo el código: cuentas por `accounts:query`
+con `Bearer owner`, perfil por REST de Firestore, y login **real** por
+`POST /identitytoolkit.googleapis.com/v1/accounts:signInWithPassword`.
+
+| Inyección | (a) cuenta de desarrollo existe | (b) `rol` de su perfil | (c) login documentado | (d) residuos `clientes/safety-check-*` | usuarios `safety-*@test.local` sobrantes |
+|---|---|---|---|---|---|
+| 1 — antes de `createUser` | sí | `administrador` | **200**, uid `HfH7fg2RWwLBI6Lacotphm3rM1H9` | ninguno | ninguno |
+| 2 — después de `createUser` | sí | `administrador` | **200**, mismo uid | ninguno | ninguno |
+| 3 — después del perfil | sí | `administrador` | **200**, mismo uid | ninguno | ninguno |
+| 4 — después del `signIn` | sí | `administrador` | **200**, mismo uid | ninguno | ninguno |
+
+Salida literal del verificador en las cuatro corridas:
+
+    {"a_adminExiste":true,"b_perfilRol":"administrador","c_loginStatus":200,
+     "c_loginUid":"HfH7fg2RWwLBI6Lacotphm3rM1H9","d_residuosSafetyCheck":[],
+     "e_usuariosEfimerosEnAuth":[]}
+
+En la inyección 1 no había nada que limpiar (el flag seguía en `null`); en las 2, 3 y 4 el
+`afterAll` corrió igual —vitest lo ejecuta aunque el `beforeAll` falle— y borró el usuario
+efímero y su perfil.
+
+### Punto 7 — Barrido de huérfanos. Evidencia
+
+Se dejaron huérfanos a mano en el emulador y se corrió la suite:
+
+1. Huérfano completo (cuenta de Auth `safety-6779d4dd-…@test.local` + su perfil + un
+   `clientes/safety-check-6779d4dd-…`). La corrida siguiente lo limpió:
+   `[safety] barrido de huerfanos: {"usuarios":["safety-6779d4dd-324c-459c-8bc1-39f56938947d@test.local"],"perfiles":[],"clientes":["safety-check-6779d4dd-324c-459c-8bc1-39f56938947d"]}`
+2. Huérfano **sólo perfil** (documento `/usuarios/uid-huerfano-solo-perfil` con email del patrón,
+   sin cuenta de Auth). Limpiado por la rama 2 del barrido:
+   `[safety] barrido de huerfanos: {"usuarios":[],"perfiles":["uid-huerfano-solo-perfil"],"clientes":[]}`
+3. **Señuelo de control:** cuenta `safety-senuelo@test.local` (empieza con `safety-` pero NO es el
+   patrón exacto). **Sobrevivió** al barrido, igual que la cuenta de desarrollo. Prueba de que el
+   patrón discrimina y que ninguna cuenta ajena puede ser alcanzada. El señuelo se borró a mano
+   después.
+4. Con cero coincidencias el barrido no lanza y no imprime nada (es el caso de todas las demás
+   corridas).
+
+### Punto 8 — Idempotencia y no acumulación. Evidencia
+
+Volcado explícito del emulador (proyecto `delfino-hogar-erp`) antes de la primera corrida y
+después de la última, por REST con `Bearer owner`: colecciones `/usuarios` y `/clientes` completas
+(id + campos) y listado de cuentas de Auth. `diff` de los dos volcados: **vacío**. Estado idéntico
+antes y después: `usuarios: HfH7fg2RWwLBI6Lacotphm3rM1H9` (perfil de desarrollo,
+`rol: administrador`), `clientes: cliente-dev`, Auth con una sola cuenta. Verificado también
+después de las cuatro inyecciones y de las dos mutaciones.
+
+### Punto 9 — El test sigue pudiendo fallar con el usuario efímero (R20). Evidencia
+
+1. **Aislamiento roto.** Segundo emulador de Firestore en 127.0.0.1:8099 (proyecto
+   `prod-simulada`, reglas abiertas, config en el scratchpad fuera del repo) como sustituto local
+   de "otro Firestore". Copia del test con el único cambio
+   `connectFirestoreEmulator(db, host, 8099)`: **ROJO**
+   `AISLAMIENTO ROTO: clientes/safety-check-bb153ec6-… no esta en el emulador de 127.0.0.1:8080.
+   La escritura fue a parar a otro Firestore.: expected null not to be null`.
+   El `getDoc` de vuelta pasó igual: el assert que discrimina es la lectura REST contra
+   127.0.0.1 con `Bearer owner`. El segundo emulador se apagó y su config se borró.
+2. **Rol sin permiso.** Copia con `ROL_EFIMERO = "sin_permiso"`: **ROJO** con
+   `7 PERMISSION_DENIED` en el `setDoc` del SDK cliente. Prueba que la escritura evaluada sigue
+   pasando por `firestore.rules` con el principal efímero y que el Admin SDK no hace la escritura
+   que se juzga. Tras esa corrida en rojo la limpieza dejó el emulador sin residuos.
+
+Cambiar de principal **no** debilitó ninguna de las dos mutaciones.
+
+### Punto 10 — Alcance
+
+`firestore.rules` byte por byte igual a `master` (`git hash-object` = `master:firestore.rules` =
+`c0c21e80ba2200d41e619fe737de09dcc0ec3bf9`). `scripts/seed-emulator.mjs` sin tocar (su último
+cambio es `46cfb92`, de FASE -1). `git status` al cerrar: sólo `tests/integration/safety.test.js`
+modificado, más `?? .github/` preexistente y ajeno.
+
+### Tipo de rojo
+
+No hubo ningún rojo por lógica. Los únicos rojos de esta corrida son los **provocados a propósito**
+(4 inyecciones + 2 mutaciones), y todos volvieron a verde al retirar la inyección. Rojo por
+infraestructura: ninguno; `npm run test:integration` no arranca con el emulador de larga vida en
+marcha (puertos tomados) — limitación conocida del entorno, no de la tarea.
