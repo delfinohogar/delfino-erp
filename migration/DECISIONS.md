@@ -32,7 +32,51 @@ agentes con una barrera física, no con una instrucción.
 ## PENDIENTE DE GASTÓN
 (el director escribe acá las preguntas de Nivel 3 antes de hacerlas)
 
+Los tres ítems siguientes se movieron desde MIGRATION_STATUS.md el 2026-09-04, a pedido de
+Gastón: dependen de él y este es el lugar donde los va a buscar. Ninguno bloquea TASK-001 a
+TASK-010.
+
+### 2026-09-04 — Estado real de las Cloud Functions desplegadas (R8)
+`arcaAutorizarComprobante` está exportada en `functions/`, pero los deploys se hicieron con
+`--only`, así que qué está efectivamente corriendo en Firebase es DESCONOCIDO. Se verifica en
+Firebase Console; ningún agente toca producción. Impacto: hasta saberlo no se puede afirmar que
+ARCA esté apagado en el proyecto desplegado. No bloquea la PoC.
+
+### 2026-09-04 — CLAUDE.md afirma que el IVA en ventas se calcula en $0
+Es falso —el IVA está discriminado e imputado a 2.1.2— y contradice la decisión de Nivel 3 del
+2026-09-04, que además corrige la premisa de P6. `CLAUDE.md` solo lo modifica Gastón. Impacto:
+mientras siga ahí, todo agente que lea las instrucciones del proyecto parte de una premisa
+equivocada sobre el dominio que TASK-002 implementa.
+
+### 2026-09-04 — El adaptador necesita `js/firebase.js`, que solo modifica Gastón
+El punto de interposición natural entre la UI y la persistencia es `js/firebase.js`, único acceso
+al SDK, y está en la lista de archivos que solo modifica Gastón. Además las páginas cargan desde
+`dist/`, así que ningún cambio ahí tiene efecto sin `npm run build`. El adaptador se diseña y se
+prueba sin tocar ese archivo; la conexión final es una acción de Gastón. Hay que resolverlo antes
+del paso 5 del plan maestro.
+
 ---
+
+## 2026-09-04 — [NIVEL 2] El cambio 8 del esquema entra en TASK-002, no en una tarea nueva
+`fecha_operacion` como `date` local sin `toISOString()` (cambio 8 de ARCHITECTURE §2.3, P8 más el
+bug de UTC) era el único de los ocho cambios obligatorios que no tenía tarea asignada en el primer
+lote de FASE 1. Se agrega como criterio de aceptación de TASK-002, que ya toca la misma migración
+y el mismo dominio —cómo se registra la venta—, en lugar de crear una TASK-011. Motivo, decidido
+por Gastón: una tarea más en una cadena lineal de diez es un paso más de camino crítico sin ganar
+nada. El título de TASK-002 se ajustó para reflejar el alcance real.
+
+## 2026-09-04 — [NIVEL 2] Los contadores arrancan en 0 y la primera operación obtiene el 1
+ARCHITECTURE §2.3 decía que `ventas` y `asientos` "arrancan en 1" y TASK-004 decía que "arrancan
+en 0, de modo que la primera operación obtiene el número 1". El resultado buscado es el mismo,
+pero la contradicción literal habría sido marcada por el auditor. Se corrige ARCHITECTURE para que
+diga lo de TASK-004, que es la formulación verificable: describe el estado inicial de la fila y el
+número observable de la primera operación, no una intención.
+
+## 2026-09-04 — [NIVEL 2] La cadena lineal TASK-001 → TASK-010 se acepta como está
+El primer lote de FASE 1 no admite paralelismo: son migraciones SQL numeradas y servicios que
+dependen del esquema anterior. Diez tareas en un único camino crítico, donde un rechazo en
+TASK-002 frena todo. Se evaluó y Gastón lo aceptó: el orden es real, no arbitrario, y es preferible
+un camino crítico honesto a un paralelismo inventado que rompa el orden de las migraciones.
 
 ## 2026-09-04 — [P9 · GASTÓN] Tesorería: no se migran saldos, sí hay saldo inicial
 Los saldos y movimientos actuales de cajas, bancos y cuentas financieras son datos de prueba y

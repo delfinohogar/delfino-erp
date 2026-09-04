@@ -451,7 +451,7 @@ Núcleo que ya está bien resuelto:
 | 4 | Tabla de historial de costos con origen (`manual`\|`factura_compra`), compra relacionada y motivo | P5 |
 | 5 | `movimientos_stock` lo escribe `crear_entrega()`, no la rama `'pendiente'` de `crear_venta()` | ver nota |
 | 6 | Funciones de servicio `crear_pedido`, `facturar_pedido`, `crear_entrega` — **no existen** | ALCANCE (B) |
-| 7 | `contadores`: `comprobantes_{pv}_{tipo}` continúa; `ventas` y `asientos` arrancan en 1 | P7 resuelta |
+| 7 | `contadores`: `comprobantes_{pv}_{tipo}` continúa; `ventas` y `asientos` arrancan en 0, de modo que la primera operación obtiene el número 1 | P7 resuelta |
 | 8 | `fecha_operacion` como `date` local, sin `toISOString()` | P8 + bug de UTC |
 
 Nota sobre el punto 5: una venta pendiente de entrega **no mueve stock físico** —solo reserva—,

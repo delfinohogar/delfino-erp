@@ -39,7 +39,7 @@ accept:
 - no abre puertos, no escucha HTTP, no importa firebase
 - `npm test` sigue en verde y los 21 tests de invariantes siguen pasando
 
-### TASK-002 — Migración 0003: IVA discriminado e imputación del destino de pago
+### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
 status: PENDING
 owner: implementador
 depends: TASK-001
@@ -53,6 +53,7 @@ accept:
 - el asiento cierra Debe = Haber en todos los casos, incluido el de alícuotas mixtas 21 % y 10,5 %
 - invariantes IVA_DISCRIMINADO e IMPUTACION_PAGOS de TEST_MATRIX.md
 - si algún test existente asumía IVA en cero, el implementador lo reporta y NO lo modifica: los tests son del tester
+- `ventas.fecha_operacion` es `date` en hora local, nunca derivada de `toISOString()`: una venta registrada a las 21:00 hora Argentina queda con la fecha de ese día y no con la del día siguiente (cambio 8 de ARCHITECTURE §2.3, P8 + bug de UTC)
 
 ### TASK-003 — Migración 0004: lista de precios en la venta e historial de costos
 status: PENDING

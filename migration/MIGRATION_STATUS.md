@@ -4,7 +4,7 @@ Fase actual: **0 cerrada. Lista para empezar FASE 1.**
 Rama de trabajo: `migration/postgresql`
 Última tarea cerrada: — (TASK-001 todavía no arrancó)
 Tareas bloqueadas: —
-Pendientes de Gastón: 3, ver abajo
+Pendientes de Gastón: 3, en DECISIONS.md § PENDIENTE DE GASTÓN
 
 ## Qué se hizo
 
@@ -35,14 +35,10 @@ cuando este lote esté aprobado, para no planificar sobre un esquema que todaví
 
 ## Qué está bloqueado o pendiente de Gastón
 
-1. **Estado real de las Cloud Functions desplegadas** (R8). `arcaAutorizarComprobante` está
-   exportada, pero los deploys se hacen con `--only`, así que qué está en Firebase es
-   DESCONOCIDO. Se verifica en Firebase Console; ningún agente toca producción. No bloquea la PoC.
-2. **La línea de CLAUDE.md que dice que el IVA se calcula en $0** es falsa y contradice la
-   decisión del 2026-09-04. Ese archivo lo modifica Gastón.
-3. **El adaptador necesita `js/firebase.js`**, que solo modifica Gastón, y no tiene efecto sin
-   `npm run build` porque las páginas cargan desde `dist/`. Hay que resolverlo antes del paso 5
-   del plan maestro. No bloquea las tareas 001 a 010.
+Los tres pendientes de Gastón viven ahora en la sección **PENDIENTE DE GASTÓN de DECISIONS.md**,
+que es donde él los busca: estado real de las Cloud Functions desplegadas (R8), la línea falsa de
+CLAUDE.md sobre el IVA en $0, y el acceso a `js/firebase.js` que necesita el adaptador. Ninguno
+bloquea TASK-001 a TASK-010.
 
 Menores, sin impacto en la PoC: `.github/` está sin commitear, así que puede no haber CI
 corriendo; y `.netlifyignore` sigue en la raíz aunque INSTALAR.md manda borrarlo (R7 explica que
