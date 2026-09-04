@@ -4,20 +4,18 @@
 //
 //   Terminal 1:  npm run emulators
 //   Terminal 2:  npm run seed
-//   Terminal 3:  python dev-server.py 8090   ->  http://localhost:8090
+//   Terminal 3:  npm run build  y despues  python dev-server.py 8090
 //   Login:       admin@delfino.local / delfino-dev
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import admin from "firebase-admin";
 
 const AUTH = process.env.FIREBASE_AUTH_EMULATOR_HOST;
 const FIRESTORE = process.env.FIRESTORE_EMULATOR_HOST;
 
 if (!AUTH || !FIRESTORE) {
-  console.error(
-    "\nABORTADO: faltan FIREBASE_AUTH_EMULATOR_HOST y/o FIRESTORE_EMULATOR_HOST.\n" +
-      "Este script solo puede correr contra los emuladores.\n" +
-      "Levantalos con: npm run emulators\n" +
-      "Si corres a mano fuera de Claude Code, cargá las variables de backend/.env.example.\n"
-  );
+  console.error("\nABORTADO: faltan FIREBASE_AUTH_EMULATOR_HOST y/o FIRESTORE_EMULATOR_HOST.\n");
   process.exit(1);
 }
 for (const [nombre, valor] of [["auth", AUTH], ["firestore", FIRESTORE]]) {
@@ -48,13 +46,31 @@ async function usuarioAdmin() {
   return user.uid;
 }
 
-// Plan de cuentas: se toma del codigo real para que no se desincronice del ERP.
+// El plan de cuentas se toma del codigo real para que no se desincronice del ERP. No se puede
+// importar js/contabilidad.js directo: ese modulo importa Firebase desde una URL de gstatic y
+// Node no resuelve URLs en un import (solo el navegador, o vitest via alias). Asi que se lee el
+// archivo como texto y se extrae el array literal.
+function leerPlanDeCuentas() {
+  const aqui = dirname(fileURLToPath(import.meta.url));
+  const fuente = readFileSync(join(aqui, "..", "js", "contabilidad.js"), "utf8");
+  const inicio = fuente.indexOf("export const PLAN_DE_CUENTAS");
+  if (inicio === -1) throw new Error("No se encontro PLAN_DE_CUENTAS en js/contabilidad.js");
+  const desdeCorchete = fuente.indexOf("[", inicio);
+  let nivel = 0, fin = -1;
+  for (let i = desdeCorchete; i < fuente.length; i++) {
+    if (fuente[i] === "[") nivel++;
+    else if (fuente[i] === "]") { nivel--; if (nivel === 0) { fin = i + 1; break; } }
+  }
+  if (fin === -1) throw new Error("No se pudo delimitar el array PLAN_DE_CUENTAS");
+  return new Function(`return ${fuente.slice(desdeCorchete, fin)};`)();
+}
+
 async function planDeCuentas() {
-  const { PLAN_DE_CUENTAS } = await import("../js/contabilidad.js");
+  const cuentas = leerPlanDeCuentas();
   const batch = db.batch();
-  for (const cuenta of PLAN_DE_CUENTAS) batch.set(db.collection("cuentasContables").doc(cuenta.codigo), cuenta);
+  for (const cuenta of cuentas) batch.set(db.collection("cuentasContables").doc(cuenta.codigo), cuenta);
   await batch.commit();
-  return PLAN_DE_CUENTAS.length;
+  return cuentas.length;
 }
 
 async function maestros(uid) {
@@ -68,9 +84,9 @@ async function maestros(uid) {
   await db.collection("categorias").doc("electro").set({ nombre: "Electrodomésticos", nombreLower: "electrodomésticos", nivel: 1, parentId: null, ...base });
 
   const productos = [
-    { sku: "DEV-001", descripcion: "Heladera de prueba", precio: 850000, costoReferencia: 600000, stockTotal: 5 },
-    { sku: "DEV-002", descripcion: "Lavarropas de prueba", precio: 620000, costoReferencia: 430000, stockTotal: 1 },
-    { sku: "DEV-003", descripcion: "Microondas de prueba", precio: 190000, costoReferencia: 130000, stockTotal: 0 },
+    { sku: "DEV-001", descripcion: "Heladera de prueba", precioVenta: 850000, costoReferencia: 600000, stockTotal: 5 },
+    { sku: "DEV-002", descripcion: "Lavarropas de prueba", precioVenta: 620000, costoReferencia: 430000, stockTotal: 1 },
+    { sku: "DEV-003", descripcion: "Microondas de prueba", precioVenta: 190000, costoReferencia: 130000, stockTotal: 0 },
   ];
   for (const p of productos) {
     await db.collection("productos").doc(p.sku).set({
@@ -84,7 +100,7 @@ async function maestros(uid) {
   }
 
   await db.collection("clientes").doc("cliente-dev").set(
-    { nombre: "Cliente de prueba", documento: "20111111112", email: "cliente@delfino.local", ...base }
+    { razonSocial: "Cliente de prueba", razonSocialLower: "cliente de prueba", cuit: "20111111112", email: "cliente@delfino.local", activo: true, ...base }
   );
 
   await db.collection("contadores").doc("ventas").set({ ultimo: 0 });
@@ -94,11 +110,12 @@ async function maestros(uid) {
   return productos.length;
 }
 
-const uid = await usuarioAdmin();
-const cuentas = await planDeCuentas();
-const cantProductos = await maestros(uid);
+try {
+  const uid = await usuarioAdmin();
+  const cuentas = await planDeCuentas();
+  const cantProductos = await maestros(uid);
 
-console.log(`
+  console.log(`
 Emulador cargado.
   usuario     ${EMAIL} / ${PASSWORD}  (rol administrador, uid ${uid})
   cuentas     ${cuentas} del plan de cuentas real
@@ -112,4 +129,9 @@ Emulador cargado.
 
   UI del emulador: http://127.0.0.1:4000
 `);
-process.exit(0);
+  process.exit(0);
+} catch (err) {
+  console.error("\nFALLO EL SEED:", err?.message || err);
+  console.error(err?.stack || "");
+  process.exit(1);
+}
