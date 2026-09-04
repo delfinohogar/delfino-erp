@@ -98,3 +98,79 @@ ocupados por una instancia previa. Esto **no** es un rojo de TASK-001: es entorn
 alternativa usada apunta al emulador ya en marcha respetando `tests/integration/setup.mjs`
 (que sigue verificando que el host sea local). No se agregó ningún script que saltee esa
 barrera.
+
+---
+
+## TASK-011 — El test de aislamiento se autentica en vez de escribir sin usuario
+
+Fecha: 2026-09-04 · Owner: tester · Archivo: `tests/integration/safety.test.js` (único tocado)
+
+### Comandos
+
+`npm run test:integration` **no arranca**: los puertos 8080/9099/9199 ya estaban ocupados por un
+emulador levantado antes de esta sesión (`Error: Could not start Authentication Emulator, port
+taken`). Es infraestructura, no un rojo de la tarea. Vía alternativa: correr el mismo vitest
+contra el emulador ya en marcha, con las mismas variables que pone `emulators:exec` y pasando
+igual por `tests/integration/setup.mjs` (que sigue exigiendo host local).
+
+    FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+      GCLOUD_PROJECT=delfino-hogar-erp npx vitest run -c vitest.integration.config.js
+    npm test
+    npm run check
+
+### Resultado
+
+| Suite | Resultado |
+|---|---|
+| `tests/integration/safety.test.js` | **VERDE** 4/4 |
+| Invariantes (`postgres/invariantes.test.js`) | **VERDE** 21/21 |
+| Migrador (`postgres/migrador.test.js`) | **VERDE** 18/18 |
+| Integración completa (3 archivos) | **VERDE** 43/43, dos corridas seguidas + una tercera post-inyección |
+| `npm test` (unitarios) | **VERDE** 32/32 |
+| `npm run check` | OK, 162 archivos |
+
+Ninguna invariante del dominio cambió de estado: TASK-011 no toca reglas de negocio.
+
+### Qué cambió en el test
+
+- Se autentica con el SDK cliente contra el emulador de Auth (`admin@delfino.local` /
+  `delfino-dev`), igual que el ERP real, antes de escribir.
+- La escritura de prueba va a **`/clientes`**, con id propio `safety-check-<uuid>`. Es una
+  colección que `firestore.rules` ya contempla (`allow write: if puedeVender()` — el alta de
+  cliente desde Nueva Venta) y que permite `delete`, así el test se limpia solo. No se inventó
+  `_safety` ni se tocó `firestore.rules`.
+- **Autosuficiente:** con el Admin SDK (que bypasea reglas, y solo prepara) se asegura el
+  usuario y su perfil `/usuarios/{uid}` con `rol: administrador` **en el namespace de
+  `firebaseConfig.projectId`**. En `afterAll` se restaura el perfil exactamente como estaba
+  (o se borra si no existía) y se borra el documento de prueba.
+
+### Hallazgo verificado: el seed escribe en otro `projectId`
+
+Confirmado empíricamente contra el emulador en marcha, leyendo con `Authorization: Bearer owner`:
+`usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` existe **en los dos namespaces**,
+`projects/delfino-hogar-erp` y `projects/demo-delfino`, mientras que el usuario de Auth existe
+una sola vez (`recordsCount: 1` en `delfino-hogar-erp`, `0` en `demo-delfino`). O sea:
+`scripts/seed-emulator.mjs` (Admin SDK con `GCLOUD_PROJECT || "demo-delfino"`) puede dejar el
+perfil en un namespace que el ERP —y el test— no leen nunca. Por eso el test se lo garantiza a
+sí mismo. **No se modificó el seed**: queda como observación para el director.
+
+### El test todavía puede fallar (verificación por mutación)
+
+1. **Aislamiento roto — la escritura va a otro Firestore.** Se levantó un segundo emulador de
+   Firestore en 127.0.0.1:8099 (config y reglas abiertas en el scratchpad, fuera del repo,
+   proyecto `prod-simulada`) como sustituto local de "otro Firestore que no es nuestro
+   emulador". Con una copia del test —fuera del repo, borrada después— cuyo único cambio es
+   `connectFirestoreEmulator(db, host, 8099)`, el test se puso **ROJO**:
+   `AISLAMIENTO ROTO: clientes/safety-check-… no esta en el emulador de 127.0.0.1:8080. La
+   escritura fue a parar a otro Firestore.`
+   Dato importante: en esa corrida el `getDoc` de vuelta **sí pasó**. Leer con el mismo cliente
+   que escribió no prueba nada; por eso el test verifica además por un canal independiente
+   (REST del emulador contra 127.0.0.1 con el token `owner`, que solo el emulador acepta y
+   Firestore de producción jamás responde). Ese es el assert que tiene dientes.
+2. **Host no local.** Con `FIRESTORE_EMULATOR_HOST=firestore.googleapis.com:443` la corrida
+   aborta en `setup.mjs` (`… que no es local. Abortado por seguridad.`) antes de intentar
+   escritura alguna. Nunca se contactó producción en ninguna de las dos inyecciones.
+
+Después de las inyecciones: el segundo emulador se apagó, el archivo de inyección se borró,
+`git status` muestra solo `tests/integration/safety.test.js` modificado, y el emulador real
+quedó con `clientes: cliente-dev` y el perfil de admin intacto (sin residuos del test).
