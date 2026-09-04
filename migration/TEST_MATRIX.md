@@ -85,6 +85,23 @@ escenarios antes de aprobar el trigger.
 
 ---
 
+## Bloque F — Infraestructura del backend (TASK-001)
+
+No son invariantes de negocio: son propiedades del migrador y del cliente `pg`. Los IDs son de
+uso del tester y no se citan en veredictos contables.
+
+| ID | Caso | Resultado esperado | Origen |
+|---|---|---|---|
+| MIGRADOR_IDEMPOTENCIA | dos y tres corridas seguidas contra la misma base | la segunda no reaplica nada, sale 0 y no reescribe `aplicada_en`; `schema_migrations` queda con una fila por migración, con nombre y fecha | TASK-001 accept |
+| MIGRADOR_ORDEN_ALFABETICO | migraciones cuyo orden alfabético difiere del orden en disco | se aplican en orden alfabético; se demuestra por el contenido de `schema_migrations`, no por la consola | TASK-001 accept |
+| MIGRADOR_ATOMICIDAD | una migración falla en su segunda sentencia | NO queda registrada en `schema_migrations`, su efecto parcial no persiste, las posteriores no se aplican y el reintento la vuelve a intentar | TASK-001, propiedad central |
+| MIGRADOR_CONCURRENCIA | cuatro migradores en paralelo contra una base limpia | todos salen 0; cada migración se aplica exactamente una vez (`pg_advisory_lock`) | TASK-001 accept |
+| MIGRADOR_VARIABLES_ENTORNO | sin `DATABASE_URL` ni `DATABASE_URL_TEST`; y fuera de tests con solo `DATABASE_URL_TEST` | falla con mensaje claro y exit 1; fuera de tests **nunca** cae en la base de tests | TASK-001 accept |
+| MIGRADOR_BASELINE | `--marcar-aplicadas` | marca sin ejecutar; nunca se dispara solo en una corrida normal | TASK-001 |
+| BACKEND_HIGIENE | importar `pool.js` y `migrar.js` | no importan firebase, no abren puertos, no escuchan HTTP y no tienen efectos al importarse | TASK-001 accept |
+
+---
+
 ## Estado por adaptador
 
 | Invariante | Firestore (actual) | Postgres (nuevo) |
@@ -113,8 +130,13 @@ known-failing no es una regresión: es la razón de la migración.
 
 ## Estado actual de la suite
 
-34 tests en el repositorio: 21 de invariantes contra PostgreSQL (`tests/integration/postgres/`),
-4 de aislamiento contra el emulador, 4 de contabilidad y 5 de facturación. Los 21 cubren
+75 tests en el repositorio (actualizado 2026-09-04, TASK-001). Unitarios (`npm test`): 32 =
+13 de `backend-pool-entorno` + 10 de `backend-higiene` + 4 de contabilidad + 5 de facturación.
+Integración: 43 = 21 de invariantes contra PostgreSQL
+(`tests/integration/postgres/invariantes.test.js`), 18 del migrador
+(`tests/integration/postgres/migrador.test.js`) y 4 de aislamiento contra el emulador
+(uno de ellos, `_safety`, en rojo conocido por las reglas de Firestore: ver TEST_RESULTS.md).
+Los 21 de invariantes cubren
 VENTA_NORMAL, STOCK_INSUFICIENTE, FALLO_INTERMEDIO, DOBLE_ENVIO, CONTABILIDAD, PAGOS_VENTA,
 PENDIENTE_CON_CLIENTE, RESERVAS_CONSISTENTES, NO_VENDER_RESERVADO, NO_CONSUMIR_DE_MAS,
 CONCURRENCIA, ORDEN_DE_BLOQUEO e INTEGRIDAD_GLOBAL.
