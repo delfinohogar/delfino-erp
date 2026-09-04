@@ -20,6 +20,11 @@ escriben cuando este lote esté aprobado, para no planificar sobre un esquema qu
 cambiar.
 
 Los tests los escribe el tester en `tests/`, así que `tests/` no aparece en ningún `files:`.
+Única excepción: TASK-011, cuyo entregable **es** un test y por eso sí lo declara.
+
+**Orden de ejecución:** TASK-011 va antes que TASK-002. La suite tiene que estar en verde antes
+de tocar reglas de negocio: un rojo crónico entrena a ignorar los rojos, y TASK-002 es la primera
+tarea cuyo resultado es contable.
 
 ---
 
@@ -39,10 +44,41 @@ accept:
 - no abre puertos, no escucha HTTP, no importa firebase
 - `npm test` sigue en verde y los 21 tests de invariantes siguen pasando
 
+### TASK-011 — El test de aislamiento se autentica en vez de escribir sin usuario
+status: PENDING
+owner: tester
+depends: TASK-001
+files:
+- tests/integration/safety.test.js
+accept:
+- el test se autentica contra el emulador de Auth con `admin@delfino.local`, igual que hace el ERP real, antes de escribir
+- **no se modifica `firestore.rules`**: agregar una regla a producción para que pase un test es la salida equivocada
+- la escritura de prueba va a una colección que las reglas ya contemplan para un usuario logueado; `_safety` no existe en las reglas y no se inventa
+- el test sigue probando lo que dice probar: que la escritura **va al emulador** y no puede llegar a producción. Si el aislamiento se rompe, el test falla
+- el test es autosuficiente: no depende de que alguien haya corrido `npm run seed` antes, ni de qué `projectId` usó el seed
+- el dato de prueba que escribe se borra al terminar, o se escribe en un id propio que no ensucia la base del emulador
+- los 4 tests de `safety.test.js` en verde, y la suite completa sin ningún rojo
+- no se toca ningún otro test ni código de aplicación
+
+### TASK-012 — Validación de flags del migrador (R14)
+status: PENDING
+owner: implementador
+depends: TASK-011
+files:
+- backend/src/db/migrar.js
+- backend/README.md
+accept:
+- un argumento desconocido o mal tipeado **aborta con exit distinto de 0** y lista los flags válidos; nunca cae silenciosamente en el modo que aplica migraciones
+- caso concreto que hoy falla: `node backend/src/db/migrar.js --estad` no debe aplicar nada
+- `--estado` no crea la tabla `schema_migrations`, o el README deja de afirmar que "no escribe esquema": el código y la documentación tienen que coincidir
+- `--marcar-aplicadas` sigue exigiendo el string exacto y sigue sin tener abreviatura
+- las migraciones existentes no se modifican y los tests de TASK-001 siguen en verde
+- se actualiza R14 en RISKS.md como mitigado, con la fecha
+
 ### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
 status: PENDING
 owner: implementador
-depends: TASK-001
+depends: TASK-001, TASK-011
 files:
 - backend/db/migrations/0003_iva_y_destino_pago.sql
 accept:

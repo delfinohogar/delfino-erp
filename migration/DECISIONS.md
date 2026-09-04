@@ -48,16 +48,6 @@ Es falso —el IVA está discriminado e imputado a 2.1.2— y contradice la deci
 mientras siga ahí, todo agente que lea las instrucciones del proyecto parte de una premisa
 equivocada sobre el dominio que TASK-002 implementa.
 
-### 2026-09-04 — El test `_safety` está en rojo y la salida requiere tocar `firestore.rules`
-`tests/integration/safety.test.js` tiene un test en rojo con `PERMISSION_DENIED`. Tester y
-auditor lo verificaron por vías independientes y coinciden: es **preexistente a TASK-001** y
-falla por **lógica de reglas, no por infraestructura** — el emulador está corriendo y responde;
-`firestore.rules` no tiene ningún `match /_safety/{id}` ni regla catch-all, y el test escribe sin
-autenticar. Hay dos salidas y ninguna la puede tomar un agente: agregar la regla de `/_safety` a
-`firestore.rules`, que solo modifica Gastón, o que el test se autentique. Impacto: mientras siga
-rojo, la suite de integración no tiene un verde limpio, y un rojo crónico entrena a ignorar los
-rojos. No bloquea ninguna tarea del lote.
-
 ### 2026-09-04 — El adaptador necesita `js/firebase.js`, que solo modifica Gastón
 El punto de interposición natural entre la UI y la persistencia es `js/firebase.js`, único acceso
 al SDK, y está en la lista de archivos que solo modifica Gastón. Además las páginas cargan desde
@@ -66,6 +56,31 @@ prueba sin tocar ese archivo; la conexión final es una acción de Gastón. Hay 
 del paso 5 del plan maestro.
 
 ---
+
+## 2026-09-04 — [GASTÓN] El test de aislamiento se autentica; `firestore.rules` no se toca
+El test `_safety` de `tests/integration/safety.test.js` fallaba con `PERMISSION_DENIED` porque
+escribía sin autenticar en una colección que las reglas no contemplan. Había dos salidas:
+agregar `match /_safety/{id}` a `firestore.rules`, o que el test se autentique.
+
+Gastón decide la segunda, y el motivo vale como regla general: **agregar una regla a producción
+para que pase un test es la salida equivocada**. `firestore.rules` describe qué puede hacer el
+ERP real; relajarlo para acomodar un test invierte la relación entre el sistema y su prueba.
+
+Además el test mejora: autenticándose con `admin@delfino.local` contra el emulador de Auth
+—igual que hace el ERP real— pasa a probar lo que dice probar, que la escritura va al emulador,
+en vez de probar que las reglas dejan escribir sin usuario, que no era la propiedad buscada y
+que además es falsa.
+
+Se implementa en TASK-011, que va antes que TASK-002: la suite tiene que estar verde antes de
+tocar reglas de negocio.
+
+## 2026-09-04 — [NIVEL 2] R14 se corrige en TASK-012, no se acepta como riesgo residual
+El auditor registró R14 [BAJA]: `migrar.js` decide el modo con `argv.includes()` sin validar
+argumentos desconocidos, así que `--estad` no informa nada y **aplica las migraciones de verdad**.
+Gastón lo saca de la lista de riesgos aceptados y lo manda a corregir: que un flag mal tipeado
+ejecute SQL cuando el operador creía estar solo consultando es el tipo de cosa que muerde un
+domingo. Queda como TASK-012, después de TASK-011 y antes o después de TASK-002 según convenga:
+no bloquea el esquema.
 
 ## 2026-09-04 — [NIVEL 2] El cambio 8 del esquema entra en TASK-002, no en una tarea nueva
 `fecha_operacion` como `date` local sin `toISOString()` (cambio 8 de ARCHITECTURE §2.3, P8 más el

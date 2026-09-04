@@ -133,6 +133,11 @@ escrito, aplica en vez de marcar), pero un typo en `--estado` ejecuta SQL que el
 estar solo consultando. Además `--estado` sí crea la tabla `schema_migrations` si no existe
 (`migrar.js:140`), mientras `backend/README.md:65` dice "informa, no escribe esquema".
 
+**CORRECCIÓN PENDIENTE — TASK-012**, decidido por Gastón el 2026-09-04. No se acepta como riesgo
+residual: que un flag mal tipeado ejecute SQL cuando el operador creía estar solo consultando es
+el tipo de cosa que muerde un domingo. Se cierra validando los argumentos desconocidos y
+alineando README y código sobre si `--estado` crea la tabla.
+
 ## R15 — [BAJA] Dos aserciones de los tests de TASK-001 podrían pasar de forma vacua
 `tests/unit/backend-higiene.test.js:63-85` parchea `listen()` y después importa `pool.js` y
 `migrar.js`: si el registro de módulos de Vitest ya los tuviera cacheados, el cuerpo no se
