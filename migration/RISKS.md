@@ -8,7 +8,9 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R12 sin huecos y son los definitivos.
+R20 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011 y R20 el director, todos el
+2026-09-04.
 
 ---
 
@@ -147,3 +149,175 @@ el bloque de proceso hijo limpio (líneas 88-123), que es el que manda.
 filtrar por la clave 5150419, así que otro lock advisory del cluster lo satisfaría; las
 aserciones vecinas (no existe `schema_migrations` mientras espera, existe después de liberar)
 son las que sostienen el caso.
+
+## R16 — [MEDIA] El seed siembra en `demo-delfino` mientras el emulador corre en `delfino-hogar-erp`
+`scripts/seed-emulator.mjs:28` inicializa el Admin SDK con
+`projectId: process.env.GCLOUD_PROJECT || "demo-delfino"`, pero `npm run emulators` y
+`npm run test:integration` corren con `--project delfino-hogar-erp` (`package.json:9-10`) y
+`js/firebase-config.js` declara ese mismo `projectId`. Si `GCLOUD_PROJECT` no está seteada —el
+caso por defecto en un clon limpio— el seed escribe usuarios y datos en el namespace
+`demo-delfino`, que el ERP y los tests **nunca miran**.
+
+**No es hipotético: ya ocurrió.** Gastón lo reportó el 2026-09-04: el login local falló porque no
+encontraba el perfil del usuario. El usuario existía, pero en otro proyecto. El síntoma es
+especialmente engañoso porque el seed termina con éxito y no advierte nada.
+
+Severidad MEDIA y no BAJA porque falla en silencio, el modo de falla apunta al lugar equivocado
+—parece un problema de Auth o de reglas, no de configuración del seed— y afecta a cualquiera que
+clone el repo y siga INSTALAR.md.
+
+**CORRECCIÓN PENDIENTE — TASK-013.** El default tiene que ser `delfino-hogar-erp`, o el seed debe
+abortar con un mensaje claro si el proyecto que usa no coincide con el del emulador.
+
+## R17 — [ELIMINADO 2026-09-04] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
+
+**ESTADO: ELIMINADO (no mitigado) — 2026-09-04, verificado contra el emulador.**
+`tests/integration/safety.test.js` ya no toma prestado ningún usuario del entorno: crea el suyo
+(`safety-<uuid>@test.local`) y borra exclusivamente lo que creó esa corrida. No queda ninguna
+rama que pueda borrar un perfil ajeno, porque no hay estado previo que restaurar. Demostrado con
+las cuatro inyecciones de "falla a la mitad" del `beforeAll` (antes de `createUser`, justo
+después, después de escribir el perfil y después del `signIn`): en las cuatro, la cuenta de
+desarrollo siguió existiendo, su perfil conservó `rol: administrador`, el login documentado
+respondió **200** contra el emulador de Auth con el mismo uid, y no quedó ningún
+`clientes/safety-check-*`. Evidencia completa en `migration/TEST_RESULTS.md` (TASK-011,
+corrección 2026-09-04). Se descarta el flag `perfilLeido`: mitigaba la ventana, no la clase.
+
+Texto histórico del riesgo, para trazabilidad:
+
+`tests/integration/safety.test.js:88-93` asigna `uid = usuario.uid` **antes** de leer
+`existiaPerfil = snapPerfil.exists`. Si algo lanza en esa ventana de una sola sentencia (el
+`refPerfil.get()`), `afterAll` corre con `uid` seteado y `existiaPerfil = false`, y toma la rama
+`else await dbAdmin.collection("usuarios").doc(uid).delete()` (línea 121): **borra** el perfil que
+nunca llegó a leer.
+
+Verificado por inyección el 2026-09-04 (auditoría de TASK-011): con un `throw` inyectado justo
+después de `uid = usuario.uid`, el documento `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` quedó en 404
+en el emulador. Se restauró a mano.
+
+Severidad BAJA: la ventana exige que el `get()` falle y el `delete()` posterior funcione, y el
+efecto es sobre el emulador, nunca sobre Firestore de producción. Pero la recuperación está rota
+mientras viva R16 (`npm run seed` puede resembrar en otro namespace), así que el síntoma sería
+"el login local dejó de andar" sin causa aparente. Se cierra con un flag `perfilLeido` que sólo
+habilite la restauración cuando el estado previo se conoce de verdad. En el camino de falla
+normal (un `it` en rojo) la restauración sí es correcta: verificado.
+
+**VÍA ELEGIDA: ELIMINAR DE RAÍZ, NO MITIGAR (2026-09-04, decisión de Gastón, auditor de acuerdo).**
+Queda descartado el cierre por flag `perfilLeido` que proponía el párrafo anterior: mitiga la
+ventana, no elimina la clase de defecto. La causa real es que el test toma prestado un recurso
+compartido y mutable del entorno —el usuario `admin@delfino.local`— y después tiene que
+devolverlo. La corrección es que no lo tome: el test crea su propio usuario efímero
+`safety-<uuid>@test.local` con perfil de rol mínimo, lo usa y lo borra. Sin estado previo no hay
+restauración, y una restauración que no existe no puede fallar a la mitad. R17 desaparece; no se
+mitiga.
+
+Verificado que la vía es viable: `firestore.rules:29` (`puedeVender()`) sólo mira
+`/usuarios/{uid}.rol`; no hay custom claims ni allowlist de correos, así que un uid efímero pasa
+exactamente la misma regla por el mismo camino, y ningún poder probatorio del test depende de qué
+principal esté autenticado.
+
+**BLOQUEANTE para cerrar TASK-011** (no tarea aparte): TASK-012 y TASK-013 dependen de TASK-011 y
+se verifican corriendo la suite de integración una y otra vez, así que diferirlo significa ejecutar
+el test defectuoso justo en la ventana en que más se corre. Criterios de verificación en
+`migration/approvals/TASK-011.approved`, sección ADDENDUM 2026-09-04. Riesgo nuevo a controlar
+allí: usuarios huérfanos si el proceso muere sin `afterAll` (acotado por un barrido al inicio;
+`emulators:exec` no exporta al salir, pero `npm run emulators` sí, con `--export-on-exit`).
+
+
+## R18 — [ELIMINADO 2026-09-04] `safety.test.js` le pisa la contraseña al usuario de desarrollo y no la restaura
+
+**ESTADO: ELIMINADO (no mitigado) — 2026-09-04, verificado contra el emulador.**
+El test ya no llama a `updateUser` ni a `getUserByEmail`, y no nombra la cuenta de desarrollo en
+ninguna parte: `grep -n "admin@delfino.local\|updateUser\|getUserByEmail"` sobre
+`tests/integration/safety.test.js` no devuelve ninguna coincidencia. Usa una identidad propia por
+corrida con **password aleatoria** (`randomBytes(24).toString("hex")`), que no coincide con
+ninguna password documentada. Sin `updateUser` sobre la cuenta compartida no hay password que
+pisar. Verificado además de forma directa: después de las cuatro inyecciones y de las dos
+mutaciones, el login documentado sigue respondiendo 200 contra el emulador de Auth.
+
+Texto histórico del riesgo, para trazabilidad:
+
+`tests/integration/safety.test.js:80` hace `authAdmin.updateUser(uid, { password: PASSWORD })`
+sobre `admin@delfino.local` cada vez que corre la suite de integración, y `afterAll` no la
+devuelve al valor anterior (sólo borra el usuario si el propio test lo creó).
+
+Aceptado como riesgo residual: el valor que impone es exactamente el documentado en `CLAUDE.md`
+y en `INSTALAR.md` (`delfino-dev`), y el usuario sólo existe en el emulador. Queda anotado porque
+es un efecto colateral no restaurado sobre el entorno de Gastón: si alguna vez se decide que el
+usuario de desarrollo tenga otra contraseña, este test se la va a pisar en silencio.
+
+**VÍA ELEGIDA: ELIMINAR DE RAÍZ, NO MITIGAR (2026-09-04, decisión de Gastón, auditor de acuerdo).**
+Se retira la aceptación como riesgo residual. La posición es: un test no puede dejar a Gastón sin
+acceso a su entorno local, ni siquiera imponiéndole en silencio un valor que hoy coincide con el
+documentado. Misma corrección que R17 y por la misma causa: el test no toca `admin@delfino.local`
+en absoluto, crea su propio usuario efímero con password aleatoria por corrida. Sin `updateUser`
+sobre la cuenta compartida no hay password que pisar. R18 desaparece; no se mitiga.
+
+**BLOQUEANTE para cerrar TASK-011.** Criterios de verificación en
+`migration/approvals/TASK-011.approved`, sección ADDENDUM 2026-09-04.
+
+
+## R19 — [BAJA] Ningún test cubre el wiring de emuladores real de `js/firebase.js`
+`tests/integration/safety.test.js` conecta el emulador **por su cuenta**
+(`connectFirestoreEmulator` en la línea 101) y sólo importa `js/firebase-config.js`. La barrera
+que de verdad protege al ERP —`js/firebase.js:60-66`, que enruta a los emuladores cuando
+`location.hostname` es local— nunca se ejecuta en la suite, porque depende de `location` y los
+tests corren en Node.
+
+O sea: `safety.test.js` prueba que *una escritura de este test* aterriza en el emulador, no que
+*el ERP* vaya al emulador. Si alguien rompiera la condición de `js/firebase.js`, la suite seguiría
+en verde. Es una limitación **preexistente** (el test anterior a TASK-011 tenía la misma), no una
+regresión introducida por la tarea. Se cierra el día que haya un test de `js/firebase.js` con
+`location.hostname` simulado, que verifique que se llamó a los cuatro `connect*Emulator`.
+
+## R20 — [MEDIA] Tests que pasan sin discriminar: confianza falsa en toda la suite
+Riesgo transversal, no de un archivo. Registrado por el director el 2026-09-04 a partir del
+hallazgo de TASK-011; la decisión completa está en DECISIONS.md.
+
+El test de aislamiento de FASE -1 escribía un documento y lo leía de vuelta **con el mismo
+cliente**. Contra un Firestore equivocado escribe ahí y lee ahí: el assert pasa igual. El test
+que existía para detectar una fuga a producción no podía detectarla, y estuvo así desde que se
+escribió. El rojo por `PERMISSION_DENIED` lo tapaba: se leía como problema de reglas, no como
+"este test no prueba nada". Tester y auditor lo reprodujeron por separado.
+
+Por qué MEDIA y transversal: la PoC se evalúa con las invariantes de TEST_MATRIX.md. Una
+invariante cubierta por un test que no discrimina produce un GO apoyado en evidencia vacía, y el
+modo de falla es silencioso — no hay rojo que avise.
+
+Mitigación vigente: toda tarea con tests exige la demostración de que el test **puede fallar**
+(romper la propiedad a propósito y mostrar el rojo); el auditor la reproduce por su cuenta o
+inventa otra; y se sospecha de toda verificación que use el mismo canal que la operación
+verificada. Aplicado en TASK-001 (mutación del migrador) y TASK-011 (segundo emulador): en los
+dos casos apareció algo que no se sabía.
+
+
+## R21 — [BAJA] Dos corridas simultáneas de la suite se pisan por el barrido de huérfanos
+Registrado por el auditor el 2026-09-04, en la confirmación de TASK-011.
+
+El barrido de huérfanos que pide el criterio 7 del ADDENDUM (`safety.test.js:111-145`) borra, al
+empezar, TODA cuenta `safety-<uuid v4>@test.local` que encuentre en Auth — incluida la de otra
+corrida que esté en marcha en ese mismo momento. Si dos invocaciones de la suite corren en
+paralelo contra el mismo emulador, la que arranca segunda le borra el usuario y el perfil a la
+primera, y la primera falla con `PERMISSION_DENIED` en su `setDoc`.
+
+Por qué BAJA y por qué no bloquea: es estrictamente mejor que lo que había (antes las dos corridas
+se peleaban por el usuario compartido del entorno; ahora sólo se alcanzan recursos que el propio
+test creó, y ninguna cuenta ajena puede ser tocada). El escenario exige dos corridas simultáneas
+sobre el mismo emulador, que no es el uso normal: `npm run test:integration` levanta su propio
+emulador con `emulators:exec` y el segundo intento falla antes por "port taken". El efecto es un
+rojo ruidoso en el emulador, nunca una pérdida de datos ni nada que toque producción.
+
+Si alguna vez molesta, la salida es acotar el barrido por antigüedad (`metadata.creationTime` más
+viejo que, digamos, una hora) en vez de barrer todo lo que matchea el patrón.
+
+## R22 — [INFORMATIVO] `borrarUsuarioEfimero` borra el perfil sin re-verificar si `getUser` falla por otra causa
+Registrado por el auditor el 2026-09-04, en la confirmación de TASK-011.
+
+`safety.test.js:92-103` re-verifica contra Auth que el email de la cuenta siga el patrón efímero
+antes de borrar nada. Si `authAdmin.getUser(uid)` lanza, el `catch` asume "ya no existe" y deja
+`email = null`, y con `email === null` la función igual borra `/usuarios/{uid}`. Un fallo
+transitorio del emulador —no un "user not found"— toma ese mismo camino.
+
+Por qué INFORMATIVO y no un riesgo real: el uid que llega ahí es siempre propio (o el que devolvió
+`createUser` de esta corrida, o uno cuyo email ya matcheó el patrón en el barrido), así que la
+re-verificación es una segunda red, no la única. Ninguna cuenta ajena queda al alcance por este
+camino. Se anota para que quede escrito que el `catch` es más ancho que su comentario.

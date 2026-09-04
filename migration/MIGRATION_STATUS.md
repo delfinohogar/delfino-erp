@@ -51,8 +51,11 @@ contable del pago (1.1.1 / 1.1.5 / 1.1.2) y `fecha_operacion` como fecha local. 
 tarea que toca reglas de negocio, y la primera cuyo resultado es contable: el asiento tiene que
 cerrar Debe = Haber también con alícuotas mixtas de 21 % y 10,5 %.
 
-**TASK-012** corrige R14: un flag mal tipeado del migrador aplica migraciones en vez de avisar.
-No se acepta como riesgo residual.
+Dos correcciones más, ninguna bloqueante del esquema. **TASK-012** cierra R14: un flag mal
+tipeado del migrador aplica migraciones en vez de avisar. **TASK-013** cierra R16: el seed usa
+`demo-delfino` por defecto mientras el emulador corre en `delfino-hogar-erp`, así que siembra en
+un namespace que el ERP no mira — ya rompió un login local. Ninguno de los dos se acepta como
+riesgo residual.
 
 El lote cubre los pasos 1 a 3 del plan maestro. Las tareas de API, adaptador y shadow se escriben
 cuando este lote esté aprobado, para no planificar sobre un esquema que todavía puede cambiar.
@@ -77,7 +80,7 @@ Netlify no lo lee).
 
 83 módulos en `js/` (10.719 LOC), 75 pantallas (12.403 LOC), 74 páginas HTML. 41 colecciones raíz
 y 6 subcolecciones. 32 módulos escriben en Firestore, con 140 call-sites, y **cero escrituras
-fuera de `js/`**. 43 decisiones, 15 riesgos, 43 invariantes de negocio más 7 propiedades de
+fuera de `js/`**. 45 decisiones, 16 riesgos, 43 invariantes de negocio más 7 propiedades de
 infraestructura, **75 tests** (32 unitarios y 43 de integración), 1 de ellos en rojo conocido.
 
 ## Cómo leer esto
