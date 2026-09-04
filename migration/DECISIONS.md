@@ -31,3 +31,58 @@ agentes con una barrera física, no con una instrucción.
 
 ## PENDIENTE DE GASTÓN
 (el director escribe acá las preguntas de Nivel 3 antes de hacerlas)
+
+---
+
+## 2026-09-04 — [P9 · GASTÓN] Tesorería: no se migran saldos, sí hay saldo inicial
+Los saldos y movimientos actuales de cajas, bancos y cuentas financieras son datos de prueba y
+NO se migran. Postgres arranca sin ellos.
+
+Debe existir un mecanismo para cargar manualmente un SALDO INICIAL por caja, banco o cuenta
+antes de la puesta en producción. Ese saldo tiene que quedar registrado como un MOVIMIENTO DE
+APERTURA a partir del cual continúa la operatoria, nunca como una modificación invisible del
+saldo.
+
+Diseño que lo garantiza: el saldo NO se almacena como campo, se deriva de la suma de los
+movimientos. El saldo inicial es un movimiento con motivo 'apertura' y fecha de corte. Con eso,
+modificar un saldo sin dejar rastro es estructuralmente imposible, no solo está prohibido.
+Mismo principio que `movimientos_stock` y que las reservas.
+
+No se implementa ahora. Solo queda verificado que el diseño no lo impide.
+
+## 2026-09-04 — [P9 · GASTÓN] Delfino ERP es la fuente de verdad de productos, precios y stock
+REGLA ARQUITECTÓNICA. Las plataformas externas RECIBEN esa información desde Delfino ERP.
+
+Una plataforma externa puede ORIGINAR una operación comercial —un pedido de Tiendanube— pero esa
+operación ingresa al ERP y es el ERP quien determina sus efectos sobre stock, pedidos, ventas y
+demás módulos internos.
+
+No se cambia esta regla sin elevarlo como decisión arquitectónica.
+
+Direcciones:
+- Productos: Delfino ERP → Tiendanube. Tiendanube no modifica el producto maestro.
+- Precios: Delfino ERP → Tiendanube. Un cambio manual en Tiendanube no sobrescribe el maestro.
+- Stock: Delfino ERP → Tiendanube. El ERP calcula la disponibilidad y la publica.
+- Pedidos: Tiendanube → Delfino ERP, y es el único flujo que empieza afuera. Tiendanube informa
+  que hay un pedido; no manda stock. Con idempotencia para que el mismo webhook no genere dos
+  pedidos internos.
+
+Flujo objetivo: pedido en Tiendanube → webhook al backend del ERP → el ERP registra el pedido →
+afecta o reserva stock según las reglas de Pedidos → Postgres queda con el stock verdadero → el
+ERP sincroniza disponibilidad hacia Tiendanube.
+
+Prohibido explícitamente: que Tiendanube modifique stock en Firestore mientras el ERP lo
+modifica en Postgres. Dos fuentes de verdad.
+
+VERIFICADO CONTRA EL CÓDIGO ACTUAL (2026-09-04): `tnWebhook` en `functions/tiendanube.js` NO
+escribe stock. Solo registra el pedido en `ordenesTiendaNube`, usando el id externo como id del
+documento —idempotente por diseño— y deja un log. La regla ya se cumple hoy; queda documentada
+para que no se rompa.
+
+## 2026-09-04 — [P9 · GASTÓN] Firestore durante la transición
+Durante la PoC no se rompe ni se reemplaza la integración productiva existente.
+La arquitectura objetivo contempla que, cuando Postgres sea la base operativa: Firestore deja de
+ser fuente de verdad de stock; el webhook de Tiendanube no escribe stock operativo en Firestore;
+los pedidos entran al backend del ERP; el ERP determina la afectación de stock; el ERP publica
+stock y precios hacia Tiendanube.
+No habrá dos caminos operativos paralelos después del corte.

@@ -85,3 +85,8 @@ son ventas legítimas de artículos no importados todavía y NO se filtran (deci
 `js/ventas.js` incrementa `contadores/ventas` en una transacción propia antes de escribir la
 venta. Una venta que falla después deja un hueco en la numeración. En el diseño PostgreSQL el
 contador vive dentro de la misma transacción y hace rollback — verificado empíricamente.
+
+## R17 — [BAJA] Órdenes de Tiendanube durante la reconciliación shadow
+Un pedido de Tiendanube que entre durante la ventana de reconciliación aparece como diferencia,
+porque la PoC corre en local y no lo ve. No es un error: se excluyen esas órdenes del alcance
+de comparación o se marcan como diferencia esperada.
