@@ -126,3 +126,127 @@ Emulador principal intacto y en marcha (8080/9099/9199). Segundo emulador de la 
 puertos 8099/4401/4501/9151 cerrados, config del scratchpad borrada. `usuarios` y `clientes` con
 exactamente los mismos documentos que antes de la auditoría. Sin residuos `safety-check-*`.
 Firestore de producción no fue contactado en ningún momento.
+
+---
+
+## ADDENDUM 2026-09-04 — La aprobación queda CONDICIONADA (el test no debe tocar al admin de desarrollo)
+
+El veredicto original no se reescribe: sobre el alcance entregado y contra los criterios literales
+de TASK-011 en `TASKS.md`, el trabajo del tester era APROBADO y lo sigue siendo. Lo que cambia es
+la premisa sobre la que acepté R17 y R18 como residuales.
+
+Los acepté asumiendo que era tolerable que la suite mutara el usuario compartido
+`admin@delfino.local` del emulador. Gastón retira esa premisa: "si el test toca la password del
+admin, prefiero que no toque ese usuario en absoluto". **Coincido, y no por jerarquía.** R17 y R18
+no son dos defectos sueltos: son dos síntomas de la misma causa —el test toma prestado un recurso
+compartido y mutable del entorno, y después tiene que devolverlo—. El flag `perfilLeido` que
+propuse para R17 mitiga una ventana; no elimina la clase. Un usuario efímero propio por corrida sí
+la elimina: si no hay estado previo, no hay restauración, y una restauración que no existe no puede
+fallar a la mitad. Es estrictamente mejor que lo que aprobé.
+
+Verificado que el cambio es viable y que no pierde poder probatorio:
+
+- **El rol se obtiene sin depender del email.** `firestore.rules:29` — `puedeVender()` sólo hace
+  `rol() in [...]`, y `rol()` lee `/usuarios/$(request.auth.uid).rol`. No hay custom claims, no hay
+  allowlist de correos, `esAdministrador()` tampoco mira el email. Un uid efímero con perfil
+  `rol: "vendedor"` escrito por el Admin SDK pasa exactamente la misma regla, por el mismo camino.
+- **No hay ninguna razón técnica para que sea el usuario del seed.** Al contrario: el criterio de
+  autosuficiencia que verifiqué se cumple *mejor*, porque el test deja de depender de que exista
+  —o no exista— un usuario previo.
+- **No se pierde valor probatorio.** La invariante bajo prueba es AISLAMIENTO_ESCRITURA: que una
+  escritura del SDK cliente, evaluada por `firestore.rules`, aterrice físicamente en el emulador
+  local. Lo que la sostiene es (a) SDK cliente y no Admin SDK, (b) paso real por las reglas
+  —demostrado por la mutación `rol: "sin_permiso"` → PERMISSION_DENIED—, y (c) la lectura por REST
+  con `Bearer owner` contra 127.0.0.1. Ninguna de las tres depende de *qué* principal está
+  autenticado, sólo de que haya uno con perfil y rol. El "igual que hace el ERP real" del criterio
+  de la tarea significa "autenticado y pasando por las reglas", no "esa cuenta exacta"; con
+  `rol: "vendedor"` la simulación es incluso más fiel al caso que representa (`/clientes`,
+  `allow write: if puedeVender()`, alta de cliente desde Nueva Venta hecha por un vendedor).
+- **Se gana algo que no había notado:** hoy dos corridas simultáneas de la suite mutan el MISMO
+  usuario y el MISMO perfil; el `afterAll` de una restaura el perfil mientras la otra está a mitad
+  de su `setDoc`. Es una carrera real entre corridas, con flake por PERMISSION_DENIED. Con un uid
+  por corrida desaparece.
+- **Deja de tapar R16.** Hoy el `beforeAll` *repara* al admin de desarrollo en el namespace bueno:
+  crea el usuario si falta, le impone la password y le escribe el perfil. Eso enmascara justamente
+  el síntoma que originó R16. Que el test deje de hacerlo es correcto — con la consecuencia de que
+  reparar el entorno local pasa a ser responsabilidad exclusiva de TASK-013, que es su lugar.
+
+### Problema nuevo que sí introduce, y cómo debe quedar cerrado
+
+Usuarios y perfiles huérfanos. Si el proceso muere sin ejecutar `afterAll` (Ctrl-C, crash de
+vitest, SIGKILL), el usuario efímero y su `/usuarios/{uid}` quedan. Con `npm run test:integration`
+el residuo es inocuo: `firebase emulators:exec` **no** exporta al salir, la instancia es
+descartable. Pero contra un `npm run emulators` de larga vida el residuo persiste, porque ese
+script sí corre con `--export-on-exit` sobre `./emulator-data`. Y `js/usuarios.js:9` lista
+`/usuarios` con `orderBy("nombre")`: un perfil huérfano **con** campo `nombre` aparecería en la
+pantalla de usuarios del ERP local. Es acotable y verificable (ver criterios), no es motivo para
+descartar la vía.
+
+### Naturaleza del pedido: BLOQUEANTE para cerrar TASK-011
+
+Lo digo yo, que firmé la aprobación, y no me escondo en que "los criterios literales se cumplían".
+Vuelve al tester antes de cerrar, por tres razones concretas:
+
+1. R17 no vive solo: convive con R16, todavía abierto. Si el test borra el perfil del admin, la
+   recuperación esperable (`npm run seed`) puede resembrar en `demo-delfino` y no arreglar nada. El
+   síntoma que ve Gastón es "el login local dejó de andar", sin causa aparente. Ese costo de
+   diagnóstico es mayor que una iteración.
+2. La ventana de exposición no es teórica: TASK-012 y TASK-013 dependen de TASK-011 y se van a
+   verificar corriendo `npm run test:integration` una y otra vez. Diferirlo a una tarea aparte
+   significa ejecutar el test defectuoso decenas de veces en el intervalo, que es exactamente
+   cuando más se corre.
+3. El arreglo es en el mismo archivo, del mismo dueño y del mismo tamaño que el trabajo ya hecho.
+   Una tarea aparte para esto es más ceremonia que el arreglo.
+
+En consecuencia: **APROBADO queda condicionado.** TASK-011 no se cierra hasta que la corrección
+esté verificada contra los criterios de abajo. Si la corrección se entrega y los cumple, se
+confirma la aprobación sin auditoría nueva del resto (el alcance ya auditado no se reabre). R17 y
+R18 se dan por eliminados —no mitigados— recién cuando estén verificados.
+
+### Criterios de aceptación de la corrección (verificables, para pegar en la tarea)
+
+1. `tests/integration/safety.test.js` **no menciona `admin@delfino.local` en ningún camino de
+   ejecución** y no llama a `authAdmin.updateUser` ni a `getUserByEmail` sobre esa cuenta.
+   Verificable con `grep`.
+2. El test crea su propio usuario por corrida, con email `safety-<uuid>@test.local` y **password
+   aleatoria por corrida** (no una constante). El uuid viene de `randomUUID()`, como el id del
+   documento de prueba.
+3. El perfil `/usuarios/{uid}` del usuario efímero se escribe con el **rol mínimo suficiente**
+   (`vendedor`, no `administrador`): es el que `puedeVender()` exige en `/clientes` y deja al
+   huérfano sin privilegios de admin.
+4. Ese perfil **no** escribe el campo `nombre`, para que un huérfano no aparezca en el listado de
+   `js/usuarios.js:9` (`orderBy("nombre")` excluye los documentos sin ese campo). Mismo criterio ya
+   usado y verificado para `/clientes`. Se puede dejar un campo marcador evidente (p. ej.
+   `email: "safety-<uuid>@test.local"`).
+5. `afterAll` **sólo borra lo que este proceso creó en esta corrida**: el borrado del usuario y del
+   perfil está guardado por un flag que se setea *después* de que `createUser` haya devuelto, y el
+   uid a borrar es el que devolvió esa llamada. No queda ninguna rama capaz de borrar un uid que el
+   test no creó.
+6. **Prueba de falla a la mitad, obligatoria y demostrada** (es la que cierra R17): inyectando un
+   `throw` en cada punto del `beforeAll` —antes de `createUser`, inmediatamente después de
+   `createUser`, después de escribir el perfil, y después del `signIn`— en las cuatro corridas debe
+   verificarse, contra el emulador, que: (a) el usuario `admin@delfino.local` sigue existiendo,
+   (b) su `/usuarios/{uid}` sigue existiendo con su `rol` original, (c) el login
+   `admin@delfino.local` / `delfino-dev` sigue respondiendo 200, y (d) no queda ningún
+   `clientes/safety-check-*`. El punto (c) se verifica de verdad, no por lectura del código.
+7. **Barrido de huérfanos al empezar:** el `beforeAll` elimina los usuarios `safety-*@test.local` y
+   sus perfiles que hayan quedado de corridas anteriores, de modo que el residuo esté acotado a una
+   corrida. El barrido matchea por el patrón exacto de email y **nunca** puede alcanzar a
+   `admin@delfino.local` ni a ninguna cuenta que no siga ese patrón; con cero coincidencias no
+   lanza. Demostrado dejando un huérfano a mano y viendo que la corrida siguiente lo limpia.
+8. **Idempotencia y no acumulación:** dos corridas seguidas de la suite completa dan el mismo
+   resultado y, al terminar, `/usuarios` y `/clientes` del emulador contienen exactamente los mismos
+   documentos que antes de la primera (comparación explícita, no "parece igual").
+9. La demostración de que el test **puede fallar** sigue en pie con el usuario efímero: la mutación
+   de aislamiento (escribir contra otro emulador) debe seguir dando ROJO con el mensaje "AISLAMIENTO
+   ROTO", y un perfil con rol sin permiso debe seguir dando `PERMISSION_DENIED`. Es decir: cambiar
+   de principal no debilitó ninguna de las dos mutaciones (R20).
+10. Todo lo demás intacto: `firestore.rules` byte por byte igual a `master`,
+    `scripts/seed-emulator.mjs` sin tocar, ningún otro test ni código de aplicación modificado,
+    43/43 en la suite de integración y `npm test` en verde.
+11. `migration/RISKS.md` queda con R17 y R18 marcados como ELIMINADOS (no mitigados) con la fecha, y
+    `TEST_RESULTS.md` documenta la prueba del punto 6 con su evidencia.
+
+Nota para el tester: el criterio de `TASKS.md` que dice "se autentica con `admin@delfino.local`"
+queda superado por esta decisión de Gastón del 2026-09-04. Autenticarse sigue siendo obligatorio;
+la cuenta concreta, no.

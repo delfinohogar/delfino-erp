@@ -169,7 +169,7 @@ clone el repo y siga INSTALAR.md.
 **CORRECCIÓN PENDIENTE — TASK-013.** El default tiene que ser `delfino-hogar-erp`, o el seed debe
 abortar con un mensaje claro si el proyecto que usa no coincide con el del emulador.
 
-## R17 — [BAJA] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
+## R17 — [BAJA — CORRECCIÓN PENDIENTE, BLOQUEA TASK-011] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
 `tests/integration/safety.test.js:88-93` asigna `uid = usuario.uid` **antes** de leer
 `existiaPerfil = snapPerfil.exists`. Si algo lanza en esa ventana de una sola sentencia (el
 `refPerfil.get()`), `afterAll` corre con `uid` seteado y `existiaPerfil = false`, y toma la rama
@@ -187,7 +187,29 @@ mientras viva R16 (`npm run seed` puede resembrar en otro namespace), así que e
 habilite la restauración cuando el estado previo se conoce de verdad. En el camino de falla
 normal (un `it` en rojo) la restauración sí es correcta: verificado.
 
-## R18 — [BAJA] `safety.test.js` le pisa la contraseña al usuario de desarrollo y no la restaura
+**VÍA ELEGIDA: ELIMINAR DE RAÍZ, NO MITIGAR (2026-09-04, decisión de Gastón, auditor de acuerdo).**
+Queda descartado el cierre por flag `perfilLeido` que proponía el párrafo anterior: mitiga la
+ventana, no elimina la clase de defecto. La causa real es que el test toma prestado un recurso
+compartido y mutable del entorno —el usuario `admin@delfino.local`— y después tiene que
+devolverlo. La corrección es que no lo tome: el test crea su propio usuario efímero
+`safety-<uuid>@test.local` con perfil de rol mínimo, lo usa y lo borra. Sin estado previo no hay
+restauración, y una restauración que no existe no puede fallar a la mitad. R17 desaparece; no se
+mitiga.
+
+Verificado que la vía es viable: `firestore.rules:29` (`puedeVender()`) sólo mira
+`/usuarios/{uid}.rol`; no hay custom claims ni allowlist de correos, así que un uid efímero pasa
+exactamente la misma regla por el mismo camino, y ningún poder probatorio del test depende de qué
+principal esté autenticado.
+
+**BLOQUEANTE para cerrar TASK-011** (no tarea aparte): TASK-012 y TASK-013 dependen de TASK-011 y
+se verifican corriendo la suite de integración una y otra vez, así que diferirlo significa ejecutar
+el test defectuoso justo en la ventana en que más se corre. Criterios de verificación en
+`migration/approvals/TASK-011.approved`, sección ADDENDUM 2026-09-04. Riesgo nuevo a controlar
+allí: usuarios huérfanos si el proceso muere sin `afterAll` (acotado por un barrido al inicio;
+`emulators:exec` no exporta al salir, pero `npm run emulators` sí, con `--export-on-exit`).
+
+
+## R18 — [BAJA — CORRECCIÓN PENDIENTE, BLOQUEA TASK-011] `safety.test.js` le pisa la contraseña al usuario de desarrollo y no la restaura
 `tests/integration/safety.test.js:80` hace `authAdmin.updateUser(uid, { password: PASSWORD })`
 sobre `admin@delfino.local` cada vez que corre la suite de integración, y `afterAll` no la
 devuelve al valor anterior (sólo borra el usuario si el propio test lo creó).
@@ -196,6 +218,17 @@ Aceptado como riesgo residual: el valor que impone es exactamente el documentado
 y en `INSTALAR.md` (`delfino-dev`), y el usuario sólo existe en el emulador. Queda anotado porque
 es un efecto colateral no restaurado sobre el entorno de Gastón: si alguna vez se decide que el
 usuario de desarrollo tenga otra contraseña, este test se la va a pisar en silencio.
+
+**VÍA ELEGIDA: ELIMINAR DE RAÍZ, NO MITIGAR (2026-09-04, decisión de Gastón, auditor de acuerdo).**
+Se retira la aceptación como riesgo residual. La posición es: un test no puede dejar a Gastón sin
+acceso a su entorno local, ni siquiera imponiéndole en silencio un valor que hoy coincide con el
+documentado. Misma corrección que R17 y por la misma causa: el test no toca `admin@delfino.local`
+en absoluto, crea su propio usuario efímero con password aleatoria por corrida. Sin `updateUser`
+sobre la cuenta compartida no hay password que pisar. R18 desaparece; no se mitiga.
+
+**BLOQUEANTE para cerrar TASK-011.** Criterios de verificación en
+`migration/approvals/TASK-011.approved`, sección ADDENDUM 2026-09-04.
+
 
 ## R19 — [BAJA] Ningún test cubre el wiring de emuladores real de `js/firebase.js`
 `tests/integration/safety.test.js` conecta el emulador **por su cuenta**
