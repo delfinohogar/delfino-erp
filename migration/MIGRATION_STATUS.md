@@ -21,7 +21,8 @@ FASE 0, el 2026-09-04:
 - **Gastón resolvió tres decisiones de Nivel 3**: el IVA se calcula (corrige la premisa de P6),
   Tesorería queda fuera de la PoC pero se conserva el destino contable en `venta_pagos`, y solo
   los comprobantes conservan numeración en el corte (cierra P7).
-- **TEST_MATRIX.md** con 45 invariantes en cinco bloques, cada una con su origen.
+- **TEST_MATRIX.md** con 43 invariantes en cinco bloques, cada una con su origen: 11 de venta,
+  7 nuevas de esta fase, 16 de pedidos/reservas/entregas, 8 del trigger contable y 1 global.
 - **MASTER_PLAN.md** y las **10 tareas del primer lote de FASE 1** en TASKS.md.
 
 ## Qué sigue
@@ -51,7 +52,7 @@ Netlify no lo lee).
 
 83 módulos en `js/` (10.719 LOC), 75 pantallas (12.403 LOC), 74 páginas HTML. 41 colecciones raíz
 y 6 subcolecciones. 32 módulos escriben en Firestore, con 140 call-sites, y **cero escrituras
-fuera de `js/`**. 40 decisiones, 12 riesgos, 45 invariantes, 34 tests.
+fuera de `js/`**. 40 decisiones, 12 riesgos, 43 invariantes, 34 tests.
 
 ## Cómo leer esto
 Resumen de una pantalla. El detalle está en TASKS.md (qué falta), DECISIONS.md (qué se decidió y
