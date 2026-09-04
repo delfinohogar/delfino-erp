@@ -88,28 +88,36 @@ async function ventasEnRango(desde, hasta) {
   return snap.docs.map((d) => d.data());
 }
 
-// Nombre de cliente para las facturas de GBP del rango — resuelto en bloque (Promise.all, acotado a
-// los clientes DISTINTOS que aparecen en ese período, nunca los 31.000 completos), no una consulta
-// por factura. Mismo criterio de prioridad que resolverNombreClienteGbp (js/gbp-facturas.js): cliente
-// real vinculado primero, ficha liviana (clientesGbp) si no, "Cliente GBP #id" si ninguna existe.
+// Corre fn sobre items de a TAMANO_TANDA en paralelo, una tanda por vez (no items.length de a la
+// vez) — un reporte anual puede tener cientos o miles de clientes distintos, y cada uno es una
+// lectura de Firestore (se cobra por lectura); sin este tope, nombresClientesGbpEnRango dispara todo
+// de una sola vez.
+const TAMANO_TANDA_NOMBRES = 50;
+async function procesarEnTandas(items, fn) {
+  for (let i = 0; i < items.length; i += TAMANO_TANDA_NOMBRES) {
+    await Promise.all(items.slice(i, i + TAMANO_TANDA_NOMBRES).map(fn));
+  }
+}
+
+// Nombre de cliente para las facturas de GBP del rango — resuelto en bloque (acotado a los clientes
+// DISTINTOS que aparecen en ese período, nunca los 31.000 completos, y en tandas de
+// TAMANO_TANDA_NOMBRES), no una consulta por factura. Mismo criterio de prioridad que
+// resolverNombreClienteGbp (js/gbp-facturas.js): cliente real vinculado primero, ficha liviana
+// (clientesGbp) si no, "Cliente GBP #id" si ninguna existe.
 async function nombresClientesGbpEnRango(facturas) {
   const nombrePorClienteId = new Map();
   const clienteIdsVinculados = Array.from(new Set(facturas.filter((f) => f.clienteId).map((f) => f.clienteId)));
-  await Promise.all(
-    clienteIdsVinculados.map(async (id) => {
-      const snap = await getDoc(doc(db, "clientes", id));
-      if (snap.exists()) nombrePorClienteId.set(id, snap.data().razonSocial);
-    })
-  );
+  await procesarEnTandas(clienteIdsVinculados, async (id) => {
+    const snap = await getDoc(doc(db, "clientes", id));
+    if (snap.exists()) nombrePorClienteId.set(id, snap.data().razonSocial);
+  });
 
   const nombrePorExterno = new Map();
   const idsExternosSinVincular = Array.from(new Set(facturas.filter((f) => !f.clienteId && f.clienteIdExterno).map((f) => f.clienteIdExterno)));
-  await Promise.all(
-    idsExternosSinVincular.map(async (id) => {
-      const snap = await getDoc(doc(db, "clientesGbp", id));
-      if (snap.exists() && snap.data().nombre) nombrePorExterno.set(id, snap.data().nombre);
-    })
-  );
+  await procesarEnTandas(idsExternosSinVincular, async (id) => {
+    const snap = await getDoc(doc(db, "clientesGbp", id));
+    if (snap.exists() && snap.data().nombre) nombrePorExterno.set(id, snap.data().nombre);
+  });
 
   return { nombrePorClienteId, nombrePorExterno };
 }
@@ -135,9 +143,16 @@ async function ventasUnificadasEnRango(desde, hasta) {
     // (que nunca lleva ":"), así cada comprador de GBP se agrupa como su propia fila en vez de
     // mezclarse todos en "Consumidor final".
     const clienteId = f.clienteId || (f.clienteIdExterno ? `gbp:${f.clienteIdExterno}` : "consumidor-final-gbp");
+    // "Consumidor final (GBP)" y no "Consumidor final" a secas — en Mejores Clientes/Clientes
+    // Detalle, agrupar bajo el mismo nombre que el "Consumidor final" nativo de Delfino (clave de
+    // agrupación distinta, "consumidor-final-gbp"/f.clienteId vs "consumidor-final", pero mismo
+    // texto visible) daba dos filas idénticas en pantalla sin forma de saber cuál era cuál. El
+    // primer fallback cubre además f.clienteId vinculado mientras nombrePorClienteId no lo trae —
+    // pasa cuando ese cliente ya no existe en /clientes (borrado, o vinculación rota) — mismo
+    // problema de las dos filas, con el agravante de que a secas escondería que hay un vínculo roto.
     const clienteNombre = f.clienteId
-      ? nombrePorClienteId.get(f.clienteId) || "Consumidor final"
-      : nombrePorExterno.get(f.clienteIdExterno) || (f.clienteIdExterno ? `Cliente GBP #${f.clienteIdExterno}` : "Consumidor final");
+      ? nombrePorClienteId.get(f.clienteId) || "Consumidor final (GBP)"
+      : nombrePorExterno.get(f.clienteIdExterno) || (f.clienteIdExterno ? `Cliente GBP #${f.clienteIdExterno}` : "Consumidor final (GBP)");
     const numeroVenta = `${f.letra || ""} ${String(f.puntoVenta ?? "").padStart(4, "0")}-${String(f.numero ?? "").padStart(8, "0")}`.trim();
     return {
       fecha: f.fecha,
@@ -145,21 +160,32 @@ async function ventasUnificadasEnRango(desde, hasta) {
       clienteId,
       clienteNombre,
       numeroVenta,
-      items: (f.lineas || []).map((l) => ({
-        productoId: l.productoId,
-        productoDescripcion: l.descripcion || `#${l.itemIdExterno} (sin vincular)`,
-        cantidad: l.cantidad || 0,
-        costoUnitario: l.costoUnitario || 0,
-        subtotal: (l.cantidad || 0) * (l.precioUnitario || 0),
-      })),
+      // Filtro defensivo para datos HISTÓRICOS: hasta este cambio, gbpSincronizarFacturas guardaba
+      // también las líneas sin item_id (GBP no mandó a qué artículo correspondían) — ~117 de 2.181
+      // líneas del período. El filtro de verdad ya está en la Function (ver
+      // functions/gbpFacturas.js, itemIdFaltante) y no vuelve a guardarlas de acá en más; esto solo
+      // neutraliza lo que ya quedó en Firestore, sin reescribir esos documentos. El subtotal de la
+      // factura (f.total, arriba) nunca las necesitó — no aportan precio.
+      items: (f.lineas || [])
+        .filter((l) => l.itemIdExterno && l.itemIdExterno !== "undefined")
+        .map((l) => ({
+          productoId: l.productoId,
+          productoDescripcion: l.descripcion || `#${l.itemIdExterno} (sin vincular)`,
+          cantidad: l.cantidad || 0,
+          costoUnitario: l.costoUnitario || 0,
+          subtotal: (l.cantidad || 0) * (l.precioUnitario || 0),
+        })),
       // GBP no registra el medio de pago real — se declara así en vez de inventar "Efectivo", y
       // mantiene "Formas de pago" cuadrando contra el total (con pagos:[] el total de "Resumen de
       // ventas" ya no coincidiría con la suma de "Formas de pago").
       pagos: [{ medio: "GBP (sin discriminar)", monto: f.total || 0 }],
+      // De dónde vino la fila — para el desglose Delfino/GBP del Dashboard (ver reporteResumenVentas)
+      // sin tener que volver a consultar Firestore para separarlo después.
+      origen: "gbp",
     };
   });
 
-  return [...ventas, ...ventasGbp];
+  return [...ventas.map((v) => ({ ...v, origen: "delfino" })), ...ventasGbp];
 }
 
 // Serie diaria de ventas (total $ y cantidad), con todos los días del rango presentes aunque no
@@ -197,10 +223,14 @@ export async function reporteVentasPorMedioPago(desde, hasta) {
 export async function reporteResumenVentas(desde, hasta) {
   const ventas = await ventasUnificadasEnRango(desde, hasta);
   let total = 0;
+  let totalDelfino = 0;
+  let totalGbp = 0;
   let unidades = 0;
   let margenBruto = 0;
   ventas.forEach((v) => {
     total += v.total || 0;
+    if (v.origen === "gbp") totalGbp += v.total || 0;
+    else totalDelfino += v.total || 0;
     (v.items || []).forEach((it) => {
       unidades += it.cantidad || 0;
       margenBruto += (it.subtotal || 0) - (it.costoUnitario || 0) * (it.cantidad || 0);
@@ -209,6 +239,10 @@ export async function reporteResumenVentas(desde, hasta) {
   const cantidad = ventas.length;
   return {
     total: Math.round(total * 100) / 100,
+    // Desglose por origen — mismas filas ya traídas arriba, no dispara ninguna consulta extra. Solo
+    // lo usa el Dashboard (ver js/dashboard.js) para mostrar cuánto de "Resumen de ventas" es GBP.
+    totalDelfino: Math.round(totalDelfino * 100) / 100,
+    totalGbp: Math.round(totalGbp * 100) / 100,
     cantidad,
     ticketPromedio: cantidad > 0 ? Math.round((total / cantidad) * 100) / 100 : 0,
     unidades,
