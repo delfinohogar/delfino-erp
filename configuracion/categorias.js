@@ -1,12 +1,12 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { abrirSelectorCategoria } from "/js/categoria-tree-modal.js";
 import { listarCategoriasPorNivel } from "/js/catalogo.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "config-categorias", titulo: "Categorías", usuario });
+const content = renderConfigShell({ activeItem: "categorias", titulo: "Categorías", usuario });
 
 content.innerHTML = `
   <div class="card" style="padding:20px">
@@ -15,10 +15,12 @@ content.innerHTML = `
       <button type="button" id="btn-categorias" class="primary">Gestionar árbol</button>
     </div>
     <div class="hint" style="margin-bottom:12px">Crear, elegir y renombrar categorías y subcategorías se hace desde el mismo árbol que usa la ficha de producto.</div>
-    <table>
-      <thead><tr><th>Nombre</th><th>Nivel</th></tr></thead>
-      <tbody id="tabla-categorias"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nombre</th><th>Nivel</th></tr></thead>
+        <tbody id="tabla-categorias"></tbody>
+      </table>
+    </div>
   </div>
 `;
 

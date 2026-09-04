@@ -1,7 +1,8 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { listarCompras } from "/js/compras.js";
-import { listarPagos } from "/js/pagos.js";
+import { listarPagosPorCompras } from "/js/pagos.js";
+import { escapeHtml } from "/js/escape-html.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -48,19 +49,25 @@ function estadoBadge(total, pagado) {
 }
 
 async function cargar() {
-  const [compras, pagos] = await Promise.all([listarCompras(), listarPagos()]);
+  const compras = await listarCompras();
   emptyState.style.display = compras.length === 0 ? "block" : "none";
   tablaBody.innerHTML = "";
+  // Solo los pagos de las compras que se están mostrando — no "los últimos 200 pagos del sistema"
+  // (ver comentario de listarPagosPorCompras en js/pagos.js).
+  const pagos = await listarPagosPorCompras(compras.map((c) => c.id));
   compras.forEach((c) => {
     const pagado = pagos.filter((p) => p.compraId === c.id).reduce((acc, p) => acc + (p.monto || 0), 0);
+    // El estado se compara contra lo que realmente hay que pagarle al proveedor (total menos
+    // retenciones) — contra el bruto, una compra con retenciones nunca llegaba a "Pagada".
+    const netoAPagar = c.netoAPagarProveedor ?? c.total ?? 0;
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${formatFecha(c.fecha)}</td>
-      <td>${c.proveedorNombre || ""}</td>
-      <td>${c.tipoComprobante || ""} ${c.numeroFactura || ""}</td>
+      <td>${escapeHtml(c.proveedorNombre || "")}</td>
+      <td>${escapeHtml(c.tipoComprobante || "")} ${escapeHtml(c.numeroFactura || "")}</td>
       <td>${(c.items || []).length}</td>
-      <td>${(c.total ?? 0).toLocaleString("es-AR")}</td>
-      <td>${estadoBadge(c.total ?? 0, pagado)}</td>
+      <td>${(c.total ?? 0).toLocaleString("es-AR")}${c.montoRetenciones ? ` <span class="hint">(neto ${netoAPagar.toLocaleString("es-AR")})</span>` : ""}</td>
+      <td>${estadoBadge(netoAPagar, pagado)}</td>
     `;
     tablaBody.appendChild(tr);
   });

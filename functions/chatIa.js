@@ -44,11 +44,14 @@ function fechaHoyArgentina() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }).format(new Date());
 }
 
-// Saldo pendiente de una factura de compra: su total menos la suma de pagos atados a esa compra.
+// Saldo pendiente de una factura de compra: lo que realmente se le paga al proveedor (total menos
+// retenciones, si las hay — ver compras.js: netoAPagarProveedor) menos la suma de pagos atados a esa
+// compra. Contra el total bruto una factura con retenciones nunca llegaba a saldo cero.
 function resumenFactura(compra, pagos) {
   const pagado = pagos
     .filter((p) => p.compraId === compra.id)
     .reduce((acc, p) => acc + (p.monto || 0), 0);
+  const netoAPagarProveedor = compra.netoAPagarProveedor ?? compra.total ?? 0;
   return {
     compraId: compra.id,
     proveedorNombre: compra.proveedorNombre,
@@ -57,8 +60,9 @@ function resumenFactura(compra, pagos) {
     fecha: compra.fecha,
     fechaVencimiento: compra.fechaVencimiento || null,
     total: compra.total || 0,
+    montoRetenciones: compra.montoRetenciones || 0,
     pagado: Math.round(pagado * 100) / 100,
-    saldoPendiente: Math.round(((compra.total || 0) - pagado) * 100) / 100,
+    saldoPendiente: Math.round((netoAPagarProveedor - pagado) * 100) / 100,
   };
 }
 
@@ -118,7 +122,11 @@ function detalleVenta(v) {
 const HERRAMIENTAS = [
   {
     name: "buscar_productos",
-    description: "Busca productos por texto (SKU, código de barras, descripción o marca), opcionalmente filtrando por estado.",
+    description:
+      "Busca productos por texto (SKU, código de barras, descripción o marca), opcionalmente filtrando por estado. " +
+      "La respuesta trae 'total' (cuántos matchean de verdad) y 'truncado' (true si hay más de los que vienen en " +
+      "'resultados'). Si truncado es true, decile al usuario que hay más de los que se muestran — nunca lo trates " +
+      "como la lista completa.",
     input_schema: {
       type: "object",
       properties: {
@@ -282,14 +290,22 @@ async function ejecutarHerramienta(nombre, input, rol) {
       let productos;
       if (input.texto) {
         const primeraPalabra = input.texto.toLowerCase().trim().split(/\s+/)[0];
-        const snap = await db.collection("productos").where("searchKeywords", "array-contains", primeraPalabra).limit(30).get();
+        const snap = await db.collection("productos").where("searchKeywords", "array-contains", primeraPalabra).limit(150).get();
         productos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       } else {
-        const snap = await db.collection("productos").limit(30).get();
+        const snap = await db.collection("productos").limit(150).get();
         productos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       }
       if (input.estado) productos = productos.filter((p) => p.estado === input.estado);
-      return productos.slice(0, 15).map((p) => filtrarPorRol(resumenProducto(p), rol));
+      // Antes esto devolvía un array pelado cortado a 15 sin avisar — con categorías de más de 15
+      // productos (ej. "aire acondicionado") la IA armaba resúmenes/totales incompletos sin saberlo.
+      const MAX_DEVUELTOS = 60;
+      const total = productos.length;
+      return {
+        resultados: productos.slice(0, MAX_DEVUELTOS).map((p) => filtrarPorRol(resumenProducto(p), rol)),
+        total,
+        truncado: total > MAX_DEVUELTOS,
+      };
     }
 
     case "stock_bajo_minimo": {
@@ -347,7 +363,9 @@ async function ejecutarHerramienta(nombre, input, rol) {
       const compras = comprasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       const pagos = pagosSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      const totalCompras = compras.reduce((acc, c) => acc + (c.total || 0), 0);
+      // Contra netoAPagarProveedor, no el total bruto — una compra con retenciones nunca "termina de
+      // pagarse" si se la mide contra el bruto (esa diferencia va a AFIP, no al proveedor).
+      const totalCompras = compras.reduce((acc, c) => acc + (c.netoAPagarProveedor ?? c.total ?? 0), 0);
       const totalPagos = pagos.reduce((acc, p) => acc + (p.monto || 0), 0);
       const facturasPendientes = compras
         .map((c) => resumenFactura(c, pagos))
@@ -513,11 +531,19 @@ exports.chatConsulta = onCall({ region: "southamerica-east1", secrets: [anthropi
   for (let vuelta = 0; vuelta < 6; vuelta++) {
     const respuesta = await anthropic.messages.create({
       model: "claude-sonnet-5",
-      max_tokens: 1024,
+      // claude-sonnet-5 piensa antes de responder (bloques "thinking"), y ese razonamiento también
+      // consume max_tokens. Con 1024 y una pregunta que exige sumar muchas filas (ej. "cuánto suma
+      // vender todo el stock de aires"), el modelo se quedaba sin presupuesto pensando y cortaba
+      // antes de escribir la respuesta — volvía contenido vacío ("No obtuve respuesta.") sin ningún
+      // error. Con más margen entra el pensamiento largo y la respuesta final.
+      max_tokens: 4096,
       system:
         "Sos el asistente de datos del ERP de Delfino Hogar (retail de electrodomésticos). Respondé en español " +
         "rioplatense, corto y concreto, basándote solo en los datos que te devuelven las herramientas — nunca " +
         "inventes números. Si no encontrás algo con las herramientas, decilo directamente en vez de suponer. " +
+        "Si una herramienta devuelve 'truncado: true', NO trates 'resultados' como la lista completa ni sumes " +
+        "totales sobre ella como si lo fueran — decile al usuario que hay más de los que se muestran (usá 'total' " +
+        "para decir cuántos hay en verdad) y sugerí acotar la búsqueda si hace falta el detalle completo. " +
         `Hoy es ${fechaHoyArgentina()} (America/Argentina/Buenos_Aires) — usá esa fecha como referencia para ` +
         "preguntas relativas (\"esta semana\", \"este mes\", \"vencidas\").",
       tools: HERRAMIENTAS,
@@ -525,7 +551,11 @@ exports.chatConsulta = onCall({ region: "southamerica-east1", secrets: [anthropi
     });
 
     if (respuesta.stop_reason !== "tool_use") {
-      const texto = respuesta.content.find((b) => b.type === "text")?.text || "";
+      // Si no hay bloque de texto (ej. se cortó pensando y no llegó a escribir la respuesta), avisar
+      // en vez de devolver vacío — así queda claro que fue un corte, no "la IA no tiene nada para decir".
+      const texto =
+        respuesta.content.find((b) => b.type === "text")?.text ||
+        "Se me cortó la respuesta antes de terminar (motivo: " + respuesta.stop_reason + "). Probá de nuevo o con una pregunta más acotada.";
       return { respuesta: texto, historial: [...mensajes, { role: "assistant", content: respuesta.content }] };
     }
 

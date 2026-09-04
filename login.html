@@ -20,8 +20,8 @@
             <label for="password">Contraseña</label>
             <input type="password" id="password" required autocomplete="current-password" />
           </div>
-          <button type="submit" class="primary" id="submit-btn" style="width: 100%">Ingresar</button>
-          <p class="error-text" id="error-text" style="display: none"></p>
+          <button type="submit" class="primary" id="submit-btn">Ingresar</button>
+          <p class="error-text hidden" id="error-text"></p>
         </form>
       </div>
     </div>
@@ -33,7 +33,7 @@
       const errorText = document.getElementById("error-text");
       if (params.get("error") === "sin-perfil") {
         errorText.textContent = "Tu usuario no tiene un perfil asignado en el sistema. Pedile a un administrador que lo cree.";
-        errorText.style.display = "block";
+        errorText.classList.remove("hidden");
       }
 
       document.getElementById("login-form").addEventListener("submit", async (e) => {
@@ -43,14 +43,14 @@
         const password = document.getElementById("password").value;
         submitBtn.disabled = true;
         submitBtn.textContent = "Ingresando…";
-        errorText.style.display = "none";
+        errorText.classList.add("hidden");
         try {
           await signInWithEmailAndPassword(auth, email, password);
           const next = params.get("next") || "/dashboard.html";
           location.href = next;
         } catch (err) {
           errorText.textContent = "Email o contraseña incorrectos.";
-          errorText.style.display = "block";
+          errorText.classList.remove("hidden");
           submitBtn.disabled = false;
           submitBtn.textContent = "Ingresar";
         }

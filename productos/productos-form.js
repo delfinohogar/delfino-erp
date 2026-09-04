@@ -16,9 +16,20 @@ import {
 import { obtenerProducto, crearProducto, actualizarProducto, obtenerLogAuditoria } from "/js/productos.js";
 import { mostrarHistorialCostos } from "/js/historial-costos-modal.js";
 import { obtenerCotizacionDolarOficial } from "/js/cotizacion-dolar.js";
+import { formatMoneda, formatPorcentaje } from "/js/formato.js";
+import { imagenesActivas, agregarImagenManual, marcarImagenPrincipal, eliminarImagen } from "/js/producto-imagenes.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
+
+// La ficha completa expone costo/margen (costoOriginal, costoUltimo, historial de costos) — antes
+// cualquier vendedor podía abrirla igual (solo no podía guardar, bloqueado recién en
+// firestore.rules). Mismo criterio que el resto del catálogo: solo quien puede editarlo
+// (administrador/administrativo, ver puedeEditarCatalogo() en firestore.rules) puede siquiera verlo.
+if (usuario.rol === "vendedor") {
+  document.body.innerHTML = `<div class="empty-state">Esta sección es solo para administración. <a href="/productos/index.html">Volver a Productos</a></div>`;
+  throw new Error("sin permiso");
+}
 
 const params = new URLSearchParams(location.search);
 const productoId = params.get("id");
@@ -32,7 +43,7 @@ const content = renderShell({
 
 content.innerHTML = `
   <form id="form-producto">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Identificación</div>
       <div class="field-row">
         <div class="field">
@@ -68,7 +79,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Proveedor</div>
       <div class="field-row">
         <div class="field autocomplete" id="wrapper-proveedor">
@@ -84,7 +95,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Precio y costo</div>
       <div class="field-row">
         <div class="field">
@@ -146,19 +157,21 @@ content.innerHTML = `
 
     <div class="card" id="listas-precios-section" style="display:none; padding:20px; margin-bottom:16px">
       <div class="section-title">Listas de precios</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Lista</th>
-            <th>Precio</th>
-          </tr>
-        </thead>
-        <tbody id="listas-precios-body"></tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Lista</th>
+              <th>Precio</th>
+            </tr>
+          </thead>
+          <tbody id="listas-precios-body"></tbody>
+        </table>
+      </div>
       <div class="hint" style="margin-top:8px">Los precios manuales por lista se editan desde <a href="/productos/precios.html">Productos → Precios</a>.</div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Stock</div>
       <div class="field-row">
         <div class="field">
@@ -181,7 +194,7 @@ content.innerHTML = `
       <div class="hint">El stock no se edita acá: sube con las compras y baja con las ventas (módulos futuros). Solo el mínimo de alerta es editable desde la ficha. Depósito único hoy (Casa Central) — el modelo ya soporta multidepósito a futuro.</div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Comercial</div>
       <div class="field-row">
         <div class="field">
@@ -206,7 +219,19 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div id="auditoria-section" style="display:none" class="card" style="padding:20px; margin-bottom:16px">
+    <div id="imagenes-section" style="display:none" class="card mb-16">
+      <div class="section-title">Imágenes del producto</div>
+      <div id="imagenes-grid" style="display:flex; flex-wrap:wrap; gap:12px; margin-bottom:12px"></div>
+      <input type="file" id="imagen-input" accept="image/*" style="display:none" />
+      <button type="button" id="btn-agregar-imagen">+ Agregar imagen</button>
+      <div class="hint" id="imagen-estado" style="margin-top:6px"></div>
+    </div>
+    <div id="imagenes-section-nueva" class="card mb-16">
+      <div class="section-title">Imágenes del producto</div>
+      <div class="hint">Guardá el producto primero — después de crearlo vas a poder cargar fotos acá mismo.</div>
+    </div>
+
+    <div id="auditoria-section" style="display:none" class="card mb-16">
       <div class="section-title">Auditoría</div>
       <div id="log-auditoria"></div>
     </div>
@@ -320,7 +345,7 @@ function recalcularPrecio() {
   const costoConIva = costo * (1 + iva / 100);
 
   if (costoMonedaEl.value === "USD" && cotizacionDolar) {
-    costoDolarHintEl.textContent = `Dólar oficial: $${cotizacionDolar.valor.toLocaleString("es-AR")} (BCRA, ${cotizacionDolar.fecha}) → Costo en pesos: $${costo.toLocaleString("es-AR", { maximumFractionDigits: 2 })}`;
+    costoDolarHintEl.textContent = `Dólar oficial: ${formatMoneda(cotizacionDolar.valor, { decimales: 2 })} (BCRA, ${cotizacionDolar.fecha}) → Costo en pesos: ${formatMoneda(costo, { decimales: 2 })}`;
   }
 
   if (modoPrecioEl.value === "margen") {
@@ -335,7 +360,7 @@ function recalcularPrecio() {
   const precio = parseFloat(precioVentaEl.value) || 0;
   const gananciaMonto = precio - costoConIva;
   const gananciaPct = costoConIva > 0 ? (gananciaMonto / costoConIva) * 100 : 0;
-  gananciaHint.textContent = `Costo con IVA: ${costoConIva.toFixed(2)} · Ganancia: ${gananciaMonto.toFixed(2)} (${gananciaPct.toFixed(1)}%)`;
+  gananciaHint.textContent = `Costo con IVA: ${formatMoneda(costoConIva, { decimales: 2 })} · Ganancia: ${formatMoneda(gananciaMonto, { decimales: 2 })} (${formatPorcentaje(gananciaPct)})`;
 }
 
 costoMonedaEl.addEventListener("change", alCambiarMoneda);
@@ -420,7 +445,7 @@ if (esEdicion) {
     // "Último costo" (de la última compra real) y el botón de historial — visibles en edición.
     document.getElementById("costo-ultimo-row").style.display = "grid";
     document.getElementById("costoUltimo").value =
-      producto.costoUltimo != null ? `$${producto.costoUltimo.toLocaleString("es-AR")}` : "Sin compras registradas todavía";
+      producto.costoUltimo != null ? formatMoneda(producto.costoUltimo, { decimales: 2 }) : "Sin compras registradas todavía";
 
     // Resumen de precios por lista (activas), solo lectura — la edición puntual queda en Precios.
     const listasSection = document.getElementById("listas-precios-section");
@@ -435,10 +460,77 @@ if (esEdicion) {
           return { nombre: lista.nombre, precio };
         })
       );
-      listasBody.innerHTML = filas
-        .map((f) => `<tr><td>${f.nombre}</td><td>$${f.precio.toLocaleString("es-AR")}</td></tr>`)
-        .join("");
+      listasBody.innerHTML = filas.map((f) => `<tr><td>${f.nombre}</td><td>${formatMoneda(f.precio)}</td></tr>`).join("");
     }
+
+    // --- Imágenes del producto ---
+    document.getElementById("imagenes-section-nueva").style.display = "none";
+    const imagenesSection = document.getElementById("imagenes-section");
+    imagenesSection.style.display = "block";
+    const imagenesGrid = document.getElementById("imagenes-grid");
+    const imagenInput = document.getElementById("imagen-input");
+    const imagenEstado = document.getElementById("imagen-estado");
+    let productoImagenes = producto;
+
+    function pintarImagenes() {
+      const activas = imagenesActivas(productoImagenes);
+      imagenesGrid.innerHTML =
+        activas.length === 0
+          ? '<div class="hint" style="margin:0">Todavía no cargaste ninguna foto.</div>'
+          : activas
+              .map(
+                (img) => `
+        <div style="width:120px" data-img="${img.id}">
+          <img src="${img.url}" alt="" style="width:120px; height:120px; object-fit:cover; border-radius:8px; border:1px solid var(--border); ${img.principal ? "outline:2px solid var(--accent); outline-offset:2px" : ""}" />
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px">
+            ${
+              img.principal
+                ? '<span class="badge success" style="font-size:10px">Principal</span>'
+                : img.origen === "manual"
+                  ? '<button type="button" data-role="principal" style="font-size:11px; padding:2px 6px">Marcar principal</button>'
+                  : `<span class="hint" style="margin:0; font-size:10px">${img.origen}</span>`
+            }
+            <button type="button" data-role="eliminar" title="Eliminar" style="font-size:11px; padding:2px 6px; color:var(--danger)">✕</button>
+          </div>
+        </div>
+      `
+              )
+              .join("");
+
+      imagenesGrid.querySelectorAll("[data-role=principal]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          const id = e.target.closest("[data-img]").dataset.img;
+          btn.disabled = true;
+          productoImagenes = { ...productoImagenes, imagenes: await marcarImagenPrincipal(productoId, id, usuario) };
+          pintarImagenes();
+        });
+      });
+      imagenesGrid.querySelectorAll("[data-role=eliminar]").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          if (!confirm("¿Eliminar esta imagen?")) return;
+          const id = e.target.closest("[data-img]").dataset.img;
+          btn.disabled = true;
+          productoImagenes = { ...productoImagenes, imagenes: await eliminarImagen(productoId, id, usuario) };
+          pintarImagenes();
+        });
+      });
+    }
+    pintarImagenes();
+
+    document.getElementById("btn-agregar-imagen").addEventListener("click", () => imagenInput.click());
+    imagenInput.addEventListener("change", async () => {
+      const archivo = imagenInput.files[0];
+      if (!archivo) return;
+      imagenEstado.textContent = "Subiendo imagen…";
+      try {
+        productoImagenes = { ...productoImagenes, imagenes: await agregarImagenManual(productoId, archivo, usuario) };
+        pintarImagenes();
+        imagenEstado.textContent = "";
+      } catch (err) {
+        imagenEstado.textContent = "No se pudo subir la imagen: " + (err?.message || "error desconocido");
+      }
+      imagenInput.value = "";
+    });
 
     const auditoriaSection = document.getElementById("auditoria-section");
     auditoriaSection.style.display = "block";

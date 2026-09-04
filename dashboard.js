@@ -44,9 +44,9 @@ function hrefDe(reporte) {
 function tarjetaHtml(reporte, resumen, chartId) {
   return `
     <a href="${hrefDe(reporte)}" class="card dashboard-card">
-      <div class="hint" style="margin:0">${reporte.titulo}</div>
+      <div class="hint mt-0">${reporte.titulo}</div>
       <div class="dashboard-card-valor" style="font-size:${resumen.valor.length > 14 ? "18px" : "26px"}">${resumen.valor}</div>
-      ${resumen.sub ? `<div class="hint" style="margin:0">${resumen.sub}</div>` : ""}
+      ${resumen.sub ? `<div class="hint mt-0">${resumen.sub}</div>` : ""}
       ${
         resumen.comparacion
           ? `<div class="hint" style="color:var(--${resumen.comparacion.positivo ? "success" : "danger"})">${resumen.comparacion.texto}</div>`

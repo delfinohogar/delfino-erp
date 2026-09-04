@@ -26,7 +26,7 @@ content.innerHTML = `
           Confirmando la recepción de una orden de compra — revisá los datos de la factura y los
           productos (ya vinculados) antes de guardar. Esto va a sumar stock y actualizar costos.
         </div>`
-      : `<div class="card" style="padding:20px; margin-bottom:16px">
+      : `<div class="card mb-16">
           <div class="section-title">Cargar factura con IA</div>
           <div class="hint" style="margin-bottom:8px">
             Subí el PDF o la foto de la factura y la IA completa los campos — siempre revisá antes de guardar
@@ -41,7 +41,7 @@ content.innerHTML = `
   }
 
   <form id="form-compra">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Comprobante</div>
       <div class="field-row">
         <div class="field">
@@ -75,7 +75,7 @@ content.innerHTML = `
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Productos</div>
       <div class="table-scroll">
         <table>
@@ -112,6 +112,23 @@ content.innerHTML = `
       <div style="display:flex; justify-content:space-between; font-weight:600; margin-top:8px; font-size:15px">
         <span>Total</span><span id="totales-total">0</span>
       </div>
+
+      <div class="hint" style="margin-top:14px; margin-bottom:4px">Retenciones (a depositar, no se le pagan al proveedor)</div>
+      <div class="field">
+        <label for="retencion-iva">Retención IVA ($)</label>
+        <input type="number" id="retencion-iva" step="0.01" min="0" value="0" />
+      </div>
+      <div class="field">
+        <label for="retencion-ganancias">Retención Ganancias ($)</label>
+        <input type="number" id="retencion-ganancias" step="0.01" min="0" value="0" />
+      </div>
+      <div class="field">
+        <label for="retencion-iibb">Retención IIBB ($)</label>
+        <input type="number" id="retencion-iibb" step="0.01" min="0" value="0" />
+      </div>
+      <div style="display:flex; justify-content:space-between; font-weight:600; margin-top:8px; font-size:15px">
+        <span>Neto a pagar</span><span id="totales-neto-pagar">0</span>
+      </div>
     </div>
 
     <div class="toolbar">
@@ -132,6 +149,9 @@ const proveedorPicker = initProveedorPicker(document.getElementById("proveedor-p
 const lineasBody = document.getElementById("lineas-body");
 const descuentoGlobalEl = document.getElementById("descuento-global");
 const percepcionesEl = document.getElementById("percepciones");
+const retencionIvaEl = document.getElementById("retencion-iva");
+const retencionGananciasEl = document.getElementById("retencion-ganancias");
+const retencionIibbEl = document.getElementById("retencion-iibb");
 let contadorLinea = 0;
 
 function recalcularTotales() {
@@ -151,10 +171,13 @@ function recalcularTotales() {
   const descuentoGlobal = parseFloat(descuentoGlobalEl.value) || 0;
   const percepciones = parseFloat(percepcionesEl.value) || 0;
   const total = importes - descuentoGlobal + iva + percepciones;
+  const montoRetenciones = (parseFloat(retencionIvaEl.value) || 0) + (parseFloat(retencionGananciasEl.value) || 0) + (parseFloat(retencionIibbEl.value) || 0);
+  const netoAPagar = total - montoRetenciones;
 
   document.getElementById("totales-importes").textContent = importes.toLocaleString("es-AR", { maximumFractionDigits: 2 });
   document.getElementById("totales-iva").textContent = iva.toLocaleString("es-AR", { maximumFractionDigits: 2 });
   document.getElementById("totales-total").textContent = total.toLocaleString("es-AR", { maximumFractionDigits: 2 });
+  document.getElementById("totales-neto-pagar").textContent = netoAPagar.toLocaleString("es-AR", { maximumFractionDigits: 2 });
 }
 
 function agregarLinea(prefill = null) {
@@ -242,7 +265,7 @@ function agregarLinea(prefill = null) {
 }
 
 document.getElementById("btn-agregar-linea").addEventListener("click", () => agregarLinea());
-[descuentoGlobalEl, percepcionesEl].forEach((el) => el.addEventListener("input", recalcularTotales));
+[descuentoGlobalEl, percepcionesEl, retencionIvaEl, retencionGananciasEl, retencionIibbEl].forEach((el) => el.addEventListener("input", recalcularTotales));
 
 if (ordenId) {
   const orden = await obtenerOrdenCompra(ordenId);
@@ -374,6 +397,9 @@ document.getElementById("form-compra").addEventListener("submit", async (e) => {
           : null,
         descuentoGlobal: parseFloat(descuentoGlobalEl.value) || 0,
         percepciones: parseFloat(percepcionesEl.value) || 0,
+        retencionIva: parseFloat(retencionIvaEl.value) || 0,
+        retencionGanancias: parseFloat(retencionGananciasEl.value) || 0,
+        retencionIibb: parseFloat(retencionIibbEl.value) || 0,
         items,
       },
       usuario

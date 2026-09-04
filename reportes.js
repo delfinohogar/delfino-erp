@@ -16,7 +16,7 @@ content.innerHTML = CATEGORIAS_REPORTES.map(
           (r) => `
         <a href="${r.href || `/reportes-detalle.html?tipo=${r.id}`}" class="card dashboard-card" style="padding:16px">
           <div style="font-weight:600; margin-bottom:4px">${r.titulo}</div>
-          <div class="hint" style="margin:0">${r.descripcion}</div>
+          <div class="hint mt-0">${r.descripcion}</div>
         </a>
       `
         )

@@ -2,14 +2,21 @@
 // el elegido y, al abrirse, un panel con buscador (por nombre o CUIT/DNI), "+ Crear nuevo cliente"
 // fijo arriba, y la lista. A diferencia del de proveedor, el cliente es opcional (ventas sin cliente
 // son "Consumidor final") — por eso suma limpiarSeleccion().
-import { listarClientesTodos, crearCliente } from "./clientes.js";
+import {
+  crearCliente,
+  buscarClientePorCuit,
+  buscarClientesTexto,
+  buscarCandidatosClientesPorNombre,
+  filtrarYOrdenarCandidatosPorNombre,
+} from "./clientes.js";
 import { pedirClienteModal } from "./cliente-modal.js";
+import { escapeHtml } from "./escape-html.js";
 
 export function initClientePicker(container, { onSelect, seleccionActual = null, placeholder = "Elegir cliente…" } = {}) {
   container.classList.add("picker");
   container.innerHTML = `
     <button type="button" class="picker-toggle" id="cp-toggle">
-      <span id="cp-label">${seleccionActual ? seleccionActual.razonSocial : placeholder}</span>
+      <span id="cp-label">${seleccionActual ? escapeHtml(seleccionActual.razonSocial) : placeholder}</span>
       <span class="picker-chevron">▾</span>
     </button>
     <div class="picker-panel" id="cp-panel" style="display:none">
@@ -27,26 +34,43 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
   const crearEl = container.querySelector("#cp-crear");
 
   let seleccionado = seleccionActual;
-  let todos = [];
-  let cargados = false;
   let abierto = false;
+  let busquedaId = 0; // descarta una respuesta vieja si llega después de una más nueva
+  let cacheNombre = null; // { clave, candidatos } — ver buscarPorNombreConCache más abajo
 
-  function render(items) {
+  function render(items, mensajeVacio) {
     listEl.innerHTML = "";
     if (items.length === 0) {
-      listEl.innerHTML = '<div class="hint" style="padding:8px 12px">Sin resultados.</div>';
+      listEl.innerHTML = `<div class="hint" style="padding:8px 12px">${mensajeVacio}</div>`;
       return;
     }
     items.forEach((c) => {
       const row = document.createElement("div");
       row.className = "picker-item";
-      row.innerHTML = `<div>${c.razonSocial}</div><div class="hint">CUIT ${c.cuit || "-"}</div>`;
+      row.innerHTML = `<div>${escapeHtml(c.razonSocial)}</div><div class="hint">CUIT ${escapeHtml(c.cuit || "-")}</div>`;
       row.addEventListener("mousedown", (e) => {
         e.preventDefault();
         elegir(c);
       });
       listEl.appendChild(row);
     });
+  }
+
+  // Cache liviano SOLO para búsqueda por nombre — el caso de "seguir tipeando" (fig → figu → figue…)
+  // que es el que más golpea Firestore en un tecleo normal. Documento/teléfono/email no progresan
+  // letra a letra de la misma forma, así que van directo a buscarClientesTexto sin pasar por acá.
+  // Nunca se cachea si la consulta pudo haber quedado truncada (truncado=true): en ese caso podría
+  // haber más clientes en Firestore que no se trajeron, y filtrar ese conjunto incompleto en memoria
+  // arriesgaría un falso negativo — se vuelve a consultar Firestore en cada tecla hasta que la
+  // búsqueda sea lo bastante específica como para no truncarse.
+  async function buscarPorNombreConCache(texto) {
+    const clave = texto.trim().toLowerCase();
+    if (cacheNombre && clave.startsWith(cacheNombre.clave)) {
+      return filtrarYOrdenarCandidatosPorNombre(cacheNombre.candidatos, texto);
+    }
+    const { candidatos, truncado } = await buscarCandidatosClientesPorNombre(texto);
+    cacheNombre = truncado ? null : { clave, candidatos };
+    return filtrarYOrdenarCandidatosPorNombre(candidatos, texto);
   }
 
   function elegir(c) {
@@ -56,16 +80,12 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
     onSelect(c);
   }
 
-  async function abrir() {
+  function abrir() {
     abierto = true;
     panel.style.display = "block";
     searchInput.value = "";
     searchInput.focus();
-    if (!cargados) {
-      todos = await listarClientesTodos();
-      cargados = true;
-    }
-    render(todos);
+    render([], "Escribí un nombre o CUIT/DNI para buscar.");
   }
 
   function cerrar() {
@@ -75,14 +95,32 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
 
   toggle.addEventListener("click", () => (abierto ? cerrar() : abrir()));
 
+  // Búsqueda bajo demanda (Firestore, prefijo por nombre o CUIT — ver buscarClientesTexto) en vez de
+  // traer TODOS los clientes al abrir el panel y filtrar en memoria: con los clientes de prueba no se
+  // notaba, pero con miles reales (migración de GBP) esa carga inicial se volvía lenta o directamente
+  // se colgaba. Debounce de 200ms para no disparar una consulta por cada tecla, y un id de búsqueda
+  // para no pintar una respuesta vieja que llegó tarde si mientras tanto se siguió escribiendo.
+  //
+  // "Buscando…" se pinta ANTES de esperar el debounce, no después — sin esto, mientras la consulta
+  // viaja (más en una conexión de celular lenta) seguían a la vista los resultados de la búsqueda
+  // ANTERIOR, y de lejos parece que el buscador no filtra lo que se acaba de escribir cuando en
+  // realidad solo está tardando en responder.
+  let debounceTimer = null;
   searchInput.addEventListener("input", () => {
-    const texto = searchInput.value.trim().toLowerCase();
+    const texto = searchInput.value.trim();
+    clearTimeout(debounceTimer);
     if (!texto) {
-      render(todos);
+      render([], "Escribí un nombre o CUIT/DNI para buscar.");
       return;
     }
-    const filtrados = todos.filter((c) => (c.razonSocialLower || "").includes(texto) || (c.cuit || "").includes(texto));
-    render(filtrados);
+    render([], "Buscando…");
+    const idActual = ++busquedaId;
+    const esNombre = !texto.includes("@") && !/^[\d+]/.test(texto);
+    debounceTimer = setTimeout(async () => {
+      const resultados = esNombre ? await buscarPorNombreConCache(texto) : await buscarClientesTexto(texto);
+      if (idActual !== busquedaId) return; // llegó tarde, ya hay una búsqueda más nueva en curso
+      render(resultados, "Sin resultados.");
+    }, 200);
   });
 
   crearEl.addEventListener("mousedown", async (e) => {
@@ -90,8 +128,21 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
     cerrar();
     const datos = await pedirClienteModal(searchInput.value.trim());
     if (!datos) return;
-    const nuevo = await crearCliente(datos.razonSocial, datos.cuit, datos.datosArca);
-    cargados = false;
+
+    // crearCliente no valida nada por sí sola — antes de duplicar, se chequea si ese CUIT/DNI
+    // ya está cargado y se ofrece usar ese cliente en vez de crear uno nuevo.
+    const existente = await buscarClientePorCuit(datos.cuit);
+    if (existente) {
+      const usarExistente = confirm(
+        `Ya hay un cliente con ese CUIT/DNI: "${existente.razonSocial}".\n\n¿Usar ese cliente en vez de crear uno nuevo?`
+      );
+      if (usarExistente) {
+        elegir(existente);
+        return;
+      }
+    }
+
+    const nuevo = await crearCliente(datos.razonSocial, datos.cuit, datos.datosArca, datos.datosContacto);
     elegir(nuevo);
   });
 
@@ -108,6 +159,9 @@ export function initClientePicker(container, { onSelect, seleccionActual = null,
       seleccionado = null;
       label.textContent = placeholder;
       onSelect(null);
+    },
+    abrirPanel() {
+      if (!abierto) abrir();
     },
   };
 }

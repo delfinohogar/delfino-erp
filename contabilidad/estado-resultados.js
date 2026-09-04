@@ -2,6 +2,7 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { PERIODOS, rangoPeriodo } from "/js/dashboard.js";
 import { obtenerEstadoResultados } from "/js/contabilidad.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -17,9 +18,6 @@ content.innerHTML = `
   <div id="resultado"></div>
 `;
 
-function formatMonto(v) {
-  return `$${Math.round(v).toLocaleString("es-AR")}`;
-}
 
 function filaHtml(titulo, monto, negrita = false) {
   return `<tr><td style="font-weight:${negrita ? "600" : "400"}">${titulo}</td><td style="text-align:right; font-weight:${negrita ? "600" : "400"}">${formatMonto(monto)}</td></tr>`;

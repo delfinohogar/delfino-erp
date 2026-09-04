@@ -1,44 +1,138 @@
 // Cobros a cliente: la contraparte de pagosProveedores. La mayoría se generan solos al confirmar una
 // venta (ver ventas.js) — este módulo también permite registrar un cobro después, contra una venta
 // que quedó total o parcialmente "Pendiente de pago".
-import { db, collection, getDocs, addDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
-import { generarAsiento, CUENTA } from "./contabilidad.js";
+import { db, collection, doc, getDocs, setDoc, query, where, orderBy, limit, serverTimestamp } from "./firebase.js";
+import { generarAsiento, CUENTA, cuentaParaDestinoTesoreria, normalizarFecha } from "./contabilidad.js";
+import { resolverSucursalUsuario } from "./sucursales.js";
+import { listarCajasPorSucursal, sesionAbiertaDeCaja, registrarMovimientoCaja } from "./cajas.js";
+import { listarCuentasBancariasActivas, registrarMovimientoBancario } from "./bancos.js";
+import { listarMediosPagoActivos, obtenerMedioPagoPorNombre } from "./medios-pago.js";
 
-export const MEDIOS_COBRO = ["Efectivo", "Tarjeta", "Transferencia", "Otro"];
+// Los medios con los que se puede saldar una cuenta corriente salen del mismo catálogo que usa
+// Nueva Venta (Configuración → Medios de pago) — antes era una lista fija acá, que se desincronizaba:
+// no se podía cobrar con Crédito/Mercado Pago, y un medio desactivado seguía apareciendo.
+export async function mediosCobroDisponibles() {
+  const medios = await listarMediosPagoActivos();
+  return medios.map((m) => m.nombre);
+}
 
-// datos: { clienteId, clienteNombre, ventaId, numeroVenta, monto, fecha, medioPago, referencia, notas }
+// datos: { clienteId, clienteNombre, ventaId, numeroVenta, monto, fecha, medioPago, referencia, notas,
+//          destino?: { tipo: "caja"|"banco", id, nombre, sesionId? } }
 // Nota contable: el cobro AUTOMÁTICO que genera una venta pagada en el momento no pasa por acá (va
 // directo a addDoc en ventas.js, y su asiento ya lo cubre la venta) — esta función es la del cobro
-// manual posterior, que sí necesita su propio asiento (mueve de Deudores a Caja).
+// manual posterior (contra un saldo "Pendiente de pago"), que sí necesita su propio asiento (mueve
+// de Deudores a Caja) y, como cualquier plata que entra, también tiene que quedar en Tesorería.
 export async function crearCobro(datos, usuario) {
-  const ref = await addDoc(collection(db, "cobros"), {
+  // Toda fecha que se guarda se normaliza a string "YYYY-MM-DD", igual que ventas/compras. Si acá
+  // entrara un Date (como hacía la pantalla de cobro manual), el movimiento quedaba fuera de los
+  // filtros por fecha de Tesorería, que comparan strings (ver js/tesoreria.js).
+  const fecha = normalizarFecha(datos.fecha);
+
+  // Mismo criterio que crearVenta en ventas.js: el ID se genera antes de escribir para poder rutear
+  // primero y guardar el resultado en el cobro mismo — cobros también es inmutable (allow update:
+  // if false), así que si no queda acá, el aviso de "sin ubicar" se pierde para siempre.
+  const ref = doc(collection(db, "cobros"));
+
+  // Rutear primero: el asiento se arma con el destino real, no suponiendo que todo entra a Caja.
+  const routeo = await routearCobroATesoreria({ ...datos, fecha }, ref.id, usuario);
+
+  await setDoc(ref, {
     clienteId: datos.clienteId,
     clienteNombre: datos.clienteNombre,
     ventaId: datos.ventaId,
     numeroVenta: datos.numeroVenta,
     monto: datos.monto,
-    fecha: datos.fecha,
+    fecha,
     medioPago: datos.medioPago,
     referencia: datos.referencia || "",
     notas: datos.notas || "",
+    routeoTesoreria: routeo,
+    tieneSinUbicar: !routeo.ruteado,
     usuario: usuario.uid,
     creadoEn: serverTimestamp(),
   });
 
-  await generarAsiento(
-    {
-      fecha: datos.fecha,
-      descripcion: `Cobro — ${datos.clienteNombre} (venta #${datos.numeroVenta})`,
-      origen: { tipo: "cobro", id: ref.id },
-      movimientos: [
-        { cuenta: CUENTA.CAJA, debe: Math.round(datos.monto * 100) / 100, haber: 0 },
-        { cuenta: CUENTA.DEUDORES_VENTAS, debe: 0, haber: Math.round(datos.monto * 100) / 100 },
-      ],
-    },
+  // Un cobro que no se pudo ubicar queda en Deudores por Ventas (sigue siendo un crédito a resolver)
+  // en vez de fingir que entró a Caja.
+  const cuentaDebe = routeo.ruteado ? cuentaParaDestinoTesoreria(routeo.destino) || CUENTA.DEUDORES_VENTAS : CUENTA.DEUDORES_VENTAS;
+  if (cuentaDebe !== CUENTA.DEUDORES_VENTAS) {
+    await generarAsiento(
+      {
+        fecha,
+        descripcion: `Cobro — ${datos.clienteNombre} (venta #${datos.numeroVenta})`,
+        origen: { tipo: "cobro", id: ref.id },
+        movimientos: [
+          { cuenta: cuentaDebe, debe: Math.round(datos.monto * 100) / 100, haber: 0 },
+          { cuenta: CUENTA.DEUDORES_VENTAS, debe: 0, haber: Math.round(datos.monto * 100) / 100 },
+        ],
+      },
+      usuario
+    );
+  }
+  // Si no se pudo rutear, no se genera asiento: el crédito del cliente sigue igual que antes y no se
+  // inventa un movimiento contable. Queda informado en routeoTesoreria para que la pantalla avise.
+
+  return { id: ref.id, routeoTesoreria: routeo };
+}
+
+// Mismo criterio que routearPagoATesoreria en ventas.js — si el destino se especifica (UI con
+// selector de caja/cuenta), se usa ese; si no, se resuelve por el `destino` del medio configurado
+// en Configuración → Medios de pago, cayendo a la caja/cuenta de la primera sucursal activa.
+async function routearCobroATesoreria(datos, cobroId, usuario) {
+  if (!(datos.monto > 0)) return { ruteado: false, motivo: "Importe inválido." };
+
+  if (datos.destino?.id) {
+    if (datos.destino.tipo === "caja") {
+      await registrarMovimientoCaja(
+        { cajaId: datos.destino.id, sesionId: datos.destino.sesionId, tipo: "ingreso", concepto: `Cobro venta #${datos.numeroVenta}`, importe: datos.monto, medio: datos.medioPago, ventaId: datos.ventaId, clienteId: datos.clienteId, clienteNombre: datos.clienteNombre, origen: { tipo: "cobro", id: cobroId } },
+        usuario
+      );
+    } else {
+      await registrarMovimientoBancario(
+        { cuentaId: datos.destino.id, fecha: datos.fecha, tipo: "ingreso", concepto: `Cobro venta #${datos.numeroVenta}`, importe: datos.monto, ventaId: datos.ventaId, clienteId: datos.clienteId, clienteNombre: datos.clienteNombre, origen: { tipo: "cobro", id: cobroId } },
+        usuario
+      );
+    }
+    return { ruteado: true, destino: datos.destino.tipo, id: datos.destino.id };
+  }
+
+  const config = await obtenerMedioPagoPorNombre(datos.medioPago);
+  if (!config) return { ruteado: false, motivo: `El medio "${datos.medioPago}" no está en Configuración → Medios de pago, así que no se sabe a dónde va la plata.` };
+  if (!config.destino) return { ruteado: false, motivo: `"${datos.medioPago}" no tiene un destino de Tesorería configurado.` };
+
+  // Un cobro de cuenta corriente que cae en "cuenta por cobrar" (ej. el cliente salda con tarjeta)
+  // no se soporta todavía: implicaría encadenar una cuenta por cobrar nueva desde otra deuda. Se
+  // avisa en vez de ubicar la plata en cualquier lado.
+  if (config.destino === "cuentaPorCobrar") {
+    return { ruteado: false, motivo: `Saldar una cuenta corriente con "${datos.medioPago}" todavía no está soportado — usá un medio que entre a caja o banco.` };
+  }
+
+  // Misma sucursal que resolvería una venta de este usuario (Configuración → Usuarios) — antes caía
+  // siempre a la primera sucursal activa, así que un cobro manual de la Sucursal 2 podía terminar en
+  // la caja/banco de la Sucursal 1 sin ningún aviso (mismo bug que routearPagoATesoreria en ventas.js).
+  const { sucursal } = await resolverSucursalUsuario(usuario);
+  if (config.destino === "banco") {
+    const cuentas = await listarCuentasBancariasActivas();
+    const cuenta = (sucursal ? cuentas.find((c) => c.sucursalId === sucursal.id) : null) || cuentas[0];
+    if (!cuenta) return { ruteado: false, motivo: "No hay ninguna cuenta bancaria configurada (Tesorería → Bancos)." };
+    await registrarMovimientoBancario(
+      { cuentaId: cuenta.id, fecha: datos.fecha, tipo: "ingreso", concepto: `Cobro venta #${datos.numeroVenta}`, importe: datos.monto, ventaId: datos.ventaId, clienteId: datos.clienteId, clienteNombre: datos.clienteNombre, origen: { tipo: "cobro", id: cobroId } },
+      usuario
+    );
+    return { ruteado: true, destino: "banco", id: cuenta.id };
+  }
+
+  if (!sucursal) return { ruteado: false, motivo: "No hay ninguna sucursal configurada." };
+  const cajas = await listarCajasPorSucursal(sucursal.id);
+  const caja = cajas.find((c) => c.tipo === "Principal" && c.activa !== false) || cajas.find((c) => c.activa !== false);
+  if (!caja) return { ruteado: false, motivo: `${sucursal.nombre} todavía no tiene ninguna caja creada.` };
+  const sesion = await sesionAbiertaDeCaja(caja.id);
+  if (!sesion) return { ruteado: false, motivo: `${caja.nombre} está cerrada.` };
+  await registrarMovimientoCaja(
+    { cajaId: caja.id, sesionId: sesion.id, sucursalId: sucursal.id, tipo: "ingreso", concepto: `Cobro venta #${datos.numeroVenta}`, importe: datos.monto, medio: datos.medioPago, ventaId: datos.ventaId, clienteId: datos.clienteId, clienteNombre: datos.clienteNombre, origen: { tipo: "cobro", id: cobroId } },
     usuario
   );
-
-  return ref.id;
+  return { ruteado: true, destino: "caja", id: caja.id };
 }
 
 export async function listarCobros(maxResultados = 200) {
@@ -54,4 +148,28 @@ export async function listarCobrosPorCliente(clienteId) {
 export async function listarCobrosPorVenta(ventaId) {
   const snap = await getDocs(query(collection(db, "cobros"), where("ventaId", "==", ventaId)));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// Cobros de un CONJUNTO de ventas puntuales — para calcular saldos (Dashboard, listado de Ventas) sin
+// depender de un límite fijo sobre TODA la colección de cobros. Antes esos cálculos traían "los
+// últimos N cobros del sistema" (limit(500)) y filtraban en memoria — con más de N cobros históricos
+// totales, el cobro real de una venta vieja podía quedar afuera de esa ventana y esa venta aparecía
+// como impaga aunque estuviera saldada. Acá se pide, en tandas de 30 (límite de Firestore para "in"),
+// solo los cobros de las ventas que en verdad importan — correcto sin importar cuántos cobros haya
+// en total en el sistema, ni cuántas ventas se le pasen.
+export async function listarCobrosPorVentas(ventaIds) {
+  const idsUnicos = [...new Set(ventaIds)];
+  if (idsUnicos.length === 0) return [];
+  const tandas = [];
+  for (let i = 0; i < idsUnicos.length; i += 30) tandas.push(idsUnicos.slice(i, i + 30));
+  const resultados = await Promise.all(
+    tandas.map((tanda) => getDocs(query(collection(db, "cobros"), where("ventaId", "in", tanda))))
+  );
+  return resultados.flatMap((snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+}
+
+// Cobros manuales que Tesorería no pudo ubicar — misma idea que listarVentasConPagoSinUbicar.
+export async function listarCobrosConPagoSinUbicar() {
+  const snap = await getDocs(query(collection(db, "cobros"), where("tieneSinUbicar", "==", true)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.creadoEn?.seconds || 0) - (a.creadoEn?.seconds || 0));
 }

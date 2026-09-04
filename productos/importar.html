@@ -3,24 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Importar — Delfino ERP</title>
+    <title>Importar productos — Delfino ERP</title>
     <link rel="stylesheet" href="/css/styles.css" />
   </head>
   <body>
-    <script type="module">
-      import { requireAuth } from "/js/auth.js";
-      import { renderShell } from "/js/shell.js";
-
-      const usuario = await requireAuth();
-      if (usuario) {
-        const content = renderShell({ active: "importar", titulo: "Importar", usuario });
-        content.innerHTML = `
-          <div class="card empty-state">
-            Módulo de importación (Productos, Stock) — pendiente de implementar.<br/>
-            Flujo previsto: plantilla descargable → subir CSV/Excel → previsualizar → confirmar.
-          </div>
-        `;
-      }
-    </script>
+    <div class="app-loading"><span class="dot"></span>Cargando…</div>
+    <!-- SheetJS (xlsx), vendoreado localmente — sin depender de un CDN en tiempo de ejecución. -->
+    <script src="/js/vendor/xlsx.full.min.js"></script>
+    <script type="module" src="/dist/productos/importar.js"></script>
   </body>
 </html>

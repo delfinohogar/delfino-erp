@@ -1,6 +1,7 @@
 import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
-import { listarComprobantes, ESTADOS_COMPROBANTE, FORMAS_PAGO_COMPROBANTE } from "/js/facturacion.js";
+import { listarComprobantes, ESTADOS_COMPROBANTE, FORMAS_PAGO_COMPROBANTE, TIPOS_COMPROBANTE } from "/js/facturacion.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -16,19 +17,19 @@ const INICIO_MES = HOY.slice(0, 8) + "01";
 content.innerHTML = `
   <div class="dashboard-grid" style="margin-bottom:16px">
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Comprobantes este mes</div>
+      <div class="hint mt-0">Comprobantes este mes</div>
       <div class="dashboard-card-valor" id="kpi-cantidad-mes">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Comprobantes hoy</div>
+      <div class="hint mt-0">Comprobantes hoy</div>
       <div class="dashboard-card-valor" id="kpi-cantidad-hoy">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Facturado hoy</div>
+      <div class="hint mt-0">Facturado hoy</div>
       <div class="dashboard-card-valor" id="kpi-total-hoy">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Facturado este mes</div>
+      <div class="hint mt-0">Facturado este mes</div>
       <div class="dashboard-card-valor" id="kpi-total-mes">—</div>
     </div>
   </div>
@@ -37,7 +38,7 @@ content.innerHTML = `
     <a href="/facturacion/nuevo.html"><button type="button" class="primary">+ Nuevo comprobante</button></a>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Filtros</div>
     <div class="field-row">
       <div class="field">
@@ -53,6 +54,13 @@ content.innerHTML = `
       <div class="field">
         <label for="f-texto">Cliente, DNI/CUIT o número</label>
         <input type="text" id="f-texto" placeholder="Buscar…" />
+      </div>
+      <div class="field">
+        <label for="f-tipo">Tipo</label>
+        <select id="f-tipo">
+          <option value="">Todos</option>
+          ${TIPOS_COMPROBANTE.filter((t) => !t.requiereArca).map((t) => `<option value="${t.codigo}">${t.nombre}</option>`).join("")}
+        </select>
       </div>
       <div class="field">
         <label for="f-estado">Estado</label>
@@ -77,10 +85,12 @@ content.innerHTML = `
         <thead>
           <tr>
             <th>Número</th>
+            <th>Tipo</th>
             <th>Fecha</th>
             <th>Cliente</th>
+            <th>Venta</th>
             <th>Forma de pago</th>
-            <th style="text-align:right">Total</th>
+            <th class="num">Total</th>
             <th>Estado</th>
           </tr>
         </thead>
@@ -91,9 +101,6 @@ content.innerHTML = `
   </div>
 `;
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 function formatFecha(fechaStr) {
   if (!fechaStr) return "-";
   return new Date(fechaStr + "T00:00:00").toLocaleDateString("es-AR");
@@ -115,10 +122,12 @@ function aplicarFiltrosYPintar() {
   const texto = document.getElementById("f-texto").value.trim().toLowerCase();
   const estado = document.getElementById("f-estado").value;
   const formaPago = document.getElementById("f-forma-pago").value;
+  const tipo = document.getElementById("f-tipo").value;
 
   const filtrados = comprobantesDelRango.filter((c) => {
     if (estado && c.estado !== estado) return false;
     if (formaPago && c.formaPago !== formaPago) return false;
+    if (tipo && c.tipoComprobanteCodigo !== tipo) return false;
     if (texto) {
       const enTexto = [c.numeroCompleto, c.clienteNombre, c.clienteCuit, c.clienteDni].filter(Boolean).join(" ").toLowerCase();
       if (!enTexto.includes(texto)) return false;
@@ -132,10 +141,12 @@ function aplicarFiltrosYPintar() {
       (c) => `
     <tr style="cursor:pointer" onclick="location.href='/facturacion/ficha.html?id=${c.id}'">
       <td>${c.numeroCompleto || "-"}</td>
+      <td>${c.tipoComprobante || "-"}</td>
       <td>${formatFecha(c.fechaEmision)}</td>
       <td>${c.clienteNombre || "Consumidor final"}</td>
+      <td>${c.ventaId ? '<span class="badge muted">Venta</span>' : "-"}</td>
       <td>${c.formaPago || "-"}</td>
-      <td style="text-align:right">${formatMonto(c.total)}</td>
+      <td class="num">${formatMonto(c.total)}</td>
       <td>${badgeEstado(c.estado)}</td>
     </tr>
   `
@@ -171,5 +182,6 @@ document.getElementById("f-hasta").addEventListener("change", cargar);
 document.getElementById("f-texto").addEventListener("input", aplicarFiltrosYPintar);
 document.getElementById("f-estado").addEventListener("change", aplicarFiltrosYPintar);
 document.getElementById("f-forma-pago").addEventListener("change", aplicarFiltrosYPintar);
+document.getElementById("f-tipo").addEventListener("change", aplicarFiltrosYPintar);
 
 cargar();

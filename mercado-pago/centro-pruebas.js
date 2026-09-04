@@ -5,11 +5,13 @@ import {
   obtenerConfigMercadoPago,
   probarConexionMercadoPago,
   listarTerminales,
+  configurarPuntoDeVenta,
   crearOrdenPrueba,
   simularEventoOrden,
   consultarPago,
   crearDevolucion,
 } from "/js/mercado-pago.js";
+import { formatMoneda } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -29,25 +31,25 @@ content.innerHTML = `
 
   <div class="dashboard-grid" style="margin-bottom:16px">
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Estado de conexión</div>
+      <div class="hint mt-0">Estado de conexión</div>
       <div class="dashboard-card-valor" id="kpi-conexion">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Modo</div>
+      <div class="hint mt-0">Modo</div>
       <div class="dashboard-card-valor">🧪 TEST</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Última prueba</div>
+      <div class="hint mt-0">Última prueba</div>
       <div class="dashboard-card-valor" id="kpi-ultima-fecha" style="font-size:18px">—</div>
       <div class="hint" id="kpi-ultimo-payment" style="margin:0">—</div>
     </div>
     <div class="card dashboard-card">
-      <div class="hint" style="margin:0">Último resultado</div>
+      <div class="hint mt-0">Último resultado</div>
       <div class="dashboard-card-valor" id="kpi-ultimo-resultado" style="font-size:18px">—</div>
     </div>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Terminal (dispositivo virtual de prueba)</div>
     <div class="hint" style="margin-bottom:10px">
       No hace falta ningún Point físico — Mercado Pago provee un dispositivo virtual de prueba
@@ -60,10 +62,12 @@ content.innerHTML = `
         <select id="select-terminal"><option value="">— Probá conexión y listá terminales —</option></select>
       </div>
       <button type="button" id="btn-listar-terminales" style="margin-top:22px">🔄 Listar terminales</button>
+      <button type="button" id="btn-configurar-pdv" style="margin-top:22px">🛠️ Configurar tienda/caja + activar PDV</button>
     </div>
+    <div class="hint">Si "Crear prueba" da 403 "Unauthorized", corré esto primero — el dispositivo virtual necesita una tienda y una caja asociadas antes de poder recibir órdenes.</div>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Acciones</div>
     <div class="toolbar" style="margin-bottom:0">
       <button type="button" id="btn-probar-conexion">🔌 Probar conexión</button>
@@ -83,29 +87,29 @@ content.innerHTML = `
   </div>
 
   <div id="seccion-pago" style="display:none">
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Última orden de prueba</div>
       <div class="dashboard-grid">
-        <div><div class="hint" style="margin:0">Order ID</div><div id="pago-id" style="font-weight:600">—</div></div>
-        <div><div class="hint" style="margin:0">Estado</div><div id="pago-estado" style="font-weight:600">—</div></div>
-        <div><div class="hint" style="margin:0">Importe</div><div id="pago-importe" style="font-weight:600">—</div></div>
-        <div><div class="hint" style="margin:0">Medio de pago</div><div id="pago-medio" style="font-weight:600">—</div></div>
-        <div><div class="hint" style="margin:0">Terminal</div><div id="pago-terminal" style="font-weight:600">—</div></div>
-        <div><div class="hint" style="margin:0">Acreditado</div><div id="pago-acreditado" style="font-weight:600">—</div></div>
+        <div><div class="hint mt-0">Order ID</div><div id="pago-id" style="font-weight:600">—</div></div>
+        <div><div class="hint mt-0">Estado</div><div id="pago-estado" style="font-weight:600">—</div></div>
+        <div><div class="hint mt-0">Importe</div><div id="pago-importe" style="font-weight:600">—</div></div>
+        <div><div class="hint mt-0">Medio de pago</div><div id="pago-medio" style="font-weight:600">—</div></div>
+        <div><div class="hint mt-0">Terminal</div><div id="pago-terminal" style="font-weight:600">—</div></div>
+        <div><div class="hint mt-0">Acreditado</div><div id="pago-acreditado" style="font-weight:600">—</div></div>
       </div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Conciliación</div>
       <div id="conciliacion-resultado"></div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Comisión</div>
       <div id="comision-resultado" class="hint"></div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Devolución</div>
       <div class="toolbar" style="margin-bottom:8px">
         <button type="button" id="btn-devolucion">↩️ Generar devolución total</button>
@@ -114,7 +118,7 @@ content.innerHTML = `
     </div>
   </div>
 
-  <div class="card" style="padding:20px; margin-bottom:16px">
+  <div class="card mb-16">
     <div class="section-title">Webhook</div>
     <div class="hint" style="margin-bottom:8px">
       Configurala en Mercado Pago → Tus integraciones → tu aplicación → Webhooks → Configurar notificaciones,
@@ -144,7 +148,7 @@ function pintarBanner(modo) {
 }
 
 function formatMonto(v) {
-  return v == null ? "-" : `$${Number(v).toLocaleString("es-AR")}`;
+  return v == null ? "-" : formatMoneda(v);
 }
 function formatFecha(v) {
   if (!v) return "-";
@@ -212,8 +216,8 @@ function pintarPago(pago) {
   const conciliado = Math.abs(ventaErp - importeMp) < 0.01;
   document.getElementById("conciliacion-resultado").innerHTML = `
     <div class="dashboard-grid" style="margin-bottom:10px">
-      <div><div class="hint" style="margin:0">Venta ERP</div><div style="font-weight:600">${formatMonto(ventaErp)}</div></div>
-      <div><div class="hint" style="margin:0">Mercado Pago</div><div style="font-weight:600">${pago.importe != null ? formatMonto(pago.importe) : "Todavía sin importe (orden pendiente)"}</div></div>
+      <div><div class="hint mt-0">Venta ERP</div><div style="font-weight:600">${formatMonto(ventaErp)}</div></div>
+      <div><div class="hint mt-0">Mercado Pago</div><div style="font-weight:600">${pago.importe != null ? formatMonto(pago.importe) : "Todavía sin importe (orden pendiente)"}</div></div>
     </div>
     <div style="font-weight:700; color:var(--${conciliado ? "success" : "danger"})">${pago.importe == null ? "⏳ Pendiente de conciliar" : conciliado ? "🟢 CONCILIADO" : "🔴 DIFERENCIA"}</div>
   `;
@@ -274,6 +278,22 @@ async function cargarTerminales() {
   cargarLogs();
 }
 document.getElementById("btn-listar-terminales").addEventListener("click", cargarTerminales);
+
+document.getElementById("btn-configurar-pdv").addEventListener("click", async () => {
+  const terminalId = document.getElementById("select-terminal").value;
+  if (!terminalId) return mostrarResultado("Elegí un terminal primero (Listar terminales).", true);
+  const btn = document.getElementById("btn-configurar-pdv");
+  btn.disabled = true;
+  mostrarResultado("Configurando tienda + caja + modo PDV… puede tardar unos segundos.");
+  try {
+    const res = await configurarPuntoDeVenta(terminalId);
+    mostrarResultado(`Listo — tienda ${res.storeId}, caja ${res.posId}, terminal en modo PDV. Probá "Crear prueba" de nuevo.`);
+  } catch (err) {
+    mostrarResultado("No se pudo configurar: " + (err?.message || "error desconocido"), true);
+  }
+  btn.disabled = false;
+  cargarLogs();
+});
 
 document.getElementById("btn-crear-prueba").addEventListener("click", async () => {
   const terminalId = document.getElementById("select-terminal").value;

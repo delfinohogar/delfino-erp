@@ -11,7 +11,23 @@
 //   - Consultar orden: GET https://api.mercadopago.com/v1/orders/{id}
 //   - Cancelar orden: POST https://api.mercadopago.com/v1/orders/{id}/cancel
 //   - Reembolsar orden: POST https://api.mercadopago.com/v1/orders/{id}/refund
-//     (sin body = total; {amount, transaction_id} = parcial)
+//     (sin body = total; { transactions: [{ id: transactionId, amount }] } = parcial, donde
+//     transactionId es transactions.payments[0].id de la orden, NO el orderId — la doc pública
+//     muestra "amount" suelto en el body pero la API vigente lo rechaza, confirmado a mano)
+//     LIMITACIÓN CONFIRMADA (dos pruebas separadas, 02/09/2026): un pago generado por /events
+//     (simulación) NO se puede reembolsar de verdad — MP devuelve 412
+//     "refund_not_possible_simulation_payment". Además, la propia documentación de MP dice que se
+//     puede simular el estado "refunded" de una orden ya "processed" mandando POST /events con
+//     {status:"refunded"} — probado dos veces (con log de diagnóstico del body crudo del webhook
+//     incluido) y el resultado real fue: la API responde 204 igual que con processed/failed/
+//     canceled, pero la orden NUNCA cambia de estado (GET /v1/orders/{id} sigue devolviendo
+//     "processed"/"accredited" incluso 5+ segundos después) y NO llega ningún webhook con
+//     action:"order.refunded" (solo se vieron los de "order.processed" del paso anterior). O sea:
+//     ni el circuito de "Order → refunded → webhook" documentado por MP funciona hoy en esta
+//     cuenta de prueba — no es solo la devolución financiera real la que está bloqueada. El
+//     código de nuestro lado (docDesdeOrden, mpConsultarPago, el webhook) SÍ está listo para
+//     reflejar "refunded" correctamente en cuanto MP lo entregue — no se pudo ejercitar ese
+//     camino end-to-end porque el disparador de MP nunca llega, no por un bug de Delfino.
 //   - Simular evento de orden (SOLO sandbox): POST https://api.mercadopago.com/v1/orders/{id}/events
 //     body: { status: "processed"|"failed"|"refunded"|"canceled", ... } — esto reemplaza al terminal
 //     físico reportando el resultado, y dispara el webhook real como si fuera un pago real.
@@ -189,21 +205,131 @@ exports.mpListarTerminales = onCall({ region: "southamerica-east1", secrets: [mp
   }
 });
 
-// --- Callable: crear orden de prueba ($1.000) -------------------------------------------------
-exports.mpCrearOrdenPrueba = onCall({ region: "southamerica-east1", secrets: [mpAccessTokenTest] }, async (request) => {
+// --- Callable: configurar tienda + caja (+ intento de modo PDV) en la terminal -----------------
+// Documentación oficial (crear tienda / crear caja / activar terminal), consultada 02/09/2026:
+//   - POST /users/{user_id}/stores — { name, external_id, location: { street_number, street_name,
+//     city_name, state_name, latitude, longitude, reference } }. IMPORTANTE: location.city_name +
+//     location.state_name se validan como PAR contra el listado interno de MP — no alcanza con que
+//     cada campo sea válido por separado. Confirmado a mano: para Argentina/CABA el par que
+//     funciona es city_name a nivel BARRIO (ej. "Palermo") + state_name = "Capital Federal" (NO
+//     "CABA" ni "Ciudad Autónoma de Buenos Aires" ni el código "AR-C" que devuelve /users/me).
+//   - POST /pos — { name, store_id, external_id, fixed_amount }. external_id acá debe ser
+//     ALFANUMÉRICO (sin guiones), a diferencia del de /stores que sí los acepta.
+//   - PATCH /terminals/v1/setup — { terminals: [{ id: terminal_id, operating_mode: "PDV" }] } (NO
+//     acepta pos_id/store_id/terminal_id sueltos, error "unsupported_properties" si se mandan).
+// Sin tienda + caja, crear una orden con el dispositivo virtual de prueba (SBX0000001) devuelve
+// 403 "Unauthorized request" (código 1100). Confirmado a mano que el paso de activar PDV NO hace
+// falta para el dispositivo virtual (nunca aparece en /terminals/v1/list, PATCH da 404) — alcanza
+// con que existan tienda y caja para que la orden se cree bien.
+// Idempotente: si ya existe una tienda/caja de prueba (por external_id fijo), las reutiliza en vez
+// de crear duplicados cada vez que se llama.
+const EXTERNAL_STORE_ID = "DELFINO-HOGAR-PRUEBA";
+
+exports.mpConfigurarPuntoDeVenta = onCall({ region: "southamerica-east1", secrets: [mpAccessTokenTest] }, async (request) => {
   if (!request.auth) throw new HttpsError("unauthenticated", "Hay que estar logueado.");
   const { terminalId } = request.data || {};
-  if (!terminalId) throw new HttpsError("invalid-argument", "Falta el terminal (usá el dispositivo virtual de prueba).");
+  if (!terminalId) throw new HttpsError("invalid-argument", "Falta terminalId.");
 
   const db = admin.firestore();
   const modo = "test";
   const token = tokenParaModo(modo);
-  const externalReference = `PRUEBA-${Date.now()}`;
+  const pasos = [];
 
+  try {
+    const me = await mpFetch("/users/me", { token });
+    pasos.push({ paso: "users/me", ok: true, userId: me.id });
+
+    // Tienda: se busca por external_id primero (idempotente) — GET /stores no existe como tal,
+    // el listado real es /stores/search (endpoint separado del POST de creación).
+    const storesRes = await mpFetch(`/users/${me.id}/stores/search`, { token });
+    const storesList = Array.isArray(storesRes) ? storesRes : storesRes?.results || [];
+    let store = storesList.find((s) => s.external_id === EXTERNAL_STORE_ID);
+    if (!store) {
+      store = await mpFetch(`/users/${me.id}/stores`, {
+        method: "POST",
+        token,
+        idempotencyKey: crypto.randomUUID(),
+        body: {
+          name: "Delfino Hogar — Casa Central (prueba)",
+          external_id: EXTERNAL_STORE_ID,
+          location: {
+            street_number: "4464",
+            street_name: "Av. Directorio",
+            city_name: "Palermo",
+            state_name: "Capital Federal",
+            latitude: -34.6345,
+            longitude: -58.4489,
+            reference: "Tienda de prueba — sandbox, no operativa",
+          },
+        },
+      });
+      pasos.push({ paso: "crear_tienda", ok: true, storeId: store.id });
+    } else {
+      pasos.push({ paso: "tienda_ya_existia", ok: true, storeId: store.id });
+    }
+
+    // Caja (POS): asociada a la tienda de arriba, buscada por external_id propio.
+    const EXTERNAL_POS_ID = "DELFINOHOGARPRUEBACAJA";
+    const posListRes = await mpFetch(`/pos?store_id=${store.id}`, { token });
+    const posList = Array.isArray(posListRes) ? posListRes : posListRes?.results || [];
+    let pos = posList.find((p) => p.external_id === EXTERNAL_POS_ID);
+    if (!pos) {
+      pos = await mpFetch("/pos", {
+        method: "POST",
+        token,
+        idempotencyKey: crypto.randomUUID(),
+        body: {
+          name: "Caja Point — prueba",
+          store_id: store.id,
+          external_id: EXTERNAL_POS_ID,
+          fixed_amount: false,
+        },
+      });
+      pasos.push({ paso: "crear_caja", ok: true, posId: pos.id });
+    } else {
+      pasos.push({ paso: "caja_ya_existia", ok: true, posId: pos.id });
+    }
+
+    // Activar modo PDV en la terminal — para el dispositivo virtual de sandbox (SBX0000001) esto
+    // da 404 "Not found" porque nunca aparece en /terminals/v1/list (no requiere el pareo por QR
+    // que sí necesita un Point físico), y confirmado a mano que NO hace falta: crear una orden con
+    // este terminal_id ya funciona una vez que existen tienda + caja, sin este paso. Por eso no es
+    // bloqueante: si falla, se deja constancia y se sigue (para un Point físico real si hiciera
+    // falta, el error va a quedar registrado en el log igual).
+    try {
+      await mpFetch("/terminals/v1/setup", {
+        method: "PATCH",
+        token,
+        idempotencyKey: crypto.randomUUID(),
+        body: { terminals: [{ id: terminalId, operating_mode: "PDV" }] },
+      });
+      pasos.push({ paso: "activar_pdv", ok: true });
+      await registrarLog(db, { endpoint: "/terminals/v1/setup", tipoOperacion: "configurar_pdv", resultado: "ok", modo });
+    } catch (err) {
+      pasos.push({ paso: "activar_pdv", ok: false, mensajeError: err.message });
+      await registrarLog(db, { endpoint: "/terminals/v1/setup", tipoOperacion: "configurar_pdv", resultado: "error", mensajeError: err.message, modo });
+    }
+
+    await db.collection("configuracion").doc("mercadoPago").set({ storeId: String(store.id), posId: String(pos.id), terminalId }, { merge: true });
+    return { ok: true, storeId: store.id, posId: pos.id, pasos };
+  } catch (err) {
+    await registrarLog(db, { endpoint: "/terminals/v1/setup", tipoOperacion: "configurar_pdv", resultado: "error", mensajeError: err.message, modo });
+    throw new HttpsError("unknown", `No se pudo configurar el punto de venta (paso ${pasos.length + 1}): ${err.message}`);
+  }
+});
+
+// --- Interno: crear una orden Point, compartido por el Centro de pruebas y Nueva Venta --------
+// externalReference identifica el INTENTO DE COBRO, nunca una venta — para el cobro real
+// (mpCrearOrdenVenta) la venta todavía no existe en este momento (el cobro se hace ANTES de
+// crearVenta, y puede rechazarse/cancelarse sin que ninguna venta llegue a crearse). El vínculo
+// con la venta real, cuando existe, se hace después vía mpVincularVenta — nunca acá.
+async function crearOrdenInterna(db, { terminalId, monto, externalReference, creadoPor, tipoOperacionLog }) {
+  const modo = "test";
+  const token = tokenParaModo(modo);
   const body = {
     type: "point",
     external_reference: externalReference,
-    transactions: { payments: [{ amount: "1000.00" }] },
+    transactions: { payments: [{ amount: monto.toFixed(2) }] },
     config: { point: { terminal_id: terminalId } },
     expiration_time: "PT16M",
   };
@@ -214,15 +340,108 @@ exports.mpCrearOrdenPrueba = onCall({ region: "southamerica-east1", secrets: [mp
       .collection("pagosMercadoPago")
       .doc(String(order.id))
       .set(
-        { ...docDesdeOrden(order, { modo, ventaId: null, terminalId, creadoPor: request.auth.uid }), creadoEn: admin.firestore.FieldValue.serverTimestamp() },
+        { ...docDesdeOrden(order, { modo, ventaId: null, terminalId, creadoPor }), creadoEn: admin.firestore.FieldValue.serverTimestamp() },
         { merge: true }
       );
-    await registrarLog(db, { endpoint: "/v1/orders", tipoOperacion: "crear_orden", resultado: "ok", paymentId: String(order.id), modo });
+    await registrarLog(db, { endpoint: "/v1/orders", tipoOperacion: tipoOperacionLog, resultado: "ok", paymentId: String(order.id), modo });
     return { orderId: String(order.id), status: order.status };
   } catch (err) {
-    await registrarLog(db, { endpoint: "/v1/orders", tipoOperacion: "crear_orden", resultado: "error", mensajeError: err.message, modo });
+    await registrarLog(db, { endpoint: "/v1/orders", tipoOperacion: tipoOperacionLog, resultado: "error", mensajeError: err.message, modo });
     throw new HttpsError("unknown", "Mercado Pago rechazó la creación de la orden: " + err.message);
   }
+}
+
+// --- Callable: crear orden de prueba ($1.000, Centro de pruebas) -------------------------------
+exports.mpCrearOrdenPrueba = onCall({ region: "southamerica-east1", secrets: [mpAccessTokenTest] }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Hay que estar logueado.");
+  const { terminalId } = request.data || {};
+  if (!terminalId) throw new HttpsError("invalid-argument", "Falta el terminal (usá el dispositivo virtual de prueba).");
+
+  const db = admin.firestore();
+  return crearOrdenInterna(db, {
+    terminalId,
+    monto: 1000,
+    externalReference: `PRUEBA-${Date.now()}`,
+    creadoPor: request.auth.uid,
+    tipoOperacionLog: "crear_orden",
+  });
+});
+
+// --- Callable: crear orden para el cobro real de una venta (Nueva Venta) -----------------------
+// Se llama ANTES de crearVenta (js/ventas.js) — el cobro tiene que estar aprobado por la terminal
+// antes de registrar la venta, nunca al revés. externalReference es "MP-<uuid>" (un identificador
+// del intento de cobro, no de la venta) — ver nota en crearOrdenInterna.
+exports.mpCrearOrdenVenta = onCall({ region: "southamerica-east1", secrets: [mpAccessTokenTest] }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Hay que estar logueado.");
+  const { terminalId, monto } = request.data || {};
+  if (!terminalId) throw new HttpsError("invalid-argument", "Falta el terminal — configuralo en Configuración → Mercado Pago.");
+  if (!(Number(monto) > 0)) throw new HttpsError("invalid-argument", "Falta el monto a cobrar.");
+
+  const db = admin.firestore();
+  return crearOrdenInterna(db, {
+    terminalId,
+    monto: Number(monto),
+    externalReference: `MP-${crypto.randomUUID()}`,
+    creadoPor: request.auth.uid,
+    tipoOperacionLog: "crear_orden_venta",
+  });
+});
+
+// --- Callable: cancelar una orden (botón "Cancelar cobro" de Nueva Venta) ----------------------
+// La fuente de verdad es SIEMPRE el estado que Mercado Pago devuelve después de intentar cancelar,
+// nunca la intención del cajero: si el pago ya se había aprobado un instante antes de tocar
+// "Cancelar", esta función va a devolver estado:"processed" igual — quien llama tiene que respetar
+// eso (ver la máquina de estados en js/mercado-pago.js) y NUNCA interpretarlo como cancelado.
+exports.mpCancelarOrden = onCall({ region: "southamerica-east1", secrets: [mpAccessTokenTest] }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Hay que estar logueado.");
+  const { orderId } = request.data || {};
+  if (!orderId) throw new HttpsError("invalid-argument", "Falta el orderId.");
+
+  const db = admin.firestore();
+  const modo = "test";
+  const token = tokenParaModo(modo);
+
+  try {
+    try {
+      await mpFetch(`/v1/orders/${orderId}/cancel`, { method: "POST", token, idempotencyKey: crypto.randomUUID() });
+    } catch (errCancelar) {
+      // Si MP rechaza el cancel (ej. porque ya está processed), no es un error nuestro — se sigue
+      // igual a re-consultar la orden para devolver el estado real, que es lo que importa acá.
+    }
+    // Un solo GET no alcanza: probado a mano que hay una ventana real de lag de propagación en MP
+    // — si el cajero cancela justo en el instante en que se aprobó el pago, un GET inmediato puede
+    // devolver todavía "created" aunque la orden ya haya quedado "processed" un segundo después.
+    // Se reintenta una vez más tras una pausa antes de dar el estado por definitivo — más vale
+    // tardar un segundo de más en "Cancelar cobro" que arriesgarse a reportar cancelado un pago que
+    // en realidad ya se cobró.
+    let order = await mpFetch(`/v1/orders/${orderId}`, { token });
+    if (order.status !== "processed") {
+      await new Promise((r) => setTimeout(r, 1500));
+      order = await mpFetch(`/v1/orders/${orderId}`, { token });
+    }
+    const previo = await db.collection("pagosMercadoPago").doc(String(order.id)).get();
+    const docNuevo = docDesdeOrden(order, { modo, ventaId: previo.data()?.ventaId, terminalId: previo.data()?.terminalId, creadoPor: previo.data()?.creadoPor });
+    await db.collection("pagosMercadoPago").doc(String(order.id)).set(docNuevo, { merge: true });
+    await registrarLog(db, { endpoint: `/v1/orders/${orderId}/cancel`, tipoOperacion: "cancelar_orden", resultado: "ok", paymentId: String(orderId), modo });
+    return { estado: order.status, estadoDetalle: order.status_detail || null };
+  } catch (err) {
+    await registrarLog(db, { endpoint: `/v1/orders/${orderId}/cancel`, tipoOperacion: "cancelar_orden", resultado: "error", paymentId: String(orderId), mensajeError: err.message, modo });
+    throw new HttpsError("unknown", "No se pudo cancelar la orden: " + err.message);
+  }
+});
+
+// --- Callable: vincular una orden ya aprobada con la venta real que generó -----------------------
+// pagosMercadoPago tiene allow write:if false desde el cliente (firestore.rules) — este es el único
+// camino para completar ventaId, que arranca en null en crearOrdenInterna porque en ese momento la
+// venta todavía no existe. Se llama después de que crearVenta (js/ventas.js) ya terminó con éxito.
+exports.mpVincularVenta = onCall({ region: "southamerica-east1" }, async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Hay que estar logueado.");
+  const { orderId, ventaId } = request.data || {};
+  if (!orderId || !ventaId) throw new HttpsError("invalid-argument", "Falta orderId o ventaId.");
+
+  const db = admin.firestore();
+  await db.collection("pagosMercadoPago").doc(String(orderId)).set({ ventaId: String(ventaId) }, { merge: true });
+  return { ok: true };
 });
 
 // --- Callable: simular evento de orden (SOLO sandbox) ------------------------------------------
@@ -302,7 +521,17 @@ exports.mpCrearDevolucion = onCall({ region: "southamerica-east1", secrets: [mpA
   }
 
   try {
-    const body = monto ? { amount: String(monto) } : undefined;
+    // Cuerpo real de /refund (confirmado 02/09/2026, la doc pública muestra {amount} suelto pero
+    // la API vigente lo rechaza con "unsupported_properties"): reembolso total = sin body;
+    // reembolso parcial = { transactions: [{ id: transactionId, amount }] }, donde transactionId
+    // es transactions.payments[0].id de la propia orden (no el orderId).
+    let body;
+    if (monto) {
+      const ordenPrevia = await mpFetch(`/v1/orders/${orderId}`, { token });
+      const transactionId = ordenPrevia?.transactions?.payments?.[0]?.id;
+      if (!transactionId) throw new Error("No se encontró el pago de la orden para hacer la devolución parcial.");
+      body = { transactions: [{ id: transactionId, amount: String(monto) }] };
+    }
     await mpFetch(`/v1/orders/${orderId}/refund`, { method: "POST", token, body, idempotencyKey: crypto.randomUUID() });
     // La orden original NUNCA se borra — solo se re-consulta para reflejar el nuevo estado (refunded).
     const order = await mpFetch(`/v1/orders/${orderId}`, { token });
@@ -352,7 +581,6 @@ function validarFirmaWebhook(req, secret) {
   const diagnostico = {
     xSignatureCruda: xSignature || "(ninguna)",
     xRequestIdCruda: xRequestId || "(ninguno)",
-    secretLargo: secret ? secret.length : 0,
   };
   if (!xSignature || !secret) return { variante: null, diagnostico };
 

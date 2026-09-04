@@ -1,11 +1,11 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { listarListasPrecios, crearListaPrecio, actualizarListaPrecio } from "/js/catalogo.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "config-precios", titulo: "Listas de Precios", usuario });
+const content = renderConfigShell({ activeItem: "listas-precios", titulo: "Listas de Precios", usuario });
 
 content.innerHTML = `
   <div class="toolbar">
@@ -50,17 +50,19 @@ content.innerHTML = `
   </div>
 
   <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>Margen</th>
-          <th>Redondeo</th>
-          <th>Estado</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="table-clickable">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Margen</th>
+            <th>Redondeo</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-body"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">Todavía no hay listas de precios creadas.</div>
   </div>
 `;

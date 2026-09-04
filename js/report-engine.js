@@ -1,12 +1,15 @@
 // Motor de reportes: piezas reutilizables para que cada pantalla de reporte no reinvente tabla,
 // exportación ni comparación de períodos. Todo opera sobre los datos que le pasa cada reporte —
 // este módulo no sabe nada de ventas/productos/clientes, solo sabe renderizar y exportar.
+import { formatMoneda, formatPorcentaje, formatCantidad } from "./formato.js";
 
 function formatoPlano(valor, formato) {
   if (valor === null || valor === undefined || valor === "") return formato === "fecha" ? "-" : "";
-  if (formato === "moneda") return `$${Math.round(valor).toLocaleString("es-AR")}`;
-  if (formato === "numero") return Number(valor).toLocaleString("es-AR");
-  if (formato === "porcentaje") return `${Number(valor).toFixed(1)}%`;
+  // porcentaje usaba toFixed(1) directo — coma decimal en todo el ERP, pero acá salía con punto
+  // ("33.6%" en vez de "33,6%") porque toFixed() no respeta la configuración regional.
+  if (formato === "moneda") return formatMoneda(valor);
+  if (formato === "numero") return formatCantidad(valor);
+  if (formato === "porcentaje") return formatPorcentaje(valor);
   if (formato === "fecha") return formatearFecha(valor);
   return String(valor);
 }
@@ -277,7 +280,7 @@ export function renderizarComparacion(contenedor, indicadores) {
   contenedor.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Indicador</th><th style="text-align:right">Actual</th><th style="text-align:right">Anterior</th><th style="text-align:right">Variación</th></tr></thead>
+        <thead><tr><th>Indicador</th><th class="num">Actual</th><th class="num">Anterior</th><th class="num">Variación</th></tr></thead>
         <tbody>
           ${indicadores
             .map((i) => {
@@ -285,9 +288,9 @@ export function renderizarComparacion(contenedor, indicadores) {
               return `
               <tr>
                 <td>${i.titulo}</td>
-                <td style="text-align:right">${formatoPlano(i.actual, i.formato)}</td>
-                <td style="text-align:right">${formatoPlano(i.anterior, i.formato)}</td>
-                <td style="text-align:right">${variacionHtml}</td>
+                <td class="num">${formatoPlano(i.actual, i.formato)}</td>
+                <td class="num">${formatoPlano(i.anterior, i.formato)}</td>
+                <td class="num">${variacionHtml}</td>
               </tr>
             `;
             })

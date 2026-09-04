@@ -35,11 +35,36 @@ export function validarCuit(valor) {
   return dv !== null && dv === Number(digitos[10]);
 }
 
+// Hasta 8 dígitos podría terminar siendo un DNI (7-8 dígitos, sin guion en Argentina) — recién se le
+// pone el primer guion pasado ese largo, cuando ya solo puede tratarse de un CUIT en camino a 11.
 export function formatearCuit(valor) {
   const d = soloDigitos(valor).slice(0, 11);
-  if (d.length <= 2) return d;
+  if (d.length <= 8) return d;
   if (d.length <= 10) return `${d.slice(0, 2)}-${d.slice(2)}`;
   return `${d.slice(0, 2)}-${d.slice(2, 10)}-${d.slice(10)}`;
+}
+
+// El DNI, embebido dentro de un CUIL completo (posiciones 3-10, entre el prefijo de 2 y el
+// verificador) o directo si es lo único que se tiene — para poder buscar clientes por DNI sin
+// importar si su cuit terminó como DNI suelto o como CUIL completo (ver buscarClientesTexto en
+// js/clientes.js). null para un CUIT de empresa (30/33/34…): no tiene un DNI de persona adentro.
+export function dniDesdeCuit(cuit) {
+  const d = soloDigitos(cuit);
+  if (d.length === 11 && PREFIJOS_PERSONA_FISICA.some((p) => p.prefijo === d.slice(0, 2))) return d.slice(2, 10);
+  if (d.length === 7 || d.length === 8) return d.padStart(8, "0");
+  return null;
+}
+
+// Últimos 10 dígitos de un teléfono, sin importar cómo se haya tipeado — "11 5555 4444" y
+// "+54 9 11 5555 4444" dan el mismo valor, porque ambos terminan en los mismos 10 dígitos (el
+// código de país y el 9 de celular van siempre ANTES del número real). Se usa solo para BUSCAR
+// (searchPhone en js/clientes.js) — el teléfono que se le muestra al usuario nunca se toca, se
+// guarda tal cual se cargó. null si es demasiado corto para ser un teléfono real (evita que un DNI
+// corto cargado por error en el campo de teléfono termine matcheando búsquedas de teléfono).
+export function normalizarTelefono(valor) {
+  const d = soloDigitos(valor);
+  if (d.length < 8) return null;
+  return d.slice(-10);
 }
 
 // dni: 7 u 8 dígitos. Devuelve los CUIT probables (formateados) para cada prefijo de persona física.

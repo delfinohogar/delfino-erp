@@ -15,6 +15,7 @@ import {
   serverTimestamp,
   writeBatch,
 } from "./firebase.js";
+import { tokenizar, keywordsDeTextos } from "./texto.js";
 
 // Firestore permite hasta 500 operaciones por batch; dejamos margen para el write del producto
 // + el de auditoría por cada uno (2 ops por producto) sin acercarnos al límite.
@@ -49,41 +50,11 @@ const CAMPOS_AUDITABLES = [
   "linkTiendaNube",
 ];
 
-function lower(v) {
-  return (v || "").toString().trim().toLowerCase();
-}
-
-// Separa en palabras (sin acentos raros de puntuación) para indexar por término, no por frase completa.
-function tokenizar(texto) {
-  return lower(texto)
-    .split(/[^a-z0-9áéíóúñ]+/i)
-    .filter(Boolean);
-}
-
-// Prefijos de una palabra desde 2 letras hasta la palabra completa (ej. "hepa" -> "he","hep","hepa"),
-// para poder buscar por "empieza con" sobre cada palabra individual, no solo sobre el string entero.
-function generarPrefijos(palabra) {
-  const prefijos = [];
-  for (let i = Math.min(2, palabra.length); i <= palabra.length; i++) {
-    prefijos.push(palabra.slice(0, i));
-  }
-  return prefijos;
-}
-
 // Índice de búsqueda: todas las palabras (y sus prefijos) de sku/código/descripción/marca, en un solo
-// array. Permite encontrar el producto escribiendo cualquier palabra suelta ("hepa", "ultracomb"),
-// no solo el principio de la descripción completa.
-function camposBusqueda(producto, marcaNombre) {
-  const palabras = [
-    ...tokenizar(producto.sku),
-    ...tokenizar(producto.codigoInterno),
-    ...tokenizar(producto.codigoBarras),
-    ...tokenizar(producto.descripcion),
-    ...tokenizar(marcaNombre),
-  ];
-  const keywords = new Set();
-  palabras.forEach((p) => generarPrefijos(p).forEach((pre) => keywords.add(pre)));
-  return { searchKeywords: Array.from(keywords) };
+// array (ver keywordsDeTextos en js/texto.js). Permite encontrar el producto escribiendo cualquier
+// palabra suelta ("hepa", "ultracomb"), no solo el principio de la descripción completa.
+export function camposBusqueda(producto, marcaNombre) {
+  return { searchKeywords: keywordsDeTextos(producto.sku, producto.codigoInterno, producto.codigoBarras, producto.descripcion, marcaNombre) };
 }
 
 export async function obtenerProducto(id) {
@@ -209,6 +180,33 @@ export async function buscarProductos(texto, maxResultados = 20) {
   }
 
   return resultados.slice(0, maxResultados);
+}
+
+// Todo el catálogo activo, para pantallas (como Nueva Venta) que necesitan filtrar en el cliente
+// sobre una lista ya cargada en vez de consultar Firestore en cada tecla — así el buscador responde
+// al instante, igual que en La Pyme, sin depender de la latencia de red por letra tipeada.
+export async function listarProductosActivos() {
+  const snap = await getDocs(query(collection(db, "productos"), where("estado", "==", "activo")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
+// Mismo criterio de coincidencia que buscarProductos (todas las palabras deben estar en
+// searchKeywords), pero aplicado en memoria sobre una lista ya traída — sin ida y vuelta a Firestore.
+export function filtrarProductosLocal(productos, texto, maxResultados = 15) {
+  const palabras = tokenizar(texto);
+  if (palabras.length === 0) return [];
+  return productos
+    .filter((p) => palabras.every((palabra) => (p.searchKeywords || []).includes(palabra)))
+    .slice(0, maxResultados);
+}
+
+// Para que el buscador de Nueva Venta no arranque vacío — ultimaVentaEn lo pisa crearVenta (ver
+// js/ventas.js) cada vez que se vende ese producto, así que esto siempre refleja lo que de verdad
+// se está vendiendo, no una lista fija a mano. Los productos que nunca se vendieron no tienen ese
+// campo y quedan afuera solos (orderBy los excluye), no hace falta filtrarlos aparte.
+export async function listarProductosVendidosRecientemente(maxResultados = 8) {
+  const snap = await getDocs(query(collection(db, "productos"), orderBy("ultimaVentaEn", "desc"), limit(maxResultados)));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
 export async function listarProductos(maxResultados = 50) {

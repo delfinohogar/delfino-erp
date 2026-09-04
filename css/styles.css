@@ -28,7 +28,7 @@
     --page-bg: #0a0a0a;
     --background: #171717;
     --foreground: #fafafa;
-    --card: #171717;
+    --card: #1f1f1f;
     --border: rgba(255, 255, 255, 0.1);
     --muted: #a1a1aa;
     --muted-bg: #27272a;
@@ -46,7 +46,7 @@
   --page-bg: #0a0a0a;
   --background: #171717;
   --foreground: #fafafa;
-  --card: #171717;
+  --card: #1f1f1f;
   --border: rgba(255, 255, 255, 0.1);
   --muted: #a1a1aa;
   --muted-bg: #27272a;
@@ -75,6 +75,44 @@ body {
   background: var(--page-bg);
   font-size: 14px;
   line-height: 1.45;
+}
+
+/* Placeholder estático (sin JS) que se ve mientras requireAuth()+renderShell() todavía están
+   esperando la respuesta de Firebase — sin esto la pantalla queda vacía (negra en tema oscuro) y en
+   una conexión lenta da la sensación de que quedó colgada. Vive en el <body> de cada página protegida,
+   ANTES del <script type="module">, así el navegador lo pinta apenas parsea el HTML; renderShell()
+   reemplaza document.body.innerHTML entero apenas puede, así que desaparece solo, sin JS de limpieza. */
+.app-loading {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  background: var(--page-bg);
+  color: var(--muted);
+  font-size: 14px;
+}
+.app-loading .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: app-loading-pulse 1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-loading .dot {
+    animation: none;
+  }
+}
+@keyframes app-loading-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 a {
@@ -238,33 +276,64 @@ a {
     margin-left: 64px;
   }
 
-  .sidebar.collapsed a span,
+  /* Los labels se ocultan en los links sueltos y en los encabezados de grupo (quedan como una franja
+     de solo íconos) — pero NO dentro de .nav-group-items: esos recién se muestran en el flyout de
+     abajo, con su label completo, como cualquier submenú. */
+  .sidebar.collapsed > a span,
   .sidebar.collapsed .brand-text,
   .sidebar.collapsed .nav-group-header span,
   .sidebar.collapsed .nav-group-header .nav-icon:last-child {
     display: none;
   }
 
-  .sidebar.collapsed a {
+  .sidebar.collapsed > a {
     justify-content: center;
     padding: 8px 0;
   }
 
-  /* Colapsada, el acordeón no aplica: se ve como lista plana de íconos, igual que antes. */
   .sidebar.collapsed .nav-group-header {
     justify-content: center;
     padding: 8px 0;
   }
 
+  /* Colapsada, el acordeón no se puede abrir in-line (no hay lugar) — al pasar el mouse por un grupo,
+     js/shell.js arma un flyout con sus items al costado, así el grupo se sigue reconociendo por
+     nombre en vez de quedar como una sopa de íconos sueltos. */
   .sidebar.collapsed .nav-group-items {
-    display: flex;
-    padding-left: 0;
+    display: none;
   }
 
   .sidebar.collapsed .brand {
     justify-content: center;
     padding: 8px 0 16px;
   }
+}
+
+/* Flyout de un grupo con la barra colapsada — se define FUERA de ".sidebar" a propósito: js/shell.js
+   saca este nodo del sidebar y lo cuelga de <body> mientras está abierto (ver comentario ahí), así
+   que un selector ".sidebar.collapsed .nav-group-items.flyout-open" nunca matchearía una vez movido.
+*/
+.nav-group-items.flyout-open {
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  min-width: 190px;
+  padding: 6px;
+  gap: 2px;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 0.25rem);
+  box-shadow: 4px 4px 20px rgba(0, 0, 0, 0.16);
+  z-index: 60;
+}
+
+.nav-group-items.flyout-open a {
+  justify-content: flex-start;
+  padding: 7px 10px;
+}
+
+.nav-group-items.flyout-open a span {
+  display: inline;
 }
 
 .topbar {
@@ -330,6 +399,13 @@ a {
   .topbar-org span {
     display: none;
   }
+
+  /* El nombre de usuario es lo segundo que se saca de encima — antes se sacaba recién a los 860px,
+     y entre 861-1100px el buscador quedaba apretado contra org+usuario+Salir hasta ser inusable
+     (llegaba a ~65px de ancho a 870px). */
+  .topbar-right > span {
+    display: none;
+  }
 }
 
 .icon-btn {
@@ -348,7 +424,7 @@ a {
   position: relative;
   flex: 1;
   max-width: 420px;
-  min-width: 0;
+  min-width: 120px;
   margin: 0 auto;
 }
 
@@ -423,12 +499,6 @@ a {
     padding-right: 12px;
   }
 
-  /* Combinador de hijo directo: solo el nombre de usuario, no cualquier span anidado más adentro
-     (ej. el menú de tema, que también vive dentro de .topbar-right). */
-  .topbar-right > span {
-    display: none;
-  }
-
   .topbar-left h1 {
     display: none;
   }
@@ -481,6 +551,52 @@ a {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  padding: 20px;
+}
+
+/* Sin padding propio — para una card que solo envuelve una tabla (o cualquier contenido que ya se
+   banca ir a borde) sin el recuadro extra que .card agrega por default. El espaciado ENTRE cards
+   queda a cargo del contenedor (gap en flex/grid, o .mb-16 cuando van una debajo de la otra sueltas)
+   — .card no trae margin propio para no duplicarse con el gap en los layouts en grilla (dashboard,
+   POS).
+*/
+.card--flush {
+  padding: 0;
+}
+
+.mt-0 {
+  margin-top: 0;
+}
+
+.mb-8 {
+  margin-bottom: 8px;
+}
+
+.mb-12 {
+  margin-bottom: 12px;
+}
+
+.mb-16 {
+  margin-bottom: 16px;
+}
+
+.text-right {
+  text-align: right;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.stack-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hidden {
+  display: none;
 }
 
 .toolbar {
@@ -513,6 +629,23 @@ select:focus,
 textarea:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(226, 62, 58, 0.12);
+}
+
+/* iOS Safari hace zoom automático al enfocar cualquier input/select/textarea con font-size
+   computado menor a 16px — con los 14px de arriba, tocar el buscador en el celular disparaba
+   ese zoom y se perdía la vista general. Server side (Cloud Functions) no puede saber el ancho
+   real del viewport, así que se corrige con la propia condición del navegador (max-width),
+   sin cambiar la tipografía en desktop, que ya está bien a 14px. */
+@media (max-width: 768px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 label {
@@ -559,6 +692,16 @@ button.primary:hover {
   filter: brightness(0.94);
 }
 
+button.danger {
+  background: var(--danger-bg);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+button.danger:hover {
+  filter: brightness(0.94);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -589,12 +732,23 @@ th {
   letter-spacing: 0.02em;
 }
 
-tbody tr:hover {
+/* Cursor de mano y hover solo en tablas que de verdad tienen click en la fila (ver tr.addEventListener
+   en el JS de esa pantalla) — antes era global y toda tabla "parecía" clickeable, incluyendo listados
+   puramente informativos como el Libro Diario. */
+.table-clickable tbody tr {
+  cursor: pointer;
+}
+
+.table-clickable tbody tr:hover {
   background: var(--muted-bg);
 }
 
-tbody tr {
-  cursor: pointer;
+/* Columnas numéricas (montos, cantidades): alineadas a la derecha con dígitos de ancho fijo, para que
+   sumen visualmente en vez de bailar según la cantidad de dígitos. */
+th.num,
+td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .badge {
@@ -705,6 +859,10 @@ tbody tr {
 
 .login-card p.hint {
   margin: 0 0 20px;
+}
+
+.login-card button[type="submit"] {
+  width: 100%;
 }
 
 .error-text {
@@ -944,7 +1102,10 @@ tbody tr {
 /* --- Venta nueva (POS) --- */
 .pos-layout {
   display: grid;
-  grid-template-columns: 1.3fr 1fr;
+  /* El carrito (con cantidad/precio/descuento/subtotal por fila) necesita más aire que el buscador
+     de productos (una sola columna de resultados) — antes era al revés y la fila del carrito
+     terminaba con ~45px para el nombre del producto, partido letra por letra. */
+  grid-template-columns: 1fr 1.3fr;
   gap: 16px;
   align-items: start;
 }
@@ -994,12 +1155,16 @@ tbody tr {
 
 .pos-cart-item {
   display: grid;
-  grid-template-columns: 1fr 56px 84px 64px 84px 28px;
+  grid-template-columns: 1fr 52px 76px 56px 76px 24px;
   gap: 8px;
   align-items: center;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
+}
+
+.pos-cart-item-info {
+  min-width: 0;
 }
 
 .pos-cart-item-info div:first-child {
@@ -1035,9 +1200,40 @@ tbody tr {
     grid-template-columns: 1fr;
   }
 
+  /* La fila de 6 columnas no entra en un celular — pasa a 2 filas: descripción + quitar arriba,
+     cantidad/precio/descuento/subtotal abajo. Mismo HTML (productos/venta-nueva.js), solo se
+     reubica por grid-area según el orden en que ya vienen esos elementos en el DOM. */
   .pos-cart-item {
-    grid-template-columns: 1fr 48px 72px 56px 72px 24px;
+    grid-template-columns: repeat(4, 1fr) 24px;
+    grid-template-areas:
+      "info info info info quitar"
+      "cant precio desc sub sub";
+    row-gap: 6px;
     font-size: 12px;
+  }
+
+  .pos-cart-item-info {
+    grid-area: info;
+  }
+
+  .pos-cart-item [data-role="cantidad"] {
+    grid-area: cant;
+  }
+
+  .pos-cart-item [data-role="precio"] {
+    grid-area: precio;
+  }
+
+  .pos-cart-item [data-role="descuento"] {
+    grid-area: desc;
+  }
+
+  .pos-cart-item-subtotal {
+    grid-area: sub;
+  }
+
+  .pos-cart-item [data-role="quitar"] {
+    grid-area: quitar;
   }
 }
 
@@ -1241,52 +1437,80 @@ details.card[open] summary::before {
 
 .comprobante-marca {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+  flex: 1;
+  min-width: 200px;
 }
 
 .comprobante-marca img {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   object-fit: contain;
   border-radius: 6px;
+  flex-shrink: 0;
 }
 
 .comprobante-nombre {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--accent);
-}
-
-.comprobante-tagline {
-  font-size: 12px;
-  color: var(--muted);
+  margin-bottom: 3px;
 }
 
 .comprobante-datos-empresa {
-  text-align: right;
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--muted);
   line-height: 1.5;
 }
 
-.comprobante-titulo-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
+.comprobante-letra-box {
+  flex-shrink: 0;
+  width: 52px;
+  border: 1.5px solid var(--foreground);
+  border-radius: 4px;
+  text-align: center;
+  padding: 2px 0 4px;
 }
 
-.comprobante-titulo {
-  font-size: 16px;
-  font-weight: 700;
+.comprobante-letra {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.comprobante-letra-cod {
+  font-size: 8px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .comprobante-numero {
   font-size: 15px;
   font-weight: 700;
+}
+
+.comprobante-datos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  font-size: 12.5px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.comprobante-medios-pago {
+  font-size: 13.5px;
+  margin-bottom: 4px;
+}
+
+.comprobante-medios-pago > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
 }
 
 .comprobante-banner-fiscal {
@@ -1358,12 +1582,13 @@ details.card[open] summary::before {
 }
 
 .comprobante-footer {
+  display: flex;
+  justify-content: space-between;
   margin-top: 22px;
   padding-top: 12px;
   border-top: 1px solid var(--border);
   font-size: 11px;
   color: var(--muted);
-  text-align: center;
 }
 
 @media print {
@@ -1377,5 +1602,153 @@ details.card[open] summary::before {
   }
   tr {
     break-inside: avoid;
+  }
+}
+
+/* --- Configuración: menú lateral interno + panel de contenido ---------------------------------
+   Mismo lenguaje visual que el sidebar principal (nav-group/acordeón), pero en flujo normal (no
+   fixed) porque vive adentro de .main, no del viewport. En mobile se colapsa a un panel desplegable
+   con el mismo criterio que el sidebar principal (botón ☰ + overlay que se cierra al elegir). */
+.config-mobile-toggle {
+  display: none;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: left;
+}
+
+.config-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.config-sidebar {
+  width: 230px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 24px;
+}
+
+.config-sidebar-link,
+.config-sidebar-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px 7px 12px;
+  border: none;
+  border-radius: calc(var(--radius) - 0.25rem);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 500;
+  font-size: 13px;
+  text-decoration: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.config-sidebar-link:hover,
+.config-sidebar-group-header:hover {
+  background: var(--muted-bg);
+  color: var(--foreground);
+}
+
+.config-sidebar-link.active {
+  background: var(--muted-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.config-sidebar-link.disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.config-sidebar-link.disabled:hover {
+  background: none;
+  color: var(--muted);
+}
+
+.config-sidebar-group-header span {
+  flex: 1;
+}
+
+.config-sidebar-group-header .nav-icon:last-child {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+
+.config-sidebar-group.open .config-sidebar-group-header .nav-icon:last-child {
+  transform: rotate(90deg);
+}
+
+.config-sidebar-group-items {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 22px;
+}
+
+.config-sidebar-group.open .config-sidebar-group-items {
+  display: flex;
+}
+
+.config-content {
+  flex: 1;
+  min-width: 0;
+}
+
+@media (max-width: 860px) {
+  .config-mobile-toggle {
+    display: flex;
+  }
+  .config-layout {
+    flex-direction: column;
+    gap: 0;
+  }
+  .config-sidebar {
+    display: none;
+    width: 100%;
+    position: static;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px;
+    margin-bottom: 16px;
+  }
+  .config-sidebar.open {
+    display: flex;
+  }
+}
+
+/* iOS Safari hace zoom automático al enfocar un input/select/textarea con font-size computado
+   menor a 16px. Ya hay una regla general para esto (buscar "hace zoom automático" más arriba en
+   este archivo), pero .gsearch/.pos-buscar/.pos-cart-item tienen la MISMA especificidad que esa
+   regla (clase + tipo) y aparecen después en el archivo — en un empate de especificidad gana quien
+   esté último, así que la regla general quedaba pisada justo en el buscador de la topbar y en Nueva
+   Venta (buscador de productos y cantidad/precio del carrito), que es donde se notaba el zoom.
+   Repetirla acá, al final del archivo, hace que esta sea la que gane. */
+@media (max-width: 768px) {
+  .gsearch input[type="text"],
+  .pos-buscar input[type="text"],
+  .pos-cart-item input[type="number"],
+  .picker-panel input[type="text"],
+  #pos-domicilio-entrega,
+  #pos-nota-entrega {
+    font-size: 16px;
   }
 }

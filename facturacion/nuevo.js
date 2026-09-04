@@ -5,11 +5,13 @@ import { obtenerVenta } from "/js/ventas.js";
 import { obtenerCliente } from "/js/clientes.js";
 import { initClientePicker } from "/js/cliente-picker.js";
 import { obtenerConfigEmpresa } from "/js/configuracion-empresa.js";
+import { obtenerConfigFacturacion } from "/js/facturacion-config.js";
 import { crearComprobante, comprobanteDesdeVenta, subtotalItem, calcularTotales, FORMAS_PAGO_COMPROBANTE } from "/js/facturacion.js";
 import { renderizarComprobanteHtml } from "/js/facturacion-preview.js";
 import { descargarPdfComprobante, nombreArchivoComprobante } from "/js/facturacion-pdf.js";
 import { abrirWhatsappComprobante } from "/js/facturacion-whatsapp.js";
 import { abrirEmailComprobante, asuntoEmailComprobante, mensajeEmailComprobante } from "/js/facturacion-email.js";
+import { formatMoneda as formatMonto } from "/js/formato.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
@@ -17,11 +19,8 @@ if (!usuario) throw new Error("redirecting to login");
 const content = renderShell({ active: "facturacion-nuevo", titulo: "Nuevo comprobante", usuario });
 
 const ventaId = new URLSearchParams(location.search).get("ventaId");
-const configEmpresa = await obtenerConfigEmpresa();
+const configEmpresa = { ...(await obtenerConfigEmpresa()), ...(await obtenerConfigFacturacion()) };
 
-function formatMonto(v) {
-  return `$${Math.round(v || 0).toLocaleString("es-AR")}`;
-}
 
 // --- Estado del formulario manual (solo si no viene de una venta) -----------------------------
 let items = []; // { productoId?, productoSku?, productoDescripcion, cantidad, precioUnitario, descuentoPct }
@@ -55,7 +54,7 @@ function renderizarFormulario() {
       </div>
       <div class="pos-carrito card">
         <div class="pos-cliente-row">
-          <span class="hint" style="margin:0">Cliente</span>
+          <span class="hint mt-0">Cliente</span>
           <div id="cliente-picker" style="flex:1; max-width:280px"></div>
         </div>
         <div class="field" style="margin-bottom:14px">
@@ -152,6 +151,7 @@ function renderizarFormulario() {
         cantidad: 1,
         precioUnitario: producto.precioVenta ?? 0,
         descuentoPct: 0,
+        iva: producto.iva ?? 21,
       });
     }
     searchInput.value = "";

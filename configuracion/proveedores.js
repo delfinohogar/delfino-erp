@@ -14,18 +14,20 @@ content.innerHTML = `
     <button type="button" id="btn-nuevo" class="primary">+ Nuevo proveedor</button>
   </div>
   <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Razón social</th>
-          <th>CUIT</th>
-          <th>Condición IVA</th>
-          <th>Origen</th>
-        </tr>
-      </thead>
-      <tbody id="tabla-body"></tbody>
-    </table>
-    <div id="empty-state" class="empty-state" style="display:none">No hay proveedores cargados todavía.</div>
+    <div class="table-scroll">
+      <table class="table-clickable">
+        <thead>
+          <tr>
+            <th>Razón social</th>
+            <th>CUIT</th>
+            <th>Condición IVA</th>
+            <th>Origen</th>
+          </tr>
+        </thead>
+        <tbody id="tabla-body"></tbody>
+      </table>
+    </div>
+    <div id="empty-state" class="empty-state" style="display:none">Todavía no tenés ningún proveedor cargado.</div>
   </div>
 `;
 

@@ -39,14 +39,23 @@ export function renderShell({ active, titulo, usuario }) {
           "bolsa",
           nav("venta-nueva", "/productos/venta-nueva.html", "Nueva venta") +
             nav("ventas", "/productos/ventas.html", "Ventas") +
+            nav("entregas", "/productos/entregas.html", "Entregas") +
+            nav("tiendanube-ordenes", "/productos/tiendanube-ordenes.html", "Órdenes Tienda Nube") +
+            nav("tiendanube-catalogo", "/productos/tiendanube-catalogo.html", "Catálogo Tienda Nube") +
+            nav("facturas-gbp", "/productos/facturas-gbp.html", "Facturas GBP") +
+            nav("gbp-top-clientes", "/productos/gbp-top-clientes.html", "Top Clientes GBP") +
+            nav("gbp-clientes-importar", "/productos/gbp-clientes-importar.html", "Clientes GBP — Excel") +
+            nav("gbp-articulos-sync", "/productos/gbp-articulos-sync.html", "Sincronizar catálogo GBP") +
             nav("cuenta-corriente-clientes", "/productos/cuenta-corriente-clientes.html", "Cuenta corriente") +
             nav("cobros", "/productos/cobros.html", "Cobros")
         )}
+        ${nav("config-clientes", "/configuracion/clientes.html", "Clientes")}
         ${grupo(
           "productos",
           "Productos",
           "caja",
           nav("productos", "/productos/", "Productos") +
+            nav("combos", "/productos/combos.html", "Combos") +
             nav("precios", "/productos/precios.html", "Precios") +
             nav("inventario", "/productos/inventario.html", "Inventario") +
             nav("movimientos", "/productos/movimientos.html", "Movimientos") +
@@ -59,8 +68,10 @@ export function renderShell({ active, titulo, usuario }) {
           nav("ordenes-compra", "/productos/ordenes-compra.html", "Órdenes de compra") +
             nav("compras", "/productos/compras.html", "Compras") +
             nav("cuenta-corriente", "/productos/cuenta-corriente.html", "Cuenta corriente") +
-            nav("pagos", "/productos/pagos.html", "Pagos")
+            nav("pagos", "/productos/pagos.html", "Pagos") +
+            nav("gbp-proveedores-importar", "/productos/gbp-proveedores-importar.html", "Proveedores GBP — Excel")
         )}
+        ${nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores")}
         ${grupo(
           "contabilidad",
           "Contabilidad",
@@ -69,34 +80,32 @@ export function renderShell({ active, titulo, usuario }) {
             nav("contabilidad-libro-mayor", "/contabilidad/libro-mayor.html", "Libro Mayor") +
             nav("contabilidad-sumas-saldos", "/contabilidad/sumas-saldos.html", "Sumas y Saldos") +
             nav("contabilidad-estado-resultados", "/contabilidad/estado-resultados.html", "Estado de Resultados") +
+            nav("contabilidad-libro-iva-ventas", "/contabilidad/libro-iva-ventas.html", "Libro IVA Ventas") +
+            nav("contabilidad-libro-iva-compras", "/contabilidad/libro-iva-compras.html", "Libro IVA Compras") +
             nav("contabilidad-plan-cuentas", "/contabilidad/plan-cuentas.html", "Plan de Cuentas")
         )}
         ${grupo(
           "facturacion",
           "Facturación",
           "recibo",
-          nav("facturacion-dashboard", "/facturacion/dashboard.html", "Comprobantes") +
-            nav("facturacion-nuevo", "/facturacion/nuevo.html", "Nuevo comprobante")
+          nav("facturacion-dashboard", "/facturacion/dashboard.html", "Historial de comprobantes") +
+            nav("facturacion-nuevo", "/facturacion/nuevo.html", "Nuevo comprobante (manual)")
         )}
         ${grupo(
-          "mercado-pago",
-          "Mercado Pago",
-          "billetera",
-          nav("mp-centro-pruebas", "/mercado-pago/centro-pruebas.html", "Centro de pruebas") +
-            (usuario?.rol === "administrador" ? nav("config-mercado-pago", "/configuracion/mercado-pago.html", "Configuración") : "")
+          "tesoreria",
+          "Tesorería",
+          "balanza",
+          nav("tesoreria-dashboard", "/tesoreria/dashboard.html", "Posición") +
+            nav("tesoreria-cajas", "/tesoreria/cajas.html", "Cajas") +
+            nav("tesoreria-bancos", "/tesoreria/bancos.html", "Bancos") +
+            nav("tesoreria-cheques-futuro", "/tesoreria/cheques-futuro.html", "Cheques a futuro") +
+            nav("tesoreria-cxc", "/tesoreria/cuentas-por-cobrar.html", "Cuentas por cobrar") +
+            nav("tesoreria-gastos", "/tesoreria/gastos.html", "Gastos") +
+            nav("tesoreria-transferencias", "/tesoreria/transferencias.html", "Transferencias") +
+            nav("tesoreria-movimientos", "/tesoreria/movimientos.html", "Movimientos") +
+            nav("tesoreria-conciliacion", "/tesoreria/conciliacion.html", "Conciliación")
         )}
-        ${grupo(
-          "configuracion",
-          "Configuración",
-          "edificio",
-          (usuario?.rol === "administrador" ? nav("config-empresa", "/configuracion/empresa.html", "Empresa") : "") +
-            nav("config-categorias", "/configuracion/categorias.html", "Categorías") +
-            nav("config-marcas", "/configuracion/marcas.html", "Marcas") +
-            nav("config-proveedores", "/configuracion/proveedores.html", "Proveedores") +
-            nav("config-clientes", "/configuracion/clientes.html", "Clientes") +
-            nav("config-precios", "/configuracion/listas-precios.html", "Listas de Precios") +
-            (usuario?.rol === "administrador" ? nav("config-usuarios", "/configuracion/usuarios.html", "Usuarios") : "")
-        )}
+        ${nav("configuracion", "/configuracion/index.html", "Configuración")}
       </aside>
       <div class="sidebar-backdrop"></div>
       <div class="main">
@@ -110,7 +119,7 @@ export function renderShell({ active, titulo, usuario }) {
           <div class="topbar-right">
             <button type="button" id="topbar-ia-btn" class="icon-btn" title="Preguntale a la IA" aria-label="Preguntale a la IA">✨</button>
             <div id="theme-picker-container"></div>
-            <span class="hint" style="margin:0">${usuario?.nombre || usuario?.email || ""}</span>
+            <span class="hint mt-0">${usuario?.nombre || usuario?.email || ""}</span>
             <button id="logout-btn">Salir</button>
           </div>
         </div>
@@ -133,6 +142,42 @@ export function renderShell({ active, titulo, usuario }) {
       gruposEl.forEach((otro) => otro.classList.remove("open"));
       if (!yaAbierto) g.classList.add("open");
     });
+  });
+
+  // Con la barra colapsada (solo íconos) el acordeón no tiene dónde desplegarse in-line — al pasar
+  // el mouse por un grupo aparece como flyout al costado (mismo patrón que un submenú), para no
+  // perder a qué grupo pertenece cada ícono. .sidebar tiene overflow-x:hidden (para el scroll
+  // vertical) y transform (para el slide-in mobile) — eso convierte a .sidebar en el "containing
+  // block" de cualquier position:fixed adentro y lo recorta igual, así que el flyout se saca del
+  // DOM del sidebar mientras está abierto (mismo truco que attachAutocomplete en autocomplete.js) y
+  // se vuelve a meter en su .nav-group al cerrar, para no romper el acordeón cuando se reexpande.
+  gruposEl.forEach((g) => {
+    const items = g.querySelector(".nav-group-items");
+    // Una vez que el flyout se movió a <body>, ya no es descendiente de "g" — pasar el mouse del
+    // ícono al flyout cruza el borde de "g" y dispararía su mouseleave a mitad de camino. Por eso
+    // cerrar se demora un toque y se cancela si el mouse entró a cualquiera de los dos (el ícono o
+    // el flyout ya movido), no solo a "g".
+    let cerrarTimeout = null;
+    const abrir = () => {
+      if (!sidebarEl.classList.contains("collapsed") || ES_MOBILE()) return;
+      clearTimeout(cerrarTimeout);
+      const rect = g.getBoundingClientRect();
+      document.body.appendChild(items);
+      items.style.top = `${rect.top}px`;
+      items.style.left = `${rect.right + 6}px`;
+      items.classList.add("flyout-open");
+    };
+    const programarCierre = () => {
+      cerrarTimeout = setTimeout(() => {
+        items.classList.remove("flyout-open");
+        items.removeAttribute("style");
+        g.appendChild(items);
+      }, 150);
+    };
+    g.addEventListener("mouseenter", abrir);
+    g.addEventListener("mouseleave", programarCierre);
+    items.addEventListener("mouseenter", () => clearTimeout(cerrarTimeout));
+    items.addEventListener("mouseleave", programarCierre);
   });
 
   document.getElementById("logout-btn").addEventListener("click", cerrarSesion);

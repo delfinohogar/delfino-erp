@@ -27,15 +27,55 @@ exports.extraerFactura = require("./extraerFactura").extraerFactura;
 // Cargar credenciales (secrets) desde una pantalla del ERP en vez de la terminal.
 exports.guardarSecretoAdmin = require("./secretosAdmin").guardarSecretoAdmin;
 
+// Alta de usuario (login + perfil) en un solo paso, sin pasar por Firebase Console.
+exports.crearUsuarioCompleto = require("./usuariosAdmin").crearUsuarioCompleto;
+
 // Integración de Mercado Pago Point (entorno de pruebas) — ver mercadoPago.js para el detalle.
 const mercadoPago = require("./mercadoPago");
 exports.mpProbarConexion = mercadoPago.mpProbarConexion;
 exports.mpListarTerminales = mercadoPago.mpListarTerminales;
+exports.mpConfigurarPuntoDeVenta = mercadoPago.mpConfigurarPuntoDeVenta;
 exports.mpCrearOrdenPrueba = mercadoPago.mpCrearOrdenPrueba;
+exports.mpCrearOrdenVenta = mercadoPago.mpCrearOrdenVenta;
+exports.mpCancelarOrden = mercadoPago.mpCancelarOrden;
+exports.mpVincularVenta = mercadoPago.mpVincularVenta;
 exports.mpSimularEventoOrden = mercadoPago.mpSimularEventoOrden;
 exports.mpConsultarPago = mercadoPago.mpConsultarPago;
 exports.mpCrearDevolucion = mercadoPago.mpCrearDevolucion;
 exports.mpWebhook = mercadoPago.mpWebhook;
+
+// Autorización fiscal (WSFEv1) — ver arcaFacturacion.js. Inerte mientras
+// configuracion/facturacion.arcaActivo sea false (siempre, por ahora).
+exports.arcaAutorizarComprobante = require("./arcaFacturacion").arcaAutorizarComprobante;
+
+// Tienda Nube — solo lectura de pedidos (app separada de la que usa GBP para stock/precio).
+exports.tnWebhook = require("./tiendanube").tnWebhook;
+
+// Tienda Nube — reconciliación de catálogo (previsualizar + aplicar a mano, nunca automático).
+const tnCatalogo = require("./tiendanubeCatalogo");
+exports.tnReconciliarCatalogo = tnCatalogo.tnReconciliarCatalogo;
+exports.tnVincularProductos = tnCatalogo.tnVincularProductos;
+exports.tnActualizarStock = tnCatalogo.tnActualizarStock;
+exports.tnImportarProductos = tnCatalogo.tnImportarProductos;
+exports.tnImportarImagenes = tnCatalogo.tnImportarImagenes;
+
+// Combos (productos compuestos por otros productos) — mantiene precio/costo/stock sincronizados
+// cada vez que cambia un componente. Ver js/combos.js y functions/combosSync.js.
+exports.onProductoActualizadoRecalcularCombos = require("./combosSync").onProductoActualizadoRecalcularCombos;
+
+// GBP — historial de facturas emitidas (solo lectura/consulta, no factura ni cruza cuenta corriente).
+exports.gbpSincronizarFacturas = require("./gbpFacturas").gbpSincronizarFacturas;
+
+// GBP — vincula clientes de Delfino con su cliente de GBP por CUIT/DNI (identificadorExterno).
+// Preview primero, aplicar después (mismo patrón que la reconciliación de Tiendanube).
+exports.gbpPreviewVincularClientes = require("./gbpClientes").gbpPreviewVincularClientes;
+exports.gbpAplicarVincularClientes = require("./gbpClientes").gbpAplicarVincularClientes;
+exports.gbpImportarClientePrueba = require("./gbpClientes").gbpImportarClientePrueba;
+exports.gbpExportarTodosLosClientes = require("./gbpClientes").gbpExportarTodosLosClientes;
+
+// GBP — sincroniza precio/stock/descripción/IVA del catálogo existente (no crea productos nuevos).
+exports.gbpPreviewArticulos = require("./gbpArticulos").gbpPreviewArticulos;
+exports.gbpAplicarArticulos = require("./gbpArticulos").gbpAplicarArticulos;
 
 const afipCert = defineSecret("AFIP_CERT");
 const afipKey = defineSecret("AFIP_KEY");
@@ -48,6 +88,23 @@ function limpiarCuit(cuit) {
 // idImpuesto del catálogo de ARCA para IVA (impuesto 30).
 const ID_IMPUESTO_IVA = 30;
 
+// El parser XML (fast-xml-parser, ignoreAttributes:true) devuelve string para un nodo hoja
+// normal, pero si ARCA lo manda con atributos o hijos mixtos puede llegar como objeto
+// ({"#text": "..."} o un objeto con la primera propiedad útil) — de ahí salió el bug real de
+// "[object Object]" en la ficha de un cliente: se interpolaba el objeto crudo en el template
+// literal sin extraer el texto. Esto lo blinda para cualquier campo de texto que venga de ARCA,
+// no solo para este caso puntual.
+function textoDeCampoArca(valor) {
+  if (valor == null) return null;
+  if (typeof valor === "string" || typeof valor === "number") return String(valor).trim() || null;
+  if (typeof valor === "object") {
+    if (typeof valor["#text"] === "string") return valor["#text"].trim() || null;
+    const primerString = Object.values(valor).find((v) => typeof v === "string" && v.trim());
+    if (primerString) return primerString.trim();
+  }
+  return null;
+}
+
 // A partir de la respuesta de A5 (constancia de inscripción), arma la condición frente al IVA
 // propiamente dicha (Responsable Inscripto / Monotributista / etc.) — no la lista completa de
 // impuestos en los que está inscripto (eso queda aparte, no hace falta mezclarlo acá).
@@ -55,7 +112,7 @@ function condicionIvaDesdePersonaA5(personaA5) {
   if (!personaA5) return null;
 
   if (personaA5.datosMonotributo) {
-    const categoria = personaA5.datosMonotributo.descripcionCategoria || personaA5.datosMonotributo.categoriaMonotributo;
+    const categoria = textoDeCampoArca(personaA5.datosMonotributo.descripcionCategoria) || textoDeCampoArca(personaA5.datosMonotributo.categoriaMonotributo);
     return categoria ? `Monotributista (categoría ${categoria})` : "Monotributista";
   }
 
@@ -105,16 +162,23 @@ exports.consultarPadronArca = onCall(
     const domicilios = Array.isArray(domiciliosRaw) ? domiciliosRaw : domiciliosRaw ? [domiciliosRaw] : [];
     const domicilioFiscal = domicilios.find((d) => d.tipoDomicilio === "FISCAL") || domicilios[0] || {};
 
+    // Todo lo que viene de ARCA pasa por textoDeCampoArca antes de salir de acá — se guarda en
+    // Firestore y se renderiza en varias pantallas (ficha de cliente/proveedor, modal de alta),
+    // así que un campo mal parseado como objeto tiene que quedar blindado en el origen, no en
+    // cada lugar que lo consume después.
+    const descripcionActividad = textoDeCampoArca(persona.descripcionActividadPrincipal);
+
     return {
-      razonSocial: persona.razonSocial || [persona.nombre, persona.apellido].filter(Boolean).join(" ") || null,
+      razonSocial:
+        textoDeCampoArca(persona.razonSocial) ||
+        [textoDeCampoArca(persona.nombre), textoDeCampoArca(persona.apellido)].filter(Boolean).join(" ") ||
+        null,
       condicionIva,
-      domicilioFiscal: domicilioFiscal.direccion || null,
-      provincia: domicilioFiscal.descripcionProvincia || null,
-      codigoPostal: domicilioFiscal.codigoPostal || null,
-      situacionTributaria: persona.estadoClave || null,
-      actividades: persona.descripcionActividadPrincipal
-        ? [{ id: persona.idActividadPrincipal, descripcion: persona.descripcionActividadPrincipal }]
-        : [],
+      domicilioFiscal: textoDeCampoArca(domicilioFiscal.direccion),
+      provincia: textoDeCampoArca(domicilioFiscal.descripcionProvincia),
+      codigoPostal: textoDeCampoArca(domicilioFiscal.codigoPostal),
+      situacionTributaria: textoDeCampoArca(persona.estadoClave),
+      actividades: descripcionActividad ? [{ id: textoDeCampoArca(persona.idActividadPrincipal), descripcion: descripcionActividad }] : [],
     };
   }
 );

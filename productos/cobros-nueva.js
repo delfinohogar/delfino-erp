@@ -2,10 +2,12 @@ import { requireAuth } from "/js/auth.js";
 import { renderShell } from "/js/shell.js";
 import { initClientePicker } from "/js/cliente-picker.js";
 import { listarVentasPorCliente } from "/js/ventas.js";
-import { listarCobrosPorCliente, crearCobro, MEDIOS_COBRO } from "/js/cobros.js";
+import { listarCobrosPorCliente, crearCobro, mediosCobroDisponibles } from "/js/cobros.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
+
+const MEDIOS_COBRO = await mediosCobroDisponibles();
 
 const content = renderShell({ active: "cobros", titulo: "Registrar cobro", usuario });
 
@@ -16,7 +18,7 @@ content.innerHTML = `
       <div id="cliente-picker"></div>
     </div>
 
-    <div class="card" style="padding:20px; margin-bottom:16px">
+    <div class="card mb-16">
       <div class="section-title">Ventas</div>
       <div id="sin-cliente" class="hint">Elegí un cliente para ver sus ventas.</div>
       <div class="table-scroll">
@@ -191,15 +193,18 @@ document.getElementById("form-cobro").addEventListener("submit", async (e) => {
   submitBtn.disabled = true;
 
   const datosComunes = {
-    fecha: new Date(document.getElementById("fecha-cobro").value),
+    // String "YYYY-MM-DD" tal cual lo da el input date — mismo formato que usan ventas y compras.
+    // Mandar un Date acá dejaba el movimiento fuera de los filtros por fecha de Tesorería.
+    fecha: document.getElementById("fecha-cobro").value,
     medioPago: document.getElementById("medio-cobro").value,
     referencia: document.getElementById("referencia").value.trim(),
     notas: document.getElementById("notas").value.trim(),
   };
 
   try {
+    const sinUbicar = [];
     for (const { venta, monto } of seleccionadas) {
-      await crearCobro(
+      const resultado = await crearCobro(
         {
           ...datosComunes,
           clienteId: clienteSeleccionado.id,
@@ -210,6 +215,14 @@ document.getElementById("form-cobro").addEventListener("submit", async (e) => {
         },
         usuario
       );
+      if (!resultado.routeoTesoreria?.ruteado) {
+        sinUbicar.push(`Venta #${venta.numeroVenta}: ${resultado.routeoTesoreria?.motivo || "sin motivo"}`);
+      }
+    }
+    // El cobro se registró igual, pero si Tesorería no pudo ubicar la plata hay que decirlo antes de
+    // salir de la pantalla — si no, el aviso se pierde (mismo criterio que en Nueva Venta).
+    if (sinUbicar.length > 0) {
+      alert(`El cobro se registró, pero Tesorería no pudo ubicar la plata:\n\n${sinUbicar.join("\n")}`);
     }
     location.href = "/productos/cobros.html";
   } catch (err) {

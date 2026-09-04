@@ -1,0 +1,11 @@
+{
+  "name": "delfino-erp",
+  "private": true,
+  "description": "Empaqueta el JS de cada pantalla (ver build.js) para no depender de ~40 pedidos de red sueltos por página en conexiones lentas.",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
+  }
+}

@@ -6,6 +6,7 @@
     <title>Delfino ERP</title>
   </head>
   <body>
+    <div class="app-loading"><span class="dot"></span>Cargando…</div>
     <script type="module">
       import { auth, onAuthStateChanged } from "/js/firebase.js";
       onAuthStateChanged(auth, (user) => {

@@ -1,5 +1,5 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { functions, httpsCallable } from "/js/firebase.js";
 import { obtenerConfigMercadoPago, guardarConfigMercadoPago } from "/js/mercado-pago.js";
 
@@ -11,7 +11,7 @@ if (usuario.rol !== "administrador") {
   throw new Error("sin permiso");
 }
 
-const content = renderShell({ active: "config-mercado-pago", titulo: "Mercado Pago", usuario });
+const content = renderConfigShell({ activeItem: "integraciones", titulo: "Mercado Pago", usuario });
 
 content.innerHTML = `
   <div id="banner-modo"></div>
@@ -36,6 +36,24 @@ content.innerHTML = `
     <div class="toolbar" style="margin-top:8px">
       <button type="button" id="btn-guardar" class="primary">Guardar</button>
     </div>
+  </div>
+
+  <div class="card" style="padding:20px; margin-bottom:16px; max-width:560px">
+    <div class="section-title">Terminal</div>
+    <div class="hint" style="margin-bottom:12px">
+      Un solo terminal para todo el comercio por ahora (multi-terminal por sucursal/caja queda para
+      más adelante). Se completa solo al usar "Configurar tienda/caja + activar PDV" en el
+      <a href="/mercado-pago/centro-pruebas.html">Centro de pruebas</a>, pero se puede corregir a
+      mano acá si hace falta.
+    </div>
+    <div class="field">
+      <label for="input-terminal-id">ID del terminal</label>
+      <input type="text" id="input-terminal-id" placeholder="ej. NEWLAND_N950__SBX0000001" autocomplete="off" />
+    </div>
+    <div class="toolbar" style="margin-top:8px">
+      <button type="button" id="btn-guardar-terminal" class="primary">Guardar</button>
+    </div>
+    <div id="terminal-estado" class="hint" style="margin-top:8px"></div>
   </div>
 
   <div class="card" style="padding:20px; margin-bottom:16px; max-width:560px">
@@ -97,12 +115,20 @@ const config = await obtenerConfigMercadoPago();
 const modoActual = config.modo === "produccion" ? "produccion" : "test";
 document.querySelector(`input[name="modo"][value="${modoActual}"]`).checked = true;
 pintarBanner(modoActual);
+document.getElementById("input-terminal-id").value = config.terminalId || "";
 
 document.getElementById("btn-guardar").addEventListener("click", async () => {
   const modo = document.querySelector('input[name="modo"]:checked').value;
   await guardarConfigMercadoPago({ modo });
   pintarBanner(modo);
   alert("Configuración guardada.");
+});
+
+document.getElementById("btn-guardar-terminal").addEventListener("click", async () => {
+  const estadoEl = document.getElementById("terminal-estado");
+  const terminalId = document.getElementById("input-terminal-id").value.trim();
+  await guardarConfigMercadoPago({ terminalId });
+  estadoEl.textContent = terminalId ? "Guardado." : "Terminal borrado — Nueva Venta no va a poder cobrar con Mercado Pago hasta que se cargue uno.";
 });
 
 async function guardarSecreto(nombre, inputId, estadoId, boton) {

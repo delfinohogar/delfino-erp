@@ -14,6 +14,7 @@ import {
   where,
   orderBy,
   limit,
+  startAfter,
   serverTimestamp,
   runTransaction,
   writeBatch,
@@ -28,6 +29,13 @@ import {
   getFunctions,
   httpsCallable,
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-functions.js";
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
@@ -35,6 +43,7 @@ export const db = getFirestore(app);
 export const auth = getAuth(app);
 // southamerica-east1: misma región que Firestore, para no pagar/esperar latencia cross-region.
 export const functions = getFunctions(app, "southamerica-east1");
+export const storage = getStorage(app);
 
 export {
   collection,
@@ -50,6 +59,7 @@ export {
   where,
   orderBy,
   limit,
+  startAfter,
   serverTimestamp,
   runTransaction,
   writeBatch,
@@ -57,4 +67,8 @@ export {
   signInWithEmailAndPassword,
   signOut,
   httpsCallable,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
 };

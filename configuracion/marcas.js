@@ -1,22 +1,24 @@
 import { requireAuth } from "/js/auth.js";
-import { renderShell } from "/js/shell.js";
+import { renderConfigShell } from "/js/configuracion-shell.js";
 import { pedirCamposModal } from "/js/modal.js";
 import { listarMarcas, crearMarca, renombrarMarca } from "/js/catalogo.js";
 
 const usuario = await requireAuth();
 if (!usuario) throw new Error("redirecting to login");
 
-const content = renderShell({ active: "config-marcas", titulo: "Marcas", usuario });
+const content = renderConfigShell({ activeItem: "marcas", titulo: "Marcas", usuario });
 
 content.innerHTML = `
   <div class="toolbar">
     <button type="button" id="btn-nueva-marca" class="primary">+ Nueva marca</button>
   </div>
   <div class="card">
-    <table>
-      <thead><tr><th>Nombre</th><th></th></tr></thead>
-      <tbody id="tabla-marcas"></tbody>
-    </table>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Nombre</th><th></th></tr></thead>
+        <tbody id="tabla-marcas"></tbody>
+      </table>
+    </div>
     <div id="empty-state" class="empty-state" style="display:none">Todavía no hay marcas cargadas.</div>
   </div>
 `;
