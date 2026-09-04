@@ -34,6 +34,16 @@ function letraDesdeTipoComprobante(texto) {
   return match ? match[1].toUpperCase() : null;
 }
 
+// item_id ausente = línea "fantasma": GBP no mandó a qué artículo corresponde, así que no hay forma
+// de saber qué se vendió — se descarta antes de guardarla (ver el loop de líneas más abajo).
+// Evaluado sobre el valor CRUDO, antes de convertirlo a string — String(undefined) da el string
+// "undefined", que se vería como "un valor" si se chequeara después de la conversión. Un item_id
+// real que simplemente no matchea el catálogo de Delfino NO entra acá — esa es una venta real de
+// algo todavía no catalogado en Delfino, se guarda igual (ver productoPorIdExterno).
+function itemIdFaltante(itemId) {
+  return itemId === undefined || itemId === null || String(itemId).trim() === "";
+}
+
 exports.gbpSincronizarFacturas = onCall(
   { region: "southamerica-east1", secrets: gbp.GBP_SECRETS, timeoutSeconds: 300, memory: "1GiB" },
   async (request) => {
@@ -72,9 +82,28 @@ exports.gbpSincronizarFacturas = onCall(
       if (idExt) clienteIdPorIdExterno.set(String(idExt), doc.id);
     });
 
+    // Comprobante legible por transacción, solo para identificar a qué factura pertenece cada línea
+    // descartada en el warning de abajo — mismo armado de texto que ya se usa al guardar encabezados.
+    const comprobantePorTransaccion = new Map(
+      encabezados.map((e) => [
+        String(e.ct_transaction),
+        `${letraDesdeTipoComprobante(e.tipoComprobante) || ""} ${String(e.ct_pointOfSale ?? "").padStart(4, "0")}-${String(
+          e.ct_docNumber ?? ""
+        ).padStart(8, "0")}`.trim(),
+      ])
+    );
+
     const lineasPorTransaccion = new Map();
+    const descartadasPorTransaccion = new Map();
     for (const l of lineas) {
       const key = String(l.ct_transaction);
+      if (itemIdFaltante(l.item_id)) {
+        const entrada = descartadasPorTransaccion.get(key) || { cantidad: 0, valoresCrudos: [] };
+        entrada.cantidad += 1;
+        entrada.valoresCrudos.push(l.item_id);
+        descartadasPorTransaccion.set(key, entrada);
+        continue;
+      }
       if (!lineasPorTransaccion.has(key)) lineasPorTransaccion.set(key, []);
       const producto = productoPorIdExterno.get(String(l.item_id));
       lineasPorTransaccion.get(key).push({
@@ -86,6 +115,17 @@ exports.gbpSincronizarFacturas = onCall(
         precioUnitario: numero(l.it_price),
         costoUnitario: numero(l.it_priceOfCost),
       });
+    }
+    // Rastro en los logs de cada línea descartada, con el valor crudo que mandó GBP — así si el
+    // patrón cambia (por ejemplo, GBP empieza a mandar un item_id con otra forma "vacía") queda
+    // visible en vez de fallar en silencio.
+    for (const [key, { cantidad, valoresCrudos }] of descartadasPorTransaccion) {
+      const comprobante = comprobantePorTransaccion.get(key) || key;
+      console.warn(
+        `gbpSincronizarFacturas: comprobante ${comprobante} — ${cantidad} línea(s) descartada(s) sin item_id (valores crudos: ${JSON.stringify(
+          valoresCrudos
+        )}).`
+      );
     }
 
     // Firestore no acepta más de 500 escrituras por batch — se junta en tandas de 400 por si algún

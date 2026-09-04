@@ -132,7 +132,10 @@ export const RESUMENES_DASHBOARD = {
       reporteResumenVentas(desdeAnterior, hastaAnterior),
       reporteVentasPorDia(desde, hasta),
     ]);
-    return { valor: formatMonto(actual.total), comparacion: variacion(actual.total, anterior.total), serie: serie.map((d) => d.total) };
+    // Desglose Delfino/GBP — sin esto la tarjeta mezcla ambas fuentes sin ningún aviso (a diferencia
+    // de Reportes, que sí lo muestra). Solo aparece si hay algo de GBP en el período.
+    const sub = actual.totalGbp > 0 ? `Incluye GBP · Delfino ${formatMonto(actual.totalDelfino)} · GBP ${formatMonto(actual.totalGbp)}` : undefined;
+    return { valor: formatMonto(actual.total), sub, comparacion: variacion(actual.total, anterior.total), serie: serie.map((d) => d.total) };
   },
   "productos-mas-vendidos": async ({ desde, hasta }) => {
     const top = await reporteProductosMasVendidos(desde, hasta, 1);
