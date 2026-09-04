@@ -44,14 +44,22 @@ accept:
 - no abre puertos, no escucha HTTP, no importa firebase
 - `npm test` sigue en verde y los 21 tests de invariantes siguen pasando
 
-### TASK-011 — El test de aislamiento se autentica en vez de escribir sin usuario
-status: IN_REVIEW
+### TASK-011 — El test de aislamiento se autentica con un usuario efímero propio
+status: REJECTED
 owner: tester
 depends: TASK-001
 files:
 - tests/integration/safety.test.js
 accept:
-- el test se autentica contra el emulador de Auth con `admin@delfino.local`, igual que hace el ERP real, antes de escribir
+- el test se autentica contra el emulador de Auth antes de escribir, y pasa por `firestore.rules`, igual que hace el ERP real
+- **el test no toca `admin@delfino.local` en ningún camino de ejecución**: crea su propio usuario efímero `safety-<uuid>@test.local` con password aleatoria por corrida, lo usa y lo borra. Un test no puede dejar a Gastón sin acceso a su entorno local si falla a la mitad (decisión de Gastón 2026-09-04, el auditor coincide y la hace bloqueante)
+- el perfil del usuario efímero usa el rol mínimo suficiente (`vendedor`, no `administrador`) y **no** escribe el campo `nombre`, para que un huérfano no aparezca en el listado de `js/usuarios.js`
+- `afterAll` solo borra lo que esta corrida creó, con un flag seteado **después** de que `createUser` devolvió: ninguna rama puede borrar un uid que el test no creó
+- prueba obligatoria de falla a la mitad: con un `throw` inyectado en cuatro puntos del `beforeAll`, en las cuatro corridas `admin@delfino.local` sigue existiendo, su perfil conserva su `rol`, el login `admin@delfino.local` / `delfino-dev` sigue respondiendo 200 —verificado de verdad, no por lectura del código— y no queda ningún `clientes/safety-check-*`
+- barrido de huérfanos al empezar: elimina los `safety-*@test.local` de corridas anteriores, matchea por el patrón exacto, **nunca** puede alcanzar a `admin@delfino.local`, y con cero coincidencias no lanza
+- dos corridas seguidas dejan `/usuarios` y `/clientes` con exactamente los mismos documentos que antes de la primera, por comparación explícita
+- la demostración de que el test **puede fallar** sigue en pie con el usuario efímero: la mutación de aislamiento sigue dando ROJO con "AISLAMIENTO ROTO", y un rol sin permiso sigue dando `PERMISSION_DENIED` (R20)
+- R17 y R18 quedan marcados en RISKS.md como ELIMINADOS, no mitigados, con la fecha
 - **no se modifica `firestore.rules`**: agregar una regla a producción para que pase un test es la salida equivocada
 - la escritura de prueba va a una colección que las reglas ya contemplan para un usuario logueado; `_safety` no existe en las reglas y no se inventa
 - el test sigue probando lo que dice probar: que la escritura **va al emulador** y no puede llegar a producción. Si el aislamiento se rompe, el test falla
