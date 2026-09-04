@@ -24,7 +24,7 @@ Los tests los escribe el tester en `tests/`, así que `tests/` no aparece en nin
 ---
 
 ### TASK-001 — Backend Node mínimo: cliente pg y migrador con versiones
-status: IN_PROGRESS
+status: IN_REVIEW
 owner: implementador
 depends:
 files:
