@@ -1,49 +1,59 @@
 # Estado de la migración
 
-Fase actual: **0 (relevamiento y diseño)**. Relevamiento del código terminado; arquitectura y
-tareas todavía sin escribir. Nada migrado, nada implementado.
+Fase actual: **0 cerrada. Lista para empezar FASE 1.**
 Rama de trabajo: `migration/postgresql`
-Última tarea cerrada: — (todavía no hay tareas en TASKS.md)
+Última tarea cerrada: — (TASK-001 todavía no arrancó)
 Tareas bloqueadas: —
-Pendientes de Gastón: ver la sección PENDIENTE DE GASTÓN en DECISIONS.md
+Pendientes de Gastón: 3, ver abajo
 
-## Qué se hizo el 2026-09-04
+## Qué se hizo
 
-Relevamiento completo del ERP sobre el master actual y reparación del registro de decisiones y
-riesgos, que estaba describiendo cosas que el repositorio no contenía.
+FASE -1 quedó cerrada: emuladores, PostgreSQL local, barreras de git y Netlify, 34 tests.
 
-## Antes de FASE 0
+FASE 0, el 2026-09-04:
 
-La FASE 0 se rehace **desde cero** sobre el master actual. El borrador previo se hizo sobre un
-master que no incluía el bundling con esbuild, la sincronización con GBP (`facturasGbp`,
-`clientesGbp`), la integración ARCA WSFEv1 ni la carpeta `publicar/`. Los conteos de superficie
-de UI, módulos y líneas de ese borrador no son válidos: el relevamiento del 2026-09-04 los
-reemplaza.
-
-## Qué hay hoy en el repositorio, con precisión
-
-- **Decisiones:** 37 entradas en DECISIONS.md. Las 30 de la sesión del 2026-09-03 (P1–P12,
-  Q1–Q4, 8 [GASTÓN], 5 [NIVEL 2], 1 [ALCANCE]) se incorporaron textualmente el 2026-09-04.
-  Hasta ese día este archivo las daba por presentes y **no estaban**: se habían tomado en una
-  conversación que nunca se versionó. Están vigentes y no hay que volver a decidirlas.
-- **Esquema SQL:** `backend/db/migrations/0001_esquema_poc.sql` y `0002_venta_servicio.sql`
-  existen y su cabecera declara validación empírica contra PostgreSQL 16.15. No hay que
-  reescribirlos, pero **no están aprobados**: la propia cabecera dice "NO es esquema aprobado:
-  falta la verificación del Director y del Auditor". Esa verificación sigue pendiente. Además
-  no cubren IVA en `crear_venta()`, listas de precios ni Tesorería.
-- **Invariantes:** `tests/integration/postgres/invariantes.test.js` tiene **21 tests**
-  (9 `describe`), confirmado por conteo. Con safety (4), contabilidad (4) y facturación (5),
-  el repositorio tiene 34 tests.
-- **Backend:** no existe. `backend/` son tres archivos de configuración y tres `.sql`. No hay
-  servidor Node, ni rutas HTTP, ni cliente `pg` de aplicación, ni migrador.
-- **Riesgos:** 12, corridos de R1 a R12. Se renumeró R12–R17 → R6–R11; el salto original
-  suponía seis riesgos de un documento que nunca llegó al repositorio. R18 nunca existió.
+- **Relevamiento completo** del ERP sobre el master actual, en ARCHITECTURE.md. Reemplaza el
+  borrador anterior, cuyos conteos no eran válidos.
+- **Se repararon tres afirmaciones falsas** que el repositorio daba por buenas: las decisiones
+  P1–P12 y Q1–Q4 no estaban en DECISIONS.md (se incorporaron, textuales); R6–R11 y R18 nunca
+  existieron (los riesgos se renumeraron y corren de R1 a R12 sin huecos); y el IVA en ventas no
+  está "calculado en $0" como dice CLAUDE.md, sino discriminado e imputado a 2.1.2.
+- **Gastón resolvió tres decisiones de Nivel 3**: el IVA se calcula (corrige la premisa de P6),
+  Tesorería queda fuera de la PoC pero se conserva el destino contable en `venta_pagos`, y solo
+  los comprobantes conservan numeración en el corte (cierra P7).
+- **TEST_MATRIX.md** con 45 invariantes en cinco bloques, cada una con su origen.
+- **MASTER_PLAN.md** y las **10 tareas del primer lote de FASE 1** en TASKS.md.
 
 ## Qué sigue
 
-Escribir ARCHITECTURE.md con el modelo real y el modelo relacional propuesto, después
-TEST_MATRIX.md, MASTER_PLAN.md y las tareas de Fase 1 en TASKS.md.
+TASK-001: backend Node mínimo, cliente `pg` y migrador con tabla de versiones. Hoy no existe ni
+una línea de servidor en `backend/`: son tres archivos de configuración y seis `.sql`.
+
+El lote cubre los pasos 1 a 3 del plan maestro. Las tareas de API, adaptador y shadow se escriben
+cuando este lote esté aprobado, para no planificar sobre un esquema que todavía puede cambiar.
+
+## Qué está bloqueado o pendiente de Gastón
+
+1. **Estado real de las Cloud Functions desplegadas** (R8). `arcaAutorizarComprobante` está
+   exportada, pero los deploys se hacen con `--only`, así que qué está en Firebase es
+   DESCONOCIDO. Se verifica en Firebase Console; ningún agente toca producción. No bloquea la PoC.
+2. **La línea de CLAUDE.md que dice que el IVA se calcula en $0** es falsa y contradice la
+   decisión del 2026-09-04. Ese archivo lo modifica Gastón.
+3. **El adaptador necesita `js/firebase.js`**, que solo modifica Gastón, y no tiene efecto sin
+   `npm run build` porque las páginas cargan desde `dist/`. Hay que resolverlo antes del paso 5
+   del plan maestro. No bloquea las tareas 001 a 010.
+
+Menores, sin impacto en la PoC: `.github/` está sin commitear, así que puede no haber CI
+corriendo; y `.netlifyignore` sigue en la raíz aunque INSTALAR.md manda borrarlo (R7 explica que
+Netlify no lo lee).
+
+## Cifras verificadas
+
+83 módulos en `js/` (10.719 LOC), 75 pantallas (12.403 LOC), 74 páginas HTML. 41 colecciones raíz
+y 6 subcolecciones. 32 módulos escriben en Firestore, con 140 call-sites, y **cero escrituras
+fuera de `js/`**. 40 decisiones, 12 riesgos, 45 invariantes, 34 tests.
 
 ## Cómo leer esto
-Resumen de una pantalla. El detalle está en TASKS.md (qué falta), DECISIONS.md (qué se decidió
-y por qué), RISKS.md (qué puede salir mal) y ARCHITECTURE.md (cómo es el sistema).
+Resumen de una pantalla. El detalle está en TASKS.md (qué falta), DECISIONS.md (qué se decidió y
+por qué), RISKS.md (qué puede salir mal), TEST_MATRIX.md (qué hay que probar) y ARCHITECTURE.md
+(cómo es el sistema y cómo se propone que sea).

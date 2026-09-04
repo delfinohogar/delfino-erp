@@ -449,13 +449,29 @@ Núcleo que ya está bien resuelto:
 | 2 | `venta_pagos` guarda el **destino contable** (`caja`\|`banco`\|`cuentaPorCobrar`) e imputa a 1.1.1 o 1.1.5 | Decisión Nivel 3 del 2026-09-04 |
 | 3 | `venta_items` con referencia opcional a la lista de precios usada | P3 |
 | 4 | Tabla de historial de costos con origen (`manual`\|`factura_compra`), compra relacionada y motivo | P5 |
-| 5 | `movimientos_stock` también en la rama `'pendiente'` de `crear_venta()` | coherencia del rastro |
+| 5 | `movimientos_stock` lo escribe `crear_entrega()`, no la rama `'pendiente'` de `crear_venta()` | ver nota |
 | 6 | Funciones de servicio `crear_pedido`, `facturar_pedido`, `crear_entrega` — **no existen** | ALCANCE (B) |
 | 7 | `contadores`: `comprobantes_{pv}_{tipo}` continúa; `ventas` y `asientos` arrancan en 1 | P7 resuelta |
 | 8 | `fecha_operacion` como `date` local, sin `toISOString()` | P8 + bug de UTC |
 
+Nota sobre el punto 5: una venta pendiente de entrega **no mueve stock físico** —solo reserva—,
+así que es correcto que no escriba `movimientos_stock`. El movimiento pertenece a `crear_entrega()`,
+que es donde el físico baja de verdad. Lo que falta no es una fila en la rama `'pendiente'`, sino
+la función de entrega, que todavía no existe.
+
 Fuera de alcance por decisión: Tesorería (solo se conserva el destino contable), listas de precios
 completas (P3), compras, comprobantes fiscales, usuarios y roles.
+
+## 2.6 Un bloqueo conocido para el adaptador
+
+La decisión "Capa Repository/Adapter" pide interponerse entre la UI y la persistencia, y el punto
+natural es `js/firebase.js`, que es el único acceso al SDK. Pero ese archivo está en la lista de
+los que **solo modifica Gastón**, junto con `build.js`. Además, las páginas cargan desde `dist/`,
+así que ningún cambio ahí tiene efecto sin `npm run build`.
+
+Consecuencia: el adaptador se diseña y se prueba sin tocar `js/firebase.js`, y su conexión final
+es una acción de Gastón. Hay que resolverlo antes de llegar al paso 5 del plan maestro; no bloquea
+nada de los pasos 1 a 4.
 
 ## 2.4 Alcance de la PoC
 
