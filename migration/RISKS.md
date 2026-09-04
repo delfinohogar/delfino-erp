@@ -167,3 +167,44 @@ clone el repo y siga INSTALAR.md.
 
 **CORRECCIÓN PENDIENTE — TASK-013.** El default tiene que ser `delfino-hogar-erp`, o el seed debe
 abortar con un mensaje claro si el proyecto que usa no coincide con el del emulador.
+
+## R17 — [BAJA] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
+`tests/integration/safety.test.js:88-93` asigna `uid = usuario.uid` **antes** de leer
+`existiaPerfil = snapPerfil.exists`. Si algo lanza en esa ventana de una sola sentencia (el
+`refPerfil.get()`), `afterAll` corre con `uid` seteado y `existiaPerfil = false`, y toma la rama
+`else await dbAdmin.collection("usuarios").doc(uid).delete()` (línea 121): **borra** el perfil que
+nunca llegó a leer.
+
+Verificado por inyección el 2026-09-04 (auditoría de TASK-011): con un `throw` inyectado justo
+después de `uid = usuario.uid`, el documento `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` quedó en 404
+en el emulador. Se restauró a mano.
+
+Severidad BAJA: la ventana exige que el `get()` falle y el `delete()` posterior funcione, y el
+efecto es sobre el emulador, nunca sobre Firestore de producción. Pero la recuperación está rota
+mientras viva R16 (`npm run seed` puede resembrar en otro namespace), así que el síntoma sería
+"el login local dejó de andar" sin causa aparente. Se cierra con un flag `perfilLeido` que sólo
+habilite la restauración cuando el estado previo se conoce de verdad. En el camino de falla
+normal (un `it` en rojo) la restauración sí es correcta: verificado.
+
+## R18 — [BAJA] `safety.test.js` le pisa la contraseña al usuario de desarrollo y no la restaura
+`tests/integration/safety.test.js:80` hace `authAdmin.updateUser(uid, { password: PASSWORD })`
+sobre `admin@delfino.local` cada vez que corre la suite de integración, y `afterAll` no la
+devuelve al valor anterior (sólo borra el usuario si el propio test lo creó).
+
+Aceptado como riesgo residual: el valor que impone es exactamente el documentado en `CLAUDE.md`
+y en `INSTALAR.md` (`delfino-dev`), y el usuario sólo existe en el emulador. Queda anotado porque
+es un efecto colateral no restaurado sobre el entorno de Gastón: si alguna vez se decide que el
+usuario de desarrollo tenga otra contraseña, este test se la va a pisar en silencio.
+
+## R19 — [BAJA] Ningún test cubre el wiring de emuladores real de `js/firebase.js`
+`tests/integration/safety.test.js` conecta el emulador **por su cuenta**
+(`connectFirestoreEmulator` en la línea 101) y sólo importa `js/firebase-config.js`. La barrera
+que de verdad protege al ERP —`js/firebase.js:60-66`, que enruta a los emuladores cuando
+`location.hostname` es local— nunca se ejecuta en la suite, porque depende de `location` y los
+tests corren en Node.
+
+O sea: `safety.test.js` prueba que *una escritura de este test* aterriza en el emulador, no que
+*el ERP* vaya al emulador. Si alguien rompiera la condición de `js/firebase.js`, la suite seguiría
+en verde. Es una limitación **preexistente** (el test anterior a TASK-011 tenía la misma), no una
+regresión introducida por la tarea. Se cierra el día que haya un test de `js/firebase.js` con
+`location.hostname` simulado, que verifique que se llamó a los cuatro `connect*Emulator`.

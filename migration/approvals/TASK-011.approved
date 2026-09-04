@@ -1,0 +1,128 @@
+VEREDICTO: APROBADO
+Tarea: TASK-011 — El test de aislamiento se autentica en vez de escribir sin usuario
+Fecha: 2026-09-04
+Rama auditada: task/TASK-011
+Commit auditado: e2ad393 (trabajo del tester: 737a7f6; cambio de status del director: e2ad393)
+Diff revisado: 03a9885..e2ad393
+Auditor: agente auditor (independiente del implementador y del tester)
+
+## Alcance del cambio (verificado)
+
+`git show --stat 737a7f6` toca exactamente dos archivos: `tests/integration/safety.test.js` y
+`migration/TEST_RESULTS.md`. `e2ad393` sólo cambia `status: IN_PROGRESS` -> `IN_REVIEW` en
+`migration/TASKS.md`. NO se tocó `firestore.rules`, `scripts/seed-emulator.mjs`, `js/`,
+`functions/`, `backend/`, `js/firebase.js`, `js/firebase-config.js`, `build.js`, `firebase.json`,
+`netlify.toml`, ni ningún otro test. Confirmado además con `git diff --stat 03a9885..e2ad393`.
+
+## Invariantes verificadas
+
+- AISLAMIENTO_ESCRITURA — una escritura del entorno de desarrollo aterriza en el emulador local y
+  no en otro Firestore. VERIFICADA por mutación (ver abajo): el test se pone en ROJO cuando la
+  escritura va a otro servidor.
+- AISLAMIENTO_HOST — la suite aborta antes de tocar la red si `FIRESTORE_EMULATOR_HOST` no es
+  local. VERIFICADA: con `no-local.invalid:443` el `globalSetup` corta con "Abortado por
+  seguridad." y ni un solo test llega a correr.
+- REGLAS_EN_EL_CAMINO — la escritura que se evalúa pasa de verdad por `firestore.rules` y NO la
+  hace el Admin SDK. VERIFICADA por mutación: con `rol: "sin_permiso"` en el perfil, la misma
+  escritura falla con `PERMISSION_DENIED` (código 7 de gRPC). El Admin SDK sólo prepara usuario y
+  perfil; el `setDoc` medido lo hace el SDK cliente autenticado.
+- REGLAS_INTACTAS — `firestore.rules` byte por byte igual a `master`. La colección elegida
+  (`/clientes`) ya estaba contemplada: `allow write: if puedeVender()`. No se inventó `_safety`.
+- AUTOSUFICIENCIA — el test no depende de `npm run seed` ni del `projectId` que haya usado el
+  seed: se asegura usuario y perfil con el Admin SDK en el namespace de `firebaseConfig.projectId`.
+- SIN_RESIDUOS — el emulador quedó idéntico a como estaba: `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9`
+  y `clientes/cliente-dev`, sin ningún `safety-check-*`, y el login
+  `admin@delfino.local` / `delfino-dev` responde 200 con el mismo uid.
+- CONTRATO_UI — ninguna función exportada de `js/*.js` cambió de firma ni de semántica; no hay
+  módulo de UI afectado. La tarea es exclusivamente de tests.
+- AISLAMIENTO_PRODUCCION — en ninguna corrida ni inyección se contactó Firestore de producción.
+  La lectura de control apunta siempre a `http://${FIRESTORE_EMULATOR_HOST}`, que el `globalSetup`
+  obliga a ser `127.0.0.1`/`localhost`.
+
+## Cómo se verificó (reproducción independiente, no se confió en TEST_RESULTS.md)
+
+Emuladores ya en marcha en 127.0.0.1 (8080/9099/9199) y Postgres en 5432. `npm run
+test:integration` no arranca por puertos ocupados —infraestructura, no rojo de la tarea—, así que
+se corrió el mismo vitest contra el emulador vivo, pasando igual por `tests/integration/setup.mjs`.
+
+Las mutaciones se escribieron en `node_modules/.auditoria/` (fuera del control de versiones) y se
+borraron después; `git status` quedó limpio. Ningún archivo del repo fue modificado por la
+auditoría salvo este approval y `migration/RISKS.md`.
+
+1. Suite completa, dos veces seguidas y otras dos al final: 43/43 VERDE las cuatro veces
+   (`safety` 4/4, `invariantes` 21/21, `migrador` 18/18). `npm test` 32/32 VERDE.
+   `npm run check` OK, 162 archivos.
+
+2. Mutación 1 — aislamiento roto (reproducción propia de la demostración del tester). Se
+   levantó un segundo emulador de Firestore en 127.0.0.1:8099, proyecto `prod-simulada`, reglas
+   abiertas, con config en el scratchpad fuera del repo. Copia del test con el único cambio
+   `connectFirestoreEmulator(db, host, 8099)`. Resultado: ROJO, con el mensaje
+   "AISLAMIENTO ROTO: clientes/safety-check-… no esta en el emulador de 127.0.0.1:8080".
+   Confirmado el punto clave del tester: en esa corrida el `getDoc` de vuelta PASÓ (la
+   ejecución llegó hasta la aserción REST); leer con el mismo cliente que escribió no prueba
+   dónde quedó el dato. Lo que discrimina es la lectura por REST contra 127.0.0.1 con
+   `Authorization: Bearer owner`, y esa aserción está en el camino crítico —es la que produce el
+   fallo—, no decorativa. El segundo emulador se apagó y su config se borró.
+
+3. Mutación 2 — host no local. `FIRESTORE_EMULATOR_HOST=no-local.invalid:443`: la corrida
+   aborta en `tests/integration/setup.mjs:12` con "que no es local. Abortado por seguridad." y
+   0 tests ejecutados. Se usó un host inexistente a propósito para no nombrar producción; el
+   `abortar()` ocurre antes de cualquier `fetch`, así que la propiedad es estructural.
+
+4. Mutación 3 — reglas en el camino. Perfil forzado a `rol: "sin_permiso"`: el `setDoc` del
+   SDK cliente falla con `PERMISSION_DENIED`. Prueba que la escritura medida se evalúa contra
+   `firestore.rules` y que no hay ningún camino donde el Admin SDK haga la escritura que se juzga.
+   Además, tras esa corrida en rojo el `afterAll` restauró el perfil correctamente
+   (`rol: administrador`) y no dejó el `safety-check-*`: la limpieza funciona también cuando el
+   test falla.
+
+5. Mutación 4 — `beforeAll` que falla a la mitad. Ver R17: se encontró una ventana en la que
+   `afterAll` borra el perfil del admin. Se verificó, se restauró a mano y se registró como riesgo.
+
+6. Verificación del `git status` antes y después: sólo `?? .github/` (preexistente, ajeno a
+   la tarea). `git diff HEAD` vacío.
+
+## Decisión sobre `/clientes` vs `contadores` (el tester preguntó)
+
+Se confirma `/clientes`. Argumento:
+
+- Es la escritura que mejor representa "lo que hace el ERP": el alta de cliente desde Nueva Venta
+  es exactamente un `setDoc` de un usuario logueado bajo `allow write: if puedeVender()`.
+- `contadores` sería peor: `contadores/{ventas|asientos|comprobantes}` son documentos
+  singleton cuyo campo `ultimo` sostiene la numeración sin huecos ni duplicados. Meter documentos
+  de prueba en la colección donde vive un invariante de numeración es acercarle una prueba a lo
+  que menos conviene tocar, aunque el id sea propio.
+- El documento de prueba no ensucia nada visible, y esto se verificó contra `js/clientes.js`:
+  todas las consultas de la UI filtran por `searchKeywords` (líneas 48, 55), `cuit`/`dni`/
+  `searchPhone`/`email` (104, 117, 130, 141) o `orderBy("razonSocialLower")` (291). El doc de
+  prueba no escribe ninguno de esos campos, y Firestore excluye de un `orderBy` los documentos
+  que no tienen el campo: es invisible en el buscador y en el listado de clientes aun si la
+  limpieza fallara. El `razonSocial: "SAFETY CHECK - borrar si aparece"` es una red extra.
+- La limpieza es doble (SDK cliente + Admin SDK) y el id es `safety-check-<uuid>`, así que no
+  puede pisar un cliente real ni chocar entre corridas.
+
+## Salvedades registradas (ninguna bloqueante)
+
+- R17 [BAJA] — `afterAll` puede borrar `/usuarios/{uid}` si `beforeAll` falla en la ventana de
+  una sentencia entre `uid = usuario.uid` y la lectura de `existiaPerfil`
+  (`safety.test.js:88-93`, rama `else` de la línea 121). Demostrado por inyección y restaurado a
+  mano. No bloquea: la ventana exige que el `get()` falle y el `delete()` funcione, el efecto es
+  sobre el emulador y nunca sobre producción, y el camino de falla normal (un `it` en rojo)
+  restaura bien. Se cierra con un flag `perfilLeido`.
+- R18 [BAJA] — el test le pisa la contraseña a `admin@delfino.local` en cada corrida
+  (`safety.test.js:80`) y no la restaura. Aceptable: impone exactamente el valor documentado
+  en `CLAUDE.md` (`delfino-dev`) y sólo afecta al emulador. Verificado que después de la auditoría
+  el login con la contraseña documentada sigue funcionando.
+- R19 [BAJA] — `safety.test.js` conecta el emulador por su cuenta y nunca ejecuta el wiring
+  real de `js/firebase.js` (que depende de `location.hostname` y no existe en Node). El test prueba
+  que *esta escritura* va al emulador, no que *el ERP* vaya al emulador. Limitación
+  preexistente, idéntica en el test anterior a TASK-011: no es regresión de esta tarea.
+- R16 [MEDIA] (ya abierta por el director, TASK-013): el hallazgo del `projectId` del seed que
+  reporta el tester se confirma y ya tiene tarea propia. No se repite acá.
+
+## Estado del entorno al cerrar
+
+Emulador principal intacto y en marcha (8080/9099/9199). Segundo emulador de la mutación apagado,
+puertos 8099/4401/4501/9151 cerrados, config del scratchpad borrada. `usuarios` y `clientes` con
+exactamente los mismos documentos que antes de la auditoría. Sin residuos `safety-check-*`.
+Firestore de producción no fue contactado en ningún momento.
