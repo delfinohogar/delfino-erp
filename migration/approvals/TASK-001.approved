@@ -1,0 +1,111 @@
+# TASK-001 — Backend Node mínimo: cliente pg y migrador con versiones
+
+VEREDICTO: APROBADO
+Fecha: 2026-09-04
+Commit auditado: `f70187f` (punta de `task/TASK-001`), diff contra `9d95bbf`.
+Commits del rango: `82b5b20` director, `9d39709` implementador, `2da3520` tester, `f70187f` director.
+Auditor: independiente del implementador y del tester. Verificación propia, no delegada.
+
+## Cómo verifiqué
+
+- `npx vitest run` → 32/32 verde (4 archivos).
+- `npx vitest run -c vitest.integration.config.js` contra el emulador ya en marcha y
+  `delfino-pg-dev` → 42 verde / 1 rojo; `migrador.test.js` 18/18 e `invariantes.test.js` 21/21.
+- Script propio fuera del repo (scratchpad, base temporal `auditoria_task001` creada y
+  destruida por el script; `delfino_dev` nunca tocada) para el lock y el 42P07.
+- Mutación propia del migrador (copia fuera del repo, `backend/` intacto): mover el `insert`
+  en `schema_migrations` **antes** de la transacción de la migración.
+
+## Invariantes verificadas
+
+- ATOMICIDAD DEL REGISTRO — el `insert` en `schema_migrations` va dentro del mismo
+  `BEGIN/COMMIT` que el SQL de la migración (`migrar.js:83-90`). Escenario propio: 0001 sana +
+  0002 que falla en su segunda sentencia → `schema_migrations` queda con `["0001_ok.sql"]`, la
+  tabla parcial no existe, la posterior no se aplica. Contra la copia mutada el mismo escenario
+  da `["0001_ok.sql","0002_rompe.sql"]`: la propiedad discrimina y el test del tester
+  (`migrador.test.js:239`) se pondría en rojo. Los tests tienen dientes.
+- MIGRACIÓN A MEDIAS IMPOSIBLE — una migración que falla se revierte entera; el error se
+  propaga y las posteriores no se intentan. Exit code 1 verificado.
+- ORDEN ALFABÉTICO — `migracionesEnDisco` ordena por nombre y filtra `.sql`; probado con un
+  directorio donde el orden en disco contradice el alfabético.
+- IDEMPOTENCIA — segunda y tercera corrida salen 0, imprimen "Sin migraciones pendientes" y no
+  reescriben `aplicada_en`. `nombre` es PRIMARY KEY.
+- CONCURRENCIA / LOCK — `pg_advisory_lock(5150419)` de sesión, tomado antes de leer el estado
+  y liberado en `finally` (`migrar.js:117-128`). Verificado por mi cuenta: (a) con el lock
+  tomado por otra sesión el migrador espera y no crea ni `schema_migrations`; (b) `SIGKILL` al
+  migrador mientras espera → 0 locks residuales suyos y base sin tocar; (c) tras corrida normal
+  → 0 locks residuales; (d) tras corrida fallida → 0 locks residuales. El lock no puede quedar
+  colgado: es de sesión y muere con la conexión.
+- CONTADORES / NUMERACIÓN — no aplica todavía (esta tarea no toca `crear_venta()`).
+- CONTABILIDAD, STOCK, IDEMPOTENCIA DE VENTA — no aplican: TASK-001 es infraestructura.
+- SEGURIDAD SQL — no hay concatenación: `insert into schema_migrations(nombre) values ($1)` es
+  parametrizado. El contenido de los `.sql` se ejecuta tal cual, que es su función. Sin secretos
+  nuevos: `delfino_local_dev` es la credencial local de juguete ya versionada en
+  `docker-compose.yml` y ya usada como fallback en `_helpers.mjs`.
+- AISLAMIENTO — nada apunta a producción. `js/firebase.js`, `js/firebase-config.js`,
+  `firestore.rules`, `firebase.json`, `build.js`, `netlify.toml`, `.claude/`, `.github/`,
+  `.githooks/`, `functions/`, el `package.json` de la raíz y `backend/db/migrations/*.sql`
+  están intactos: `git diff 9d95bbf..f70187f` sobre esas rutas es vacío.
+- CONTRATO DE `js/*.js` — sin cambios. Ningún módulo de UI depende de nada de lo tocado; el
+  código nuevo vive entero en `backend/` y no está en el bundle (`build.js` no copia `backend/`).
+- ALCANCE POR ROL — `9d39709` toca exactamente los 4 archivos de la tarea +
+  `IMPLEMENTATION_LOG.md`. `2da3520` toca solo `tests/` + `TEST_MATRIX.md` + `TEST_RESULTS.md`.
+  El cambio de `TASKS.md` es de los commits del director, no del implementador.
+
+## Criterios de aceptación
+
+1. Aplica en orden alfabético y registra en `schema_migrations(nombre text pk, aplicada_en
+   timestamptz)` — CUMPLE, verificado en base limpia y con directorios inventados.
+2. Dos corridas seguidas no reaplican nada y salen 0 — CUMPLE (verificado hasta la tercera).
+3. El pool lee `DATABASE_URL` y, en tests, `DATABASE_URL_TEST`; falla con mensaje claro si no
+   hay ninguna — CUMPLE. Fuera de tests **nunca** toma `DATABASE_URL_TEST`, y verifiqué que la
+   base apuntada queda sin tocar. Exit 1 y mensaje que nombra la variable y `npm run db:up`.
+4. No abre puertos, no escucha HTTP, no importa firebase — CUMPLE. Además importar cualquiera
+   de los dos módulos en un proceso limpio termina solo: no hay efectos al importar.
+5. `npm test` verde y los 21 de invariantes pasando — CUMPLE (32/32 y 21/21).
+
+## Puntos marcados por el director
+
+a) **Guard de loopback en `pool.js` (alcance no pedido).** ACEPTADO, no es scope creep dañino:
+   son ~20 líneas, van en la dirección de las reglas del proyecto, tienen escape explícito y
+   están documentadas y cubiertas por dos tests. El escape está bien hecho en lo esencial
+   (comparación exacta contra `"1"`, sin default permisivo, sin bypass por mayúsculas ni por
+   sufijo de host). Salvedad registrada como R13: es una baranda, no una barrera — quien puede
+   poner `DATABASE_URL` puede poner `DELFINO_DB_REMOTO_OK`; y el guard falla abierto con una
+   URL no parseable y con host vacío. Verifiqué que la primera no llega a ningún host remoto
+   (`pg-connection-string` no interpreta el formato `key=value` y falla al conectar).
+b) **`--marcar-aplicadas`.** SEGURO. Requiere el string exacto, no tiene abreviatura ni default,
+   no está en ningún script de `package.json`, imprime "BASELINE EXPLICITO", y `--estado` le
+   gana si vienen los dos. Documentado en `migrar.js:5-7` y `README.md:66,103-108`, con la
+   advertencia de que deja la base mintiendo si el esquema no coincide. Verificado que la
+   corrida normal nunca lo dispara.
+c) **Base con el esquema ya aplicado por otra vía.** CONFIRMADO y útil. Salida real que obtuve:
+   nombra el archivo, dice que se revirtió, da el error de Postgres y explica las dos salidas
+   (vaciar y remigrar, o baseline explícito). Exit 1, `schema_migrations` en 0 filas, base sin
+   quedar a medio migrar: la transacción de 0001 se revierte entera.
+d) **`safety.test.js` en rojo.** PREEXISTENTE, la conclusión del tester es CORRECTA y la
+   confirmo por dos vías independientes de la suya: (1) `firestore.rules` no tiene ningún
+   `match /_safety/{id}` ni regla catch-all, y el test escribe sin autenticar → PERMISSION_DENIED
+   por lógica de reglas; (2) `git diff 9d95bbf..f70187f -- tests/integration/safety.test.js js/
+   firestore.rules firebase.json` es vacío. No es motivo de rechazo de TASK-001. Queda para
+   quien corresponda: o se agrega la regla de `/_safety`, o el test se autentica.
+e) **`backend/README.md`.** Describe lo que el código hace. Contrasté una por una las
+   afirmaciones de las líneas 10-16, 20-28, 50-57, 64-84 y 86-108 contra el código y contra la
+   ejecución real, incluida la salida citada del caso 42P07, que coincide con la que obtuve.
+   Una sola imprecisión, menor, en R14: la línea 65 dice que `--estado` "no escribe esquema" y
+   sí crea la tabla `schema_migrations` si no existe (`migrar.js:140`).
+
+## Calidad de los tests del tester
+
+Prueban propiedades, no la implementación: usan directorios de migraciones inventadas, el CLI
+real como proceso aparte, bases temporales propias por test y evidencia leída de la tabla, no
+de la consola. La atomicidad la confirmé por mutación propia y discrimina. Dos debilidades
+menores, sin efecto sobre el veredicto, quedan en R15.
+
+## Salvedades registradas en RISKS.md
+
+- R13 [BAJA] el guard de loopback de `pool.js` es baranda, no barrera; falla abierto en dos
+  casos y su escape no tiene test.
+- R14 [BAJA] un flag mal tipeado del migrador cae en el modo que aplica; `--estado` crea
+  `schema_migrations` pese a lo que dice el README.
+- R15 [BAJA] dos aserciones del tester podrían pasar de forma vacua.
