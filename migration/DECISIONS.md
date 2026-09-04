@@ -32,6 +32,8 @@ agentes con una barrera física, no con una instrucción.
 ## PENDIENTE DE GASTÓN
 (el director escribe acá las preguntas de Nivel 3 antes de hacerlas)
 
+(sin preguntas abiertas)
+
 Los tres ítems siguientes se movieron desde MIGRATION_STATUS.md el 2026-09-04, a pedido de
 Gastón: dependen de él y este es el lugar donde los va a buscar. Ninguno bloquea TASK-001 a
 TASK-010.
@@ -73,6 +75,37 @@ que además es falsa.
 
 Se implementa en TASK-011, que va antes que TASK-002: la suite tiene que estar verde antes de
 tocar reglas de negocio.
+
+## 2026-09-04 — [NIVEL 3 · GASTÓN] El neto absorbe el centavo de redondeo, no el IVA
+Con alícuotas mixtas —21 % y 10,5 % en la misma venta— neto e IVA por línea no suman exactamente
+el total y alguien tiene que absorber el resto. Como es una imputación a una cuenta fiscal, se
+preguntó antes de implementar en vez de deducirla.
+
+DECISIÓN: **el IVA queda exacto y el neto absorbe la diferencia.** El IVA se calcula y se redondea
+por línea, se suman las líneas, y el neto de la venta se obtiene como residuo:
+
+    iva_linea  = round(subtotal − subtotal / (1 + alicuota))
+    iva_total  = round(SUM(iva_linea))
+    neto_total = round(total − iva_total)      ← residuo
+
+Imputación: `total` al debe entre 1.1.1 / 1.1.5 / 1.1.2 según destino; `neto_total` al haber en
+4.1 Ventas; `iva_total` al haber en 2.1.2 IVA Débito Fiscal.
+
+Motivos:
+1. **Es lo que el ERP hace hoy**, verificado en `js/ventas.js:412-413`: `ivaVenta` se suma por
+   línea y `ventaNeta = redondear(total − ivaVenta)`. La PoC no introduce un cambio contable
+   silencioso, y el shadow no arrastra diferencias artificiales.
+2. **La cuenta fiscal queda exacta.** El centavo cae en 4.1 Ventas, una cuenta de resultado
+   propia, y no en 2.1.2, que es lo que se declara.
+3. **El asiento no puede desbalancearse por redondeo**, porque el neto es el tapón:
+   Debe = total, Haber = (total − iva) + iva = total. Vale con cualquier combinación de alícuotas.
+
+Consecuencia para TASK-002, contraintuitiva y que hay que decir en voz alta: el error de redondeo
+con alícuotas mixtas **no puede aparecer** si el neto se calcula como residuo. Aparece solo si
+alguien calcula el neto por línea y lo suma. Eso es exactamente lo que la implementación tiene que
+evitar y lo que el test tiene que ser capaz de cazar: la invariante Debe = Haber no alcanza para
+detectarlo, porque una implementación que reparta mal el centavo puede cerrar igual. El test tiene
+que verificar además **el monto imputado a 2.1.2**, línea por línea.
 
 ## 2026-09-04 — [GASTÓN] Un test verde que no discrimina es peor que no tener test
 LECCIÓN GENERAL, aplica a toda la suite que viene, no solo al caso que la originó.
