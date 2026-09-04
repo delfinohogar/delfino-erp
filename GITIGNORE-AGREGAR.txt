@@ -1,16 +1,4 @@
-# Local Netlify folder
-.netlify
-
-# Dependencias de Cloud Functions (se reinstalan con npm install)
-functions/node_modules
-
-# Dependencias raíz (esbuild, ver build.js) y el resultado del build — se regeneran con
-# npm install && npm run build. IMPORTANTE: correr "npm run build" antes de cada
-# "netlify deploy --prod" (publicar/ no está en git, pero netlify.toml apunta publish ahí, así que
-# tiene que existir y estar actualizado en el momento del deploy).
-node_modules
-dist
-publicar
+# ── Pegá TODO lo de abajo al FINAL de tu .gitignore actual. No borres nada de lo que ya tiene.
 
 # --- FASE -1: entorno de desarrollo aislado ---
 # Datos del emulador de Firebase (se regeneran con npm run seed)

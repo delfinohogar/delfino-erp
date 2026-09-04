@@ -1,0 +1,28 @@
+# PostgreSQL LOCAL de desarrollo para la PoC de migracion.
+# Solo loopback (127.0.0.1): no queda expuesto a la red de la casa ni del local.
+# Credenciales de juguete, versionadas a proposito: no protegen nada real.
+# NO es Cloud SQL. NO contiene ningun dato de produccion.
+services:
+  postgres:
+    image: postgres:16
+    container_name: delfino-pg-dev
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: delfino
+      POSTGRES_PASSWORD: delfino_local_dev
+      POSTGRES_DB: delfino_dev
+      TZ: America/Argentina/Buenos_Aires
+    volumes:
+      - delfino_pg_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U delfino -d delfino_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  delfino_pg_data:
+    name: delfino_pg_data

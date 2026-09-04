@@ -1,0 +1,24 @@
+#!/bin/sh
+# FASE -1 — Impide commitear credenciales o config de proyecto por accidente.
+PATRON='(^|/)\.env($|\..*)|(^|/)\.firebaserc$|serviceAccount.*\.json$|\.pem$|\.key$|\.p12$|\.pfx$'
+ARCHIVOS=$(git diff --cached --name-only --diff-filter=ACM | grep -Ei "$PATRON" | grep -v '\.env\.example$')
+
+if [ -n "$ARCHIVOS" ]; then
+  echo "" >&2
+  echo "BLOQUEADO: el commit incluye archivos que nunca deben versionarse:" >&2
+  echo "$ARCHIVOS" | sed 's/^/  - /' >&2
+  echo "" >&2
+  echo "Sacalos con: git restore --staged <archivo>" >&2
+  echo "" >&2
+  exit 1
+fi
+
+# Aviso (no bloqueante) si aparece algo con pinta de token en el diff.
+SOSPECHOSO=$(git diff --cached -U0 | grep -E '^\+' | grep -Ei 'APP_USR-|TEST-[0-9]{6,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-ant-' | head -3)
+if [ -n "$SOSPECHOSO" ]; then
+  echo "" >&2
+  echo "AVISO: el diff contiene algo con forma de credencial. Revisalo antes de empujar." >&2
+  echo "" >&2
+fi
+
+exit 0

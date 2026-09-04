@@ -1,0 +1,35 @@
+#!/bin/sh
+# FASE -1 — Barrera local de push.
+# Bloquea TODO push salvo que Gaston lo autorice explicitamente con DELFINO_PUSH_OK=1,
+# y bloquea SIEMPRE cualquier push cuyo destino sea master, autorizado o no.
+# Los agentes no pueden llegar aca (git push esta denegado en .claude/settings.json),
+# pero esta barrera cubre cualquier otro proceso de la maquina, incluido un error tuyo.
+#
+# Activar una vez por clon:  git config core.hooksPath .githooks
+# Para empujar:              (PowerShell)  $env:DELFINO_PUSH_OK=1; git push
+#                            (bash)        DELFINO_PUSH_OK=1 git push
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/heads/master|refs/heads/main)
+      echo "" >&2
+      echo "BLOQUEADO: push directo a $remote_ref." >&2
+      echo "master solo se actualiza por pull request en GitHub." >&2
+      echo "" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$DELFINO_PUSH_OK" != "1" ]; then
+  echo "" >&2
+  echo "BLOQUEADO: push no autorizado." >&2
+  echo "Durante la migracion, el push lo hace Gaston a mano." >&2
+  echo "Si sos vos y queres empujar:" >&2
+  echo "  PowerShell:  \$env:DELFINO_PUSH_OK=1; git push" >&2
+  echo "  bash:        DELFINO_PUSH_OK=1 git push" >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0
