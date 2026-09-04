@@ -8,7 +8,8 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R12 sin huecos y son los definitivos.
+R16 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+auditor en TASK-001 y R16 el director el 2026-09-04.
 
 ---
 
@@ -147,3 +148,22 @@ el bloque de proceso hijo limpio (líneas 88-123), que es el que manda.
 filtrar por la clave 5150419, así que otro lock advisory del cluster lo satisfaría; las
 aserciones vecinas (no existe `schema_migrations` mientras espera, existe después de liberar)
 son las que sostienen el caso.
+
+## R16 — [MEDIA] El seed siembra en `demo-delfino` mientras el emulador corre en `delfino-hogar-erp`
+`scripts/seed-emulator.mjs:28` inicializa el Admin SDK con
+`projectId: process.env.GCLOUD_PROJECT || "demo-delfino"`, pero `npm run emulators` y
+`npm run test:integration` corren con `--project delfino-hogar-erp` (`package.json:9-10`) y
+`js/firebase-config.js` declara ese mismo `projectId`. Si `GCLOUD_PROJECT` no está seteada —el
+caso por defecto en un clon limpio— el seed escribe usuarios y datos en el namespace
+`demo-delfino`, que el ERP y los tests **nunca miran**.
+
+**No es hipotético: ya ocurrió.** Gastón lo reportó el 2026-09-04: el login local falló porque no
+encontraba el perfil del usuario. El usuario existía, pero en otro proyecto. El síntoma es
+especialmente engañoso porque el seed termina con éxito y no advierte nada.
+
+Severidad MEDIA y no BAJA porque falla en silencio, el modo de falla apunta al lugar equivocado
+—parece un problema de Auth o de reglas, no de configuración del seed— y afecta a cualquiera que
+clone el repo y siga INSTALAR.md.
+
+**CORRECCIÓN PENDIENTE — TASK-013.** El default tiene que ser `delfino-hogar-erp`, o el seed debe
+abortar con un mensaje claro si el proyecto que usa no coincide con el del emulador.

@@ -74,6 +74,21 @@ que además es falsa.
 Se implementa en TASK-011, que va antes que TASK-002: la suite tiene que estar verde antes de
 tocar reglas de negocio.
 
+## 2026-09-04 — [GASTÓN] El desfasaje de `projectId` del seed es un bug, y se corrige
+Relevando TASK-011 apareció que `scripts/seed-emulator.mjs` usa
+`GCLOUD_PROJECT || "demo-delfino"` mientras el emulador corre con `--project delfino-hogar-erp`.
+Se había anotado como trampa a esquivar en el test. Gastón corrige el encuadre: **es un bug
+real, no una particularidad del entorno de tests.** Ya causó un problema concreto el 2026-09-04
+—el login local no encontraba el perfil del usuario, porque el usuario estaba sembrado en otro
+proyecto— y el seed no advierte nada: termina con éxito.
+
+Queda como R16 [MEDIA] y se corrige en TASK-013: el default apunta a `delfino-hogar-erp`, o el
+seed aborta con un mensaje claro si no coincide con el proyecto del emulador.
+
+Lección que vale más allá del caso: un hallazgo que aparece mientras se relevan las condiciones
+de un test puede ser un defecto del sistema, no del test. Anotarlo solo como "trampa" lo habría
+dejado vivo.
+
 ## 2026-09-04 — [NIVEL 2] R14 se corrige en TASK-012, no se acepta como riesgo residual
 El auditor registró R14 [BAJA]: `migrar.js` decide el modo con `argv.includes()` sin validar
 argumentos desconocidos, así que `--estad` no informa nada y **aplica las migraciones de verdad**.

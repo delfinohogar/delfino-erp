@@ -75,6 +75,20 @@ accept:
 - las migraciones existentes no se modifican y los tests de TASK-001 siguen en verde
 - se actualiza R14 en RISKS.md como mitigado, con la fecha
 
+### TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
+status: PENDING
+owner: implementador
+depends: TASK-011
+files:
+- scripts/seed-emulator.mjs
+accept:
+- el default de `projectId` es `delfino-hogar-erp`, el mismo que usan `npm run emulators`, `npm run test:integration` y `js/firebase-config.js`; ya no `demo-delfino`
+- si el proyecto que va a usar el seed **no coincide** con el del emulador al que se conecta, aborta con un mensaje que nombre los dos valores y explique qué hacer; nunca siembra en silencio en un namespace que el ERP no mira
+- el seed sigue abortando si las variables de emulador no están o no son locales: esa barrera no se toca
+- correrlo deja el usuario `admin@delfino.local` y su perfil en `/usuarios/{uid}` **visibles para el ERP local**, que es el síntoma que originó R16
+- correrlo dos veces seguidas sigue siendo idempotente
+- R16 queda actualizado en RISKS.md como mitigado, con la fecha
+
 ### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
 status: PENDING
 owner: implementador
