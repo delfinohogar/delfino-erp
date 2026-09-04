@@ -365,3 +365,66 @@ Ambas operaciones hacen SELECT ... FOR UPDATE sobre `pedidos` al inicio, además
 impide que la modificación se aplique sobre un pedido que quedó facturado mientras esperaba. Sin
 un trigger que rechace modificar un pedido no confirmado, el resultado es una venta por 3
 unidades con 1 sola unidad reservada, sin ningún error.
+
+---
+
+## 2026-09-04 — [NIVEL 3 · GASTÓN] P6 corregida: el IVA se calcula, no queda en cero
+CORRIGE LA PREMISA DE P6. P6 dice "aunque queden en cero según el funcionamiento actual". Esa
+premisa es FALSA y venía de CLAUDE.md, que afirma que el IVA está "preparado pero calculado en
+$0". El código real lo discrimina desde hace tiempo: `js/ventas.js` calcula el IVA de cada línea
+con `discriminarIva()` (resta hacia atrás, porque el precio ya lo incluye), resta el IVA del
+total para obtener el neto imputado a 4.1 Ventas, e imputa el IVA a 2.1.2 IVA Débito Fiscal.
+Hay 5 tests unitarios cubriendo el cálculo.
+
+DECISIÓN: `crear_venta()` en PostgreSQL replica ese cálculo y esa imputación. `iva_pct` e
+`iva_monto` se llenan con valores reales, no con cero, y el asiento incluye el movimiento a
+2.1.2. La estructura que P6 pedía se mantiene; lo que se descarta es su supuesto de que quedaría
+vacía.
+
+Motivo: dejar el IVA en cero convertiría la PoC en una regresión contable respecto de lo que
+Firestore ya hace bien, y haría incomparable el asiento en la reconciliación shadow.
+
+Sigue vigente de P6: esto NO es activación de facturación fiscal. No implica ARCA, ni WSFE, ni
+CAE. Es el mismo cálculo interno que ya corre hoy.
+
+PENDIENTE: corregir la línea de CLAUDE.md que dice que el IVA se calcula en $0. Ese archivo lo
+modifica Gastón.
+
+## 2026-09-04 — [NIVEL 3 · GASTÓN] Tesorería fuera de la PoC, pero el destino contable se conserva
+No se modelan cajas, bancos, cuentas por cobrar ni sus movimientos. `crear_venta()` no mueve
+Tesorería.
+
+Sí se conserva el DESTINO: cada pago de la venta guarda a qué destino habría ido
+(caja | banco | cuentaPorCobrar), para que el asiento impute a la cuenta correcta —1.1.1 Caja y
+Bancos, o 1.1.5 Deudores por Tarjetas y Acreditaciones— exactamente como hace hoy
+`cuentaParaDestinoTesoreria()` en `js/contabilidad.js`.
+
+Motivo: hoy el ruteo a Tesorería corre ANTES de armar el asiento justamente para que
+contabilidad y Tesorería no se puedan contradecir (antes de ese cambio, una venta con tarjeta
+sobrestimaba el disponible imputando todo a Caja). Descartar el destino haría que la PoC
+imputara todo a una sola cuenta y perdería esa corrección. Guardarlo cuesta una columna.
+
+Consecuencia para el diseño: `venta_pagos` lleva el destino contable resuelto en el momento de
+la venta. Cuando Tesorería se construya después del GO, ese campo ya está y no hay migración
+destructiva.
+
+Consecuencia para los tests: la invariante de consistencia entre los pagos de una venta y los
+movimientos de Tesorería NO se puede probar en esta PoC —no hay movimientos que comparar—. Se
+reemplaza por una invariante de imputación: cada pago va a la cuenta contable que le corresponde
+según su destino, y el asiento cierra.
+
+## 2026-09-04 — [NIVEL 3 · GASTÓN] P7 resuelta: solo los comprobantes conservan numeración
+De los tres contadores del sistema, solo uno necesita continuidad real en el corte:
+
+- `contadores/comprobantes_{puntoVenta}_{tipo}` → CONTINÚA desde su último valor, por punto de
+  venta y por tipo de comprobante. Motivo: ya hay comprobantes impresos y entregados a clientes;
+  reiniciar generaría dos papeles con el mismo número. Es también lo que exige la numeración
+  fiscal.
+- `contadores/ventas` → ARRANCA EN 1.
+- `contadores/asientos` → ARRANCA EN 1.
+
+Motivo de los dos reinicios: coherencia con P9 (corte limpio). PostgreSQL empieza su propio
+historial operativo; no se migran ventas ni asientos, así que un libro diario que arrancara en
+un número alto no tendría asientos previos que lo respalden en la base nueva.
+
+Esto cierra la TAREA DEL DIRECTOR que P7 dejaba abierta.
