@@ -8,19 +8,6 @@
   </head>
   <body>
     <div class="app-loading"><span class="dot"></span>Cargando…</div>
-    <script type="module">
-      import { requireAuth } from "/js/auth.js";
-      import { renderShell } from "/js/shell.js";
-
-      const usuario = await requireAuth();
-      if (usuario) {
-        const content = renderShell({ active: "inventario", titulo: "Inventario", usuario });
-        content.innerHTML = `
-          <div class="card empty-state">
-            Vista de stock por depósito/sucursal — pendiente de implementar.
-          </div>
-        `;
-      }
-    </script>
+    <script type="module" src="/dist/productos/inventario.js"></script>
   </body>
 </html>

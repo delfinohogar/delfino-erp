@@ -8,16 +8,29 @@
 // usar el paquete de npm en vez de las URLs actuales — cambio más grande, no necesario para el
 // problema real (los ~40 archivos PROPIOS son los que más pesan en cantidad de pedidos).
 //
-// No se empaquetan los dos <script type="module"> inline (index.html, productos/inventario.html):
-// son casos chicos (1-2 imports) y bundlear un script sin archivo propio requeriría separarlo primero
-// — no vale la complejidad para el ahorro que dan.
+// Ninguna pantalla queda afuera del bundling — antes index.html/login.html/productos/inventario.html
+// se dejaban con su script inline sin empaquetar ("casos chicos, no vale la complejidad"), pero esa
+// premisa asumía que js/ se seguía publicando igual. Desde que existe CARPETA_PUBLICABLE (más abajo)
+// js/ ya NO se publica (salvo el vendoreado xlsx.full.min.js) — un script inline con imports directos
+// a js/ se rompe en producción sin aviso. Por eso ahora las tres tienen su .js propio
+// (index.js, login.js, productos/inventario.js) y pasan por acá igual que cualquier otra pantalla.
+//
+// Además arma CARPETA_PUBLICABLE ("publicar/") — lo único que Netlify debe subir. netlify.toml
+// apunta publish ahí en vez de la raíz del repo: con publish="." (como era antes) se sube TODO,
+// código fuente incluido — .netlifyignore parecía resolver esto pero no es un mecanismo real de
+// Netlify (verificado contra la documentación oficial: no existe, nunca filtró nada), así que
+// functions/ (Cloud Functions), firestore.rules, firebase.json, js/ propio y build.js quedaban
+// públicos. Lista de PERMITIDOS, no de bloqueados a propósito (ver armarCarpetaPublicable): si mañana
+// se agrega una carpeta nueva al repo, queda afuera de lo publicado por default, no adentro.
 const esbuild = require("esbuild");
 const fs = require("fs");
 const path = require("path");
 
+const CARPETA_PUBLICABLE = "publicar";
+
 function listarHtml(dir, out = []) {
   for (const nombre of fs.readdirSync(dir)) {
-    if (nombre === "node_modules" || nombre === "dist" || nombre === ".git" || nombre === "functions") continue;
+    if (["node_modules", "dist", ".git", "functions", CARPETA_PUBLICABLE].includes(nombre)) continue;
     const p = path.join(dir, nombre);
     const st = fs.statSync(p);
     if (st.isDirectory()) listarHtml(p, out);
@@ -26,9 +39,9 @@ function listarHtml(dir, out = []) {
   return out;
 }
 
-function encontrarEntryPoints() {
+function encontrarEntryPoints(htmls) {
   const entries = new Set();
-  for (const html of listarHtml(".")) {
+  for (const html of htmls) {
     const contenido = fs.readFileSync(html, "utf8");
     for (const m of contenido.matchAll(/<script type="module" src="\/([^"]+\.js)"/g)) {
       // El .html ya apunta a /dist/... (build anterior) — el entry point real es la ruta original,
@@ -37,6 +50,37 @@ function encontrarEntryPoints() {
     }
   }
   return Array.from(entries);
+}
+
+function limpiarCarpeta(dir) {
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+function copiarArchivo(origen, destino) {
+  fs.mkdirSync(path.dirname(destino), { recursive: true });
+  fs.copyFileSync(origen, destino);
+}
+
+function copiarDirectorio(origen, destino) {
+  fs.mkdirSync(destino, { recursive: true });
+  for (const nombre of fs.readdirSync(origen)) {
+    const origenItem = path.join(origen, nombre);
+    const destinoItem = path.join(destino, nombre);
+    if (fs.statSync(origenItem).isDirectory()) copiarDirectorio(origenItem, destinoItem);
+    else copiarArchivo(origenItem, destinoItem);
+  }
+}
+
+// Todo lo que va a publicarse, copiado explícitamente uno por uno — nunca "copiar todo y sacar lo
+// que no va". dist/ no está acá porque esbuild ya escribe directo ahí (ver outdir en main()).
+function armarCarpetaPublicable(htmls) {
+  for (const html of htmls) copiarArchivo(html, path.join(CARPETA_PUBLICABLE, html));
+  copiarDirectorio("css", path.join(CARPETA_PUBLICABLE, "css"));
+  // Única dependencia de js/ que hace falta en producción: SheetJS, cargado con <script src> plano
+  // (no <script type="module">, así que el bundler de arriba nunca lo toca) en las 3 pantallas de
+  // importación Excel — ver productos/importar.html, gbp-clientes-importar.html,
+  // gbp-proveedores-importar.html. El resto de js/ (todo lo demás) ya está adentro de dist/.
+  copiarArchivo("js/vendor/xlsx.full.min.js", path.join(CARPETA_PUBLICABLE, "js/vendor/xlsx.full.min.js"));
 }
 
 // Todos los imports del proyecto son "absolutos de sitio" (ej. "/js/auth.js", como los resuelve el
@@ -52,13 +96,16 @@ const raizProyectoPlugin = {
 };
 
 async function main() {
-  const entryPoints = encontrarEntryPoints();
+  limpiarCarpeta(CARPETA_PUBLICABLE); // no arrastrar archivos de un build anterior
+
+  const htmls = listarHtml(".");
+  const entryPoints = encontrarEntryPoints(htmls);
   console.log(`Empaquetando ${entryPoints.length} pantallas...`);
 
   await esbuild.build({
     entryPoints,
     bundle: true,
-    outdir: "dist",
+    outdir: path.join(CARPETA_PUBLICABLE, "dist"),
     outbase: ".",
     format: "esm",
     minify: true,
@@ -68,7 +115,9 @@ async function main() {
     logLevel: "info",
   });
 
-  console.log("Listo.");
+  armarCarpetaPublicable(htmls);
+
+  console.log(`Listo. "${CARPETA_PUBLICABLE}/" lista para publicar.`);
 }
 
 main().catch((err) => {
