@@ -98,7 +98,7 @@ accept:
 - R16 queda actualizado en RISKS.md como mitigado, con la fecha
 
 ### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
-status: IN_REVIEW
+status: DONE
 owner: implementador
 depends: TASK-001, TASK-011
 files:
@@ -225,6 +225,22 @@ accept:
 - invariantes REVERSA_NC y REVERSA_NC_UNICA
 
 ---
+
+## Condición de cierre obligatoria antes del paso 4 del plan maestro (API)
+
+**R23 — el pago sin destino se imputa a 1.1.1 Caja, y el ERP lo manda a 1.1.2.** La tarea que
+construya el primer llamador de `crear_venta()` en `backend/src/` tiene que cerrarlo **en la misma
+tarea**, y su auditor verificarlo. Dos salidas y solo dos:
+
+- **Fallar fuerte (preferida):** sacar el `coalesce(…, 'caja')` de `crear_venta()`, levantar
+  `DESTINO_PAGO`, y sacar el `default 'caja'` de la columna. La información faltante deja de
+  convertirse en plata en Caja.
+- **Replicar el ERP:** cuarto estado explícito `sinUbicar` que impute a 1.1.2. Cambia el esquema y
+  la invariante IMPUTACION_PAGOS: es **Nivel 3**, lo decide Gastón, no un agente.
+
+No bloquea hoy porque el estado "sin destino" no es representable en el esquema y `crear_venta()`
+todavía no tiene ningún llamador. Bloquea el día que exista el endpoint: un campo olvidado en el
+JSON no daría error, daría plata en Caja que no está en la caja.
 
 ## Pendiente de resolver antes del paso 5 del plan maestro
 
