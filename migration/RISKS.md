@@ -1376,3 +1376,61 @@ Nota: que Postgres lo exija convierte un problema latente en uno **visible en el
 corte**, que es exactamente cuando conviene descubrirlo. Es un argumento a favor del esquema nuevo,
 pero **no** entra en `EVIDENCIA_POC.md`: la unicidad de SKU no está entre los cuatro problemas que
 motivan la migración, y el archivo tiene criterio de admisión estricto.
+
+## R49 — [BAJA] `contadores_corte` no valida que `punto_venta`/`tipo_comprobante` coincidan con `contador`
+Detectado por el **auditor de TASK-004** el 2026-09-05, reproducido contra Postgres.
+
+`fijar_contador_comprobante()` siempre escribe las tres columnas derivadas del mismo nombre, así
+que por la vía normal son coherentes. Pero la tabla no lo exige: un `INSERT` **directo por SQL**
+con `contador = 'comprobantes_0001_FACTURA_A'`, `punto_venta = '9999'` y
+`tipo_comprobante = 'OTRO_TIPO'` **se acepta**. Y no es cosmético: esa fila queda como la más
+reciente, así que pasa a ser **la que rige** para ese contador (`order by fijado_en desc, id desc`),
+y a partir de ahí una re-fijación que debería ser idempotente pasa a fallar con
+`NUMERACION_CORTE_EN_USO`, porque `v_actual` ya no coincide con `ultimo_fijado` de la fila colada.
+
+Medido: contador real en 10, fila colada con `ultimo_fijado = 1` → la que rige pasa a ser la
+colada y `fijar_contador_comprobante('0001','FACTURA_A',10,…)` devuelve `NUMERACION_CORTE_EN_USO`
+en vez del id de la constancia vigente.
+
+**Por qué es BAJA y no bloqueante:** requiere escribir a mano en la tabla salteando la función, que
+es exactamente lo que R30 (permisos de la app sobre el esquema) tiene que impedir, y la tabla ya es
+append-only. **Cierre barato cuando se toque el esquema:**
+`check (contador = 'comprobantes_' || punto_venta || '_' || tipo_comprobante)`. No se agrega ahora
+porque las migraciones aplicadas no se editan y no justifica una migración propia.
+
+## R50 — [MEDIA] El orden de bloqueo `stock` → `contadores` está establecido de hecho, pero no escrito
+Detectado por el **auditor de TASK-004** el 2026-09-05, mirando hacia TASK-005.
+
+`backend/db/repetibles/crear_venta.sql` bloquea primero `stock` (`for update` con
+`order by s.producto_id, s.deposito_id`, línea 60) y **después** toma el lock de fila sobre
+`contadores` dentro de `siguiente_numero()` (líneas 124 y 170). O sea: el orden real de adquisición
+de locks de la operación de venta es **stock → contadores**.
+
+`siguiente_numero()` toma un lock de fila sobre `contadores` — el `update … set ultimo = ultimo + 1`
+—, cosa que no es evidente leyendo el llamador. Si `crear_pedido()` (TASK-005) numerara el pedido
+**antes** de bloquear el stock, una venta y un pedido simultáneos sobre el mismo producto podrían
+tomar los dos recursos en orden inverso y **deadlockear**: Postgres mataría una de las dos con
+`40P01` y la operación se caería sola, sin corromper nada, pero es un rojo intermitente y difícil
+de reproducir.
+
+La invariante ORDEN_DE_BLOQUEO de `TEST_MATRIX.md` hoy cubre el orden **entre productos**, no el
+orden **entre tablas**. El accept de TASK-005 tampoco lo menciona: dice "bloquea `stock` con
+`SELECT … FOR UPDATE` ordenado por `(producto_id, deposito_id)` ascendente antes de tocar
+`reservas`", y no dice nada de los contadores.
+
+**Qué hacer:** que TASK-005 (y TASK-006, TASK-007) tomen el lock de `stock` **antes** de llamar a
+`siguiente_numero()`, igual que `crear_venta()`, y que el orden entre tablas quede escrito como
+regla en el accept, no como costumbre heredada de un archivo.
+
+## R51 — [BAJA] `TASKS.md` todavía declara nombres de migración ya usados para TASK-005 y TASK-006
+Detectado por el **auditor de TASK-004** el 2026-09-05.
+
+TASK-005 declara `files: backend/db/migrations/0006_crear_pedido.sql` y TASK-006 declara
+`0007_modificar_pedido.sql`. Los dos prefijos ya están ocupados: `0006_crear_venta_repetible.sql`
+(TASK-018) y `0007_contadores_corte.sql` (esta tarea). Bajo la regla que el director acaba de fijar
+en TASK-004 —el prefijo tiene que ser **mayor que todo lo aplicado**, porque si no el mismo
+repositorio produce dos órdenes de aplicación distintos según el estado de la base— la próxima
+migración numerada es `0008`.
+
+No rompe nada hoy (nadie escribió esos archivos), pero es la clase de dato que un implementador
+copia del `files:` sin pensarlo. `TASKS.md` lo escribe el director: conviene renumerar de una.
