@@ -1,0 +1,52 @@
+name: checks
+
+on:
+  push:
+    branches: [migration/postgresql, "task/**"]
+  pull_request:
+    branches: [master, migration/postgresql]
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: sintaxis y tests unitarios
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+
+  integration:
+    name: tests de integración (emulador + Postgres)
+    runs-on: ubuntu-latest
+    needs: unit
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: delfino
+          POSTGRES_PASSWORD: delfino_local_dev
+          POSTGRES_DB: delfino_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U delfino"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24, cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - run: npm ci
+      - run: npm i -g firebase-tools
+      - name: Correr tests de integración
+        run: |
+          mkdir -p emulator-data
+          npm run test:integration
+        env:
+          DATABASE_URL_TEST: postgres://delfino:delfino_local_dev@localhost:5432/delfino_test
