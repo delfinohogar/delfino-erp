@@ -170,8 +170,47 @@ filtrar por la clave 5150419, así que otro lock advisory del cluster lo satisfa
 aserciones vecinas (no existe `schema_migrations` mientras espera, existe después de liberar)
 son las que sostienen el caso.
 
-## R16 — [MEDIA] El seed siembra en `demo-delfino` mientras el emulador corre en `delfino-hogar-erp`
-`scripts/seed-emulator.mjs:28` inicializa el Admin SDK con
+## R16 — [MITIGADO 2026-09-04] El seed siembra en `demo-delfino` mientras el emulador corre en `delfino-hogar-erp`
+
+**ESTADO: MITIGADO — 2026-09-04, TASK-013, verificado contra los emuladores por REST.**
+El proyecto ya no está escrito dos veces: `scripts/seed-emulator.mjs` lo lee de
+`js/firebase-config.js`, que es lo que el ERP realmente usa, y si ese archivo dejara de declarar
+exactamente un `projectId` el seed **aborta** en vez de adivinar. El default pasó de
+`demo-delfino` a `delfino-hogar-erp` por esa vía, no por una constante nueva que pueda volver a
+divergir. Si `GCLOUD_PROJECT` o `GOOGLE_CLOUD_PROJECT` fuerzan otro proyecto, el seed aborta con
+exit 1 nombrando **los dos valores** y qué hacer en cada caso. Las barreras de emulador local no
+se tocaron y siguen corriendo antes que el chequeo de proyecto.
+
+Se mitiga y no se elimina porque la clase de falla —el emulador crea cualquier namespace al
+vuelo y no hay API que diga cuál corre— sigue existiendo: lo que se eliminó es que ocurra en
+silencio.
+
+Verificado el 2026-09-04: `npm run seed` con las variables de agente aborta con exit 1;
+con `GCLOUD_PROJECT=delfino-hogar-erp` siembra y deja `admin@delfino.local` (uid
+`HfH7fg2RWwLBI6Lacotphm3rM1H9`) con login 200 contra el emulador de Auth y su perfil
+`usuarios/{uid}` con `rol: administrador` en `delfino-hogar-erp`, leído por REST; dos corridas
+seguidas dejan el inventario byte a byte igual; sin las variables de emulador sigue abortando.
+
+**El agente que corra `npm run seed` va a ver un aborto, y eso es correcto, no un bug.**
+`.claude/settings.json:8-9` fija `GCLOUD_PROJECT=demo-delfino` a propósito (decisión de Gastón
+del 2026-09-04): los agentes no siembran el namespace real. El mensaje de aborto lo dice.
+
+**Limpieza de `demo-delfino`: HECHA el 2026-09-04.** El script incorporó dos modos explícitos,
+`--reporte-demo` y `--limpiar-demo-delfino`, que nunca se disparan al sembrar. El namespace va
+fijo en el código y validado contra una lista de permitidos de un solo elemento, con un chequeo
+extra de que no coincide con el proyecto del ERP; el borrado usa los endpoints `/emulator/v1/`
+—que no existen fuera de un emulador— con el proyecto en la URL, así que su alcance no depende de
+ninguna variable de entorno. Imprime lo que va a borrar antes de borrarlo. Resultado medido por
+REST: `demo-delfino` pasó de 10 colecciones / 35 docs a **0 colecciones / 0 docs**, y
+`delfino-hogar-erp` quedó **idéntico** al inventario previo (10 colecciones, 35 docs, 1 usuario de
+Auth), comparado byte a byte antes y después. Segunda corrida: "Nada que borrar". Queda un flanco
+conocido, no del script: el emulador se levanta con `--import ./emulator-data`, así que si ese
+export todavía contiene `demo-delfino`, el namespace reaparece en el próximo arranque hasta que
+se re-exporte. `emulator-data/` no es de esta tarea.
+
+Lo que sigue es el registro original del riesgo, que se conserva porque explica el modo de falla:
+
+`scripts/seed-emulator.mjs:28` inicializaba el Admin SDK con
 `projectId: process.env.GCLOUD_PROJECT || "demo-delfino"`, pero `npm run emulators` y
 `npm run test:integration` corren con `--project delfino-hogar-erp` (`package.json:9-10`) y
 `js/firebase-config.js` declara ese mismo `projectId`. Si `GCLOUD_PROJECT` no está seteada —el
@@ -215,6 +254,9 @@ Inventario del daño acumulado, medido por REST contra los emuladores el 2026-09
 El perfil `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` está duplicado en los dos namespaces; el usuario
 de Auth existe una sola vez, en `delfino-hogar-erp`. La limpieza de `demo-delfino` que autorizó
 Gastón el 2026-09-04 queda pendiente: iba en el mismo script bloqueado.
+
+(Fin del registro original. Los dos bloqueos de arriba están resueltos: Gastón levantó el `deny`
+y TASK-013 se implementó el 2026-09-04; la limpieza está hecha. Ver el encabezado del riesgo.)
 
 ## R17 — [ELIMINADO 2026-09-04] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
 
