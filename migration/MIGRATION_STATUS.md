@@ -1,8 +1,8 @@
 # Estado de la migración
 
-Fase actual: **1 en curso. 6 tareas cerradas, la suite en verde.**
+Fase actual: **1 en curso. 8 tareas cerradas, la suite en verde.**
 Rama de trabajo: `migration/postgresql`
-Última tarea cerrada: **TASK-013 y TASK-019**, aprobadas y mergeadas el 2026-09-05
+Última tarea cerrada: **TASK-018**, aprobada y mergeada el 2026-09-05
 Tareas bloqueadas: —
 Pendientes de Gastón: 2, en DECISIONS.md § PENDIENTE DE GASTÓN
 
@@ -108,20 +108,49 @@ Dos cosas que valen más que las tareas:
   válida** mientras `singleProjectMode` esté activo. Afecta al shadow. Sacarlo o no es decisión de
   Gastón, con R35 sobre la mesa.
 
+**TASK-012 y TASK-018 cerradas** el 2026-09-05, completando el lote de cuatro de la madrugada.
+**152 tests de integración y 152 unitarios, todos en verde.**
+
+- **TASK-012** construyó las **migraciones repetibles** (patrón `R__` de Flyway): archivos que se
+  reaplican cuando cambia su hash, bajo el mismo advisory lock y cada uno en su transacción junto
+  al registro. El hash es del contenido **normalizado a LF**: sin eso, un `git checkout` reaplicaría
+  todas las funciones y `prosrc` dependería del checkout.
+- **TASK-018** mudó `crear_venta()` a `backend/db/repetibles/crear_venta.sql`. **Cierra R28**: se
+  acabaron las tres copias. El auditor verificó la mudanza por comparación **binaria** —mismo
+  SHA-256 en los dos lados, 168 líneas— y la neutralidad por la vía correcta: `invariantes`,
+  `iva_destino_y_fecha` y `precios_y_costos` quedaron verdes **sin aparecer en el diff**.
+- **`recrearEsquema()` ahora aplica las repetibles.** Sin ese cambio la suite habría quedado verde
+  probando la copia de `0004`. Hoy son idénticas, así que no mentía **todavía** — ése era el
+  punto.
+- **R37 cerrado**: `--marcar-aplicadas` **falla** si lo que baselinea no está en la base, mirando
+  `pg_proc` y no la tabla. Gastón descartó la salida de solo documentarlo.
+
+El directorio se llama `repetibles/` y **no `functions/`**: el `deny` de `functions/**` matchea en
+cualquier nivel (R39) y el nombre viejo era ambiguo entre funciones de Postgres y Cloud Functions.
+**No revertir.**
+
 ## Qué sigue
 
-**TASK-012** cierra R14: un flag mal tipeado del migrador aplica migraciones en vez de avisar.
-**TASK-013** cierra R16: el seed usa `demo-delfino` por defecto mientras el emulador corre en
-`delfino-hogar-erp`, así que siembra en un namespace que el ERP no mira — ya rompió un login
-local. Son independientes entre sí y ninguna bloquea el esquema.
+**TASK-004** (contadores del corte) retoma la cadena del esquema, hasta TASK-010. Antes de tocar
+`crear_venta()` en **TASK-007**, leer **R41**: `CREATE OR REPLACE` no cambia la firma, así que
+agregarle un parámetro crea una **sobrecarga** y deja la vieja viva, con los llamadores viejos
+corriendo el cuerpo viejo sin ningún aviso. Ya está en el `accept:` de esa tarea, con la
+verificación obligatoria: `count(*)` en `pg_proc` tiene que dar **1**.
 
-Después sigue la cadena del esquema, **TASK-004** (contadores del corte) hasta TASK-010, más las
-dos tareas de ARCA en homologación (TASK-014 relevamiento, TASK-015 guion) que no dependen del
-esquema.
+Después, **TASK-014** (relevamiento de ARCA) y **TASK-015** (guion de invocación), que no dependen
+del esquema.
 
-**Orden que conviene:** TASK-013 primero, que es la que le devuelve a Gastón el `npm run seed`
-funcionando. Después TASK-012 y TASK-018, que cierran R28 y **tienen que estar antes de
-TASK-007**.
+**Lo que quedó de la madrugada para Gastón**, ninguno urgente:
+- **R39 [MEDIA]**: los patrones de `permissions` matchean en cualquier nivel y `./` no ancla. Vale
+  para las 127 reglas; el riesgo real está en las **30 de `allow`**, porque un `allow` más amplio
+  de lo previsto **no produce ningún error**. Gastón las revisa.
+- **R40 [ALTA]**: los remitos generan asiento de compra con **IVA crédito fiscal**, que un remito no
+  da, y si después llega la factura se duplica stock y asiento. Es del ERP en producción. La parte
+  contable —qué hacer con lo ya registrado— la ve Gastón con su contador y **no la toca nadie de
+  este proyecto**.
+- Borrar `backend/db/functions/`, que quedó vacío en disco. Git no versiona directorios vacíos, así
+  que no se mergeó; el riesgo que queda es humano: alguien deja un `.sql` ahí y el migrador nunca
+  lo aplica, en silencio.
 
 El lote cubre los pasos 1 a 3 del plan maestro. Las tareas de API, adaptador y shadow se escriben
 cuando este lote esté aprobado, para no planificar sobre un esquema que todavía puede cambiar.
@@ -157,8 +186,8 @@ Netlify no lo lee).
 
 83 módulos en `js/` (10.719 LOC), 75 pantallas (12.403 LOC), 74 páginas HTML. 41 colecciones raíz
 y 6 subcolecciones. 32 módulos escriben en Firestore, con 140 call-sites, y **cero escrituras
-fuera de `js/`**. 53 decisiones, 31 riesgos, 43 invariantes de negocio más 7 propiedades de
-infraestructura, **138 tests** (41 unitarios y 97 de integración), **todos en verde**.
+fuera de `js/`**. 64 decisiones, 42 riesgos, 43 invariantes de negocio más las propiedades de
+infraestructura, **304 tests** (152 unitarios y 152 de integración), **todos en verde**.
 
 ## Cómo leer esto
 Resumen de una pantalla. El detalle está en TASKS.md (qué falta), DECISIONS.md (qué se decidió y
