@@ -71,6 +71,29 @@ revertir, correr de nuevo—. Es consistente con la hipótesis, pero **tres caso
 se encontró verificando. Es el dato que más va a servir para proyectar, porque **el plan original
 solo predice 3 de cada 9 tareas reales**.
 
+### Matiz obligatorio antes de proyectar: la proporción 2 a 1 es un techo, no una ley
+Señalado por Gastón el 2026-09-05: buena parte de esas seis fue **deuda acumulada saliendo a la
+luz**, y **esa fuente se agota**. Correcto — pero al clasificar las seis, la mitad **no** es de esa
+clase:
+
+| Tarea | Clase de deuda | ¿Se agota? |
+|---|---|---|
+| TASK-011 | **preexistente** — el test de aislamiento de FASE -1 nunca probó lo que decía | sí |
+| TASK-013 | **preexistente** — el default del seed venía de FASE -1 | sí |
+| TASK-019 | **mixta** — la fragilidad de comparar texto era preexistente; la rotura la disparó un `checkout` nuestro | parcial |
+| TASK-012 | **propia** — R14 nació en TASK-001; las repetibles, de un hallazgo de TASK-003 | **no** |
+| TASK-018 | **propia** — las tres copias de `crear_venta()` las creamos nosotros en TASK-002 y TASK-003 | **no** |
+| TASK-020 | **propia** — el test dependiente del entorno lo escribimos en TASK-013 | **no** |
+
+O sea: **tres preexistentes, tres propias, una mixta.** La conclusión de Gastón se sostiene y hay
+que agregarle la otra mitad: **la deuda preexistente se agota, la que genera el propio trabajo no.**
+Y las tres propias salieron de tareas que estaban haciendo las cosas bien — TASK-018 existe porque
+TASK-002 y TASK-003 usaron el patrón correcto de no editar migraciones aplicadas.
+
+**Qué no sabemos, y es lo que importa para la proyección:** cuánta deuda propia generan los
+servicios de dominio. No hay ningún caso todavía. Usar 2 a 1 como **techo razonable** es defendible;
+usarlo como ley, no.
+
 **3. Los bloqueos son todos de permisos, y todos de `.claude/`.** Tres, en dos tareas. Ninguno se
 esquivó por shell.
 

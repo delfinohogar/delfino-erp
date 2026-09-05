@@ -408,7 +408,14 @@ status: PENDING
 owner: implementador
 depends: TASK-003
 files:
-- backend/db/migrations/0005_contadores_corte.sql
+- backend/db/migrations/0007_contadores_corte.sql
+nota de numeración, decidida por el director el 2026-09-05 antes de arrancar: la tarea decía
+  `0005_contadores_corte.sql`, y **`0005` nunca existió** — TASK-018 creó `0006` saltando el
+  número. Si esta tarea usara `0005`, en una base nueva se aplicaría **antes** de `0006`, pero en
+  la base de Gastón —que ya tiene `0006` registrada— se aplicaría **después**: el mismo repositorio
+  produciría dos órdenes distintos según el estado de la base. Se usa **`0007`**, que es mayor que
+  todo lo aplicado. **El hueco en `0005` es permanente y no se rellena**: rellenarlo reintroduce
+  exactamente este problema.
 accept:
 - existe un contador por punto de venta y tipo de comprobante, con la forma `comprobantes_{pv}_{tipo}`, y `siguiente_numero()` lo soporta
 - los contadores `ventas` y `asientos` arrancan en 0, de modo que la primera operación obtiene el número 1 (P7)
