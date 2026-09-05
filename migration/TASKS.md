@@ -229,6 +229,12 @@ depends: TASK-012
 files:
 - backend/db/functions/crear_venta.sql
 - backend/db/migrations/0006_crear_venta_repetible.sql
+- backend/src/db/migrar.js
+nota sobre `files:`: `migrar.js` estaba declarado en TASK-012 y se agrega acá porque el cierre de
+  R37 —que `--marcar-aplicadas` falle si lo baselineado no está en la base— vive en ese archivo.
+  **No hay conflicto**: TASK-012 está DONE y mergeada, así que las dos tareas no lo tocan a la vez.
+  La regla que prohíbe compartir `files:` existe para evitar que dos tareas se pisen en paralelo,
+  no para impedir que una tarea posterior toque un archivo ya cerrado.
 accept:
 - `backend/db/functions/crear_venta.sql` contiene **la definición vigente**, la de `0004_precios_y_costos.sql:241`, sin cambios de comportamiento. Esta tarea **muda**, no refactoriza: si algo se comporta distinto, es un bug de la tarea
 - la migración numerada acompañante deja constancia del corte y no redefine la función: a partir de acá, `crear_venta()` vive en `functions/`
