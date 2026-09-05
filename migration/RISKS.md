@@ -1314,3 +1314,123 @@ la sesion del auditor), con `js/`, `scripts/` y un **junction a `node_modules`**
 muere antes, el arbol sobrevive. Es inofensivo —esta fuera del repo y no lo lee nadie— pero
 conviene borrarlo a mano sacando **primero** el junction (`rmdir` sobre el enlace, no `rm -r`, para
 no seguirlo hasta el `node_modules` real, que es lo que hace `destruirCopia()`).
+
+## R47 — [MEDIA] Tiendanube puede escribir el stock de Delfino, y eso contradice P9
+Detectado por una **revisión externa del repositorio** el 2026-09-05 y **verificado por el director
+leyendo el código**.
+
+`functions/tiendanubeCatalogo.js:199-205` actualiza `productos.stockTotal` con el valor que viene
+de Tiendanube: calcula `delta = stockNuevo − stockAnterior`, lo aplica dentro de una
+`runTransaction` sobre el valor real leído en la transacción, y deja entrada en `logAuditoria`.
+Está **bien implementado**: es atómico y deja rastro. El problema no es cómo lo hace, es **la
+dirección**: TN → Delfino, cuando P9 establece que **Delfino ERP es la fuente de verdad del stock**
+y las plataformas externas **reciben**.
+
+**Qué acota la urgencia, y no la anula:**
+- requiere **rol administrador**;
+- se dispara desde una **pantalla de previsualización** donde alguien elige explícitamente qué
+  aplicar. **No es sincronización automática: es reconciliación manual.**
+
+Por eso es MEDIA y no ALTA: hoy **no es un agujero abierto**, es una **capacidad** que viola la
+decisión si alguien la usa después del corte. Y es fácil que se use sin mala intención, porque
+hasta hoy era el comportamiento razonable.
+
+**Corrección asociada, ya aplicada en DECISIONS.md:** la entrada de P9 afirmaba que "la regla ya se
+cumple hoy", apoyada en haber verificado que `tnWebhook` no escribe stock. Esa verificación era
+**cierta pero incompleta**: se miró un camino y se concluyó sobre todos. Es el mismo error que
+costó R8 y el perfil duplicado de R16.
+
+**Condición de cierre (obligatoria), atada a la tarea que prepare el corte:** esa capacidad tiene
+que quedar como **diagnóstico de solo lectura** —muestra la diferencia, no la aplica— o retirarse.
+Su auditor tiene que verificar que después del cambio **ningún camino desde Tiendanube escribe
+`stockTotal`**, enumerando los escritores y no revisando uno.
+
+## R48 — [MEDIA] No hay unicidad de SKU en Firestore, y Postgres sí la exige
+Detectado por la misma revisión externa el 2026-09-05, verificado por el director.
+
+`crearProducto()` en `js/productos.js:65` **no verifica duplicados de SKU**, y Firestore **no tiene
+ninguna restricción** que lo impida —no existe el concepto de índice único—. O sea que hoy pueden
+convivir dos productos con el mismo SKU.
+
+Importa porque **el SKU es la clave de vínculo con Tiendanube**: un SKU duplicado vuelve ambiguo el
+enlace, la actualización de precio y de stock, y el procesamiento de pedidos. No hay forma de
+decidir a cuál de los dos productos corresponde una operación.
+
+**Y hay una consecuencia directa para la migración que conviene ver como buena noticia:**
+`backend/db/migrations/0001_esquema_poc.sql:17` ya declara `sku text not null unique`. El esquema
+nuevo **sí** garantiza la unicidad. Entonces:
+- del lado de PostgreSQL **no hay nada que arreglar**;
+- pero **la importación del corte va a fallar** si hay duplicados en Firestore, y va a fallar
+  **fila por fila**, sin diagnóstico agregado.
+
+**Qué hacer, y en qué orden:**
+1. **Medir cuántos duplicados hay hoy.** Es una consulta de solo lectura sobre Firestore de
+   producción, así que **la corre Gastón**, no un agente. Sin ese número no se puede dimensionar
+   nada.
+2. Si hay duplicados, decidir qué se hace con ellos —fusionar, renumerar, descartar— antes del
+   corte. **Es decisión de Gastón**: toca datos reales de catálogo.
+3. La tarea del corte tiene que **validar la unicidad antes de importar** y reportar la lista
+   completa de conflictos, en vez de morir en el primer `INSERT` que choque.
+
+Nota: que Postgres lo exija convierte un problema latente en uno **visible en el momento del
+corte**, que es exactamente cuando conviene descubrirlo. Es un argumento a favor del esquema nuevo,
+pero **no** entra en `EVIDENCIA_POC.md`: la unicidad de SKU no está entre los cuatro problemas que
+motivan la migración, y el archivo tiene criterio de admisión estricto.
+
+## R49 — [BAJA] `contadores_corte` no valida que `punto_venta`/`tipo_comprobante` coincidan con `contador`
+Detectado por el **auditor de TASK-004** el 2026-09-05, reproducido contra Postgres.
+
+`fijar_contador_comprobante()` siempre escribe las tres columnas derivadas del mismo nombre, así
+que por la vía normal son coherentes. Pero la tabla no lo exige: un `INSERT` **directo por SQL**
+con `contador = 'comprobantes_0001_FACTURA_A'`, `punto_venta = '9999'` y
+`tipo_comprobante = 'OTRO_TIPO'` **se acepta**. Y no es cosmético: esa fila queda como la más
+reciente, así que pasa a ser **la que rige** para ese contador (`order by fijado_en desc, id desc`),
+y a partir de ahí una re-fijación que debería ser idempotente pasa a fallar con
+`NUMERACION_CORTE_EN_USO`, porque `v_actual` ya no coincide con `ultimo_fijado` de la fila colada.
+
+Medido: contador real en 10, fila colada con `ultimo_fijado = 1` → la que rige pasa a ser la
+colada y `fijar_contador_comprobante('0001','FACTURA_A',10,…)` devuelve `NUMERACION_CORTE_EN_USO`
+en vez del id de la constancia vigente.
+
+**Por qué es BAJA y no bloqueante:** requiere escribir a mano en la tabla salteando la función, que
+es exactamente lo que R30 (permisos de la app sobre el esquema) tiene que impedir, y la tabla ya es
+append-only. **Cierre barato cuando se toque el esquema:**
+`check (contador = 'comprobantes_' || punto_venta || '_' || tipo_comprobante)`. No se agrega ahora
+porque las migraciones aplicadas no se editan y no justifica una migración propia.
+
+## R50 — [MEDIA] El orden de bloqueo `stock` → `contadores` está establecido de hecho, pero no escrito
+Detectado por el **auditor de TASK-004** el 2026-09-05, mirando hacia TASK-005.
+
+`backend/db/repetibles/crear_venta.sql` bloquea primero `stock` (`for update` con
+`order by s.producto_id, s.deposito_id`, línea 60) y **después** toma el lock de fila sobre
+`contadores` dentro de `siguiente_numero()` (líneas 124 y 170). O sea: el orden real de adquisición
+de locks de la operación de venta es **stock → contadores**.
+
+`siguiente_numero()` toma un lock de fila sobre `contadores` — el `update … set ultimo = ultimo + 1`
+—, cosa que no es evidente leyendo el llamador. Si `crear_pedido()` (TASK-005) numerara el pedido
+**antes** de bloquear el stock, una venta y un pedido simultáneos sobre el mismo producto podrían
+tomar los dos recursos en orden inverso y **deadlockear**: Postgres mataría una de las dos con
+`40P01` y la operación se caería sola, sin corromper nada, pero es un rojo intermitente y difícil
+de reproducir.
+
+La invariante ORDEN_DE_BLOQUEO de `TEST_MATRIX.md` hoy cubre el orden **entre productos**, no el
+orden **entre tablas**. El accept de TASK-005 tampoco lo menciona: dice "bloquea `stock` con
+`SELECT … FOR UPDATE` ordenado por `(producto_id, deposito_id)` ascendente antes de tocar
+`reservas`", y no dice nada de los contadores.
+
+**Qué hacer:** que TASK-005 (y TASK-006, TASK-007) tomen el lock de `stock` **antes** de llamar a
+`siguiente_numero()`, igual que `crear_venta()`, y que el orden entre tablas quede escrito como
+regla en el accept, no como costumbre heredada de un archivo.
+
+## R51 — [BAJA] `TASKS.md` todavía declara nombres de migración ya usados para TASK-005 y TASK-006
+Detectado por el **auditor de TASK-004** el 2026-09-05.
+
+TASK-005 declara `files: backend/db/migrations/0006_crear_pedido.sql` y TASK-006 declara
+`0007_modificar_pedido.sql`. Los dos prefijos ya están ocupados: `0006_crear_venta_repetible.sql`
+(TASK-018) y `0007_contadores_corte.sql` (esta tarea). Bajo la regla que el director acaba de fijar
+en TASK-004 —el prefijo tiene que ser **mayor que todo lo aplicado**, porque si no el mismo
+repositorio produce dos órdenes de aplicación distintos según el estado de la base— la próxima
+migración numerada es `0008`.
+
+No rompe nada hoy (nadie escribió esos archivos), pero es la clase de dato que un implementador
+copia del `files:` sin pensarlo. `TASKS.md` lo escribe el director: conviene renumerar de una.

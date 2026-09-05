@@ -593,8 +593,16 @@ describe("COSTO_MAESTRO_NO_AUTOMATICO", () => {
         join pg_class c on c.oid = t.tgrelid
         join pg_namespace n on n.oid = c.relnamespace
        where n.nspname='public' and not t.tgisinternal order by 1,2`);
+    // Los tres contadores_corte_* los agregó TASK-004 (migración 0007): hacen append-only la
+    // constancia del corte de numeración. Están sobre `contadores_corte` y no tocan `productos`
+    // ni `historial_costos`, así que la propiedad que este test defiende sigue intacta: no hay
+    // ningún mecanismo automático sobre el costo maestro. Se suman al catálogo, no se relaja
+    // el assert.
     expect(trg).toEqual([
       { tabla: "asiento_movimientos", trigger: "asiento_balanceado_trg" },
+      { tabla: "contadores_corte", trigger: "contadores_corte_sin_delete" },
+      { tabla: "contadores_corte", trigger: "contadores_corte_sin_truncate" },
+      { tabla: "contadores_corte", trigger: "contadores_corte_sin_update" },
       { tabla: "historial_costos", trigger: "historial_costos_sin_delete" },
       { tabla: "historial_costos", trigger: "historial_costos_sin_truncate" },
       { tabla: "historial_costos", trigger: "historial_costos_sin_update" },

@@ -18,8 +18,14 @@ De TASK-004 en adelante **todo se cuenta en el momento**, así que todo va a ser
 
 - **Ciclos**: 1 si el auditor aprobó de entrada. 2 si hubo un rechazo o un rojo del tester que
   devolvió la tarea al implementador. Un aval condicionado que después se confirma cuenta como 2.
-- **Cortes**: agentes que terminaron por límite de turnos, con el rol. **No** cuenta un agente
-  frenado por un permiso: eso es *bloqueo*.
+- **Cortes**: agentes que terminaron por **límite de turnos**, con el rol. **No** cuenta un agente
+  frenado por un permiso: eso es *bloqueo*. **Tampoco cuenta una falla por límite de sesión de la
+  API** (`rate_limit`, HTTP 429): eso es *interrupción de cuota*.
+- **Interrupciones de cuota**: el agente muere por un límite de la cuenta, no por el trabajo.
+  Se registran aparte y **no son evidencia ni a favor ni en contra de la hipótesis**: no dicen nada
+  sobre el tamaño de la tarea. Distinción marcada por Gastón el 2026-09-05, tras la primera —el
+  implementador de TASK-004 en su segundo ciclo, `rate_limit` con reset a las 13:00—. Contarla como
+  corte habría inflado la evidencia a favor de la hipótesis con un dato que no la toca.
 - **Bloqueos**: intervenciones de Gastón necesarias para desbloquear —editar `.claude/`, decidir
   algo que un agente no puede—. Se cuentan aparte de las decisiones de Nivel 3.
 - **Nivel 3**: decisiones comerciales, contables, fiscales o de producción que solo toma Gastón.

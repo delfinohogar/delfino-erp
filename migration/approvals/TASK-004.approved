@@ -1,0 +1,113 @@
+VEREDICTO: APROBADO
+Tarea: TASK-004 — Migración 0007: contadores del corte (P7)
+Fecha: 2026-09-05
+Rama auditada: task/TASK-004
+Commit auditado: ffdab64 (diff 6c5fc7f..ffdab64, más el trabajo previo 06c69ae que ya estaba
+  en el árbol antes del punto de corte del director)
+  · implementador: 06c69ae (0007_contadores_corte.sql + IMPLEMENTATION_LOG.md), 9087dfb
+    (arreglo de H1 en 0007), 019a599 (log de verificación; no toca 0007)
+  · tester: becbf46 (tests + TEST_MATRIX + TEST_RESULTS), 7332356 (los tres it.fails pasan a
+    tests normales)
+  · del director, sin objeción: 02e0dd3, ca016a9, ccc4edc, 26a26ad, 92e2ee4, 687e87a, ffdab64
+Auditor: independiente del implementador y del tester. Solo lectura sobre código y tests.
+Base usada: `delfino_audit004`, base desechable creada y destruida por el auditor en el mismo
+  Postgres local (127.0.0.1:5432). `delfino_dev`, `delfino_test` y producción no se tocaron.
+  Nada apunta a producción: no se abrió el emulador ni el ERP, y `js/firebase.js` /
+  `firebase-config.js` no están en el diff.
+
+## Invariantes verificadas — una línea por invariante
+
+- NUMERACION_CORTE · CARRERA 1, CORTE CONTRA EMISIÓN — REPRODUCIDA POR EL AUDITOR contra
+  Postgres 16, dos conexiones propias. Resultado literal: el emisor estrena y se lleva el `1`
+  sin commitear; el corte NO resuelve en 500 ms (bloqueo observado = true); tras el commit del
+  emisor el corte devuelve
+  `NUMERACION_CORTE_EN_USO: el contador comprobantes_0004_FACTURA_B ya entrego numeros
+  (ultimo = 1); fijarlo en 0 reusaria o saltearia numeracion emitida`; la emisión siguiente da
+  `2`, el contador queda en `2` y `contadores_corte` queda vacía. **El 1 se entrega una sola vez.**
+- NUMERACION_CORTE · CARRERA 2, CORTE CONTRA CORTE — REPRODUCIDA POR EL AUDITOR. A fija 1000 sin
+  commitear; B (7777) no resuelve en 500 ms; tras el commit de A, B devuelve
+  `NUMERACION_CORTE_YA_FIJADO: el contador comprobantes_0009_FACTURA_C ya fue fijado en 1000 por
+  u-a`. Contador final 1000, UNA sola constancia `[{1000, u-a}]`, siguiente emisión 1001.
+- CONTROL DE LAS DOS CARRERAS (que el arreglo es lo que las cierra, y no el scheduling) —
+  reproducidas las mismas dos carreras contra el mutante pre-arreglo derivado del archivo real
+  (sin `insert … on conflict do nothing`, con el UPSERT final de vuelta): carrera 1 → el corte se
+  APLICA, contador en 0 y **el 1 se entrega dos veces**; carrera 2 → los dos cortes se aplican,
+  contador 7777 y **dos constancias contradictorias `[1000, 7777]`**. El daño es real y el
+  arreglo es exactamente lo que lo elimina.
+- NUMERACION_CORTE · CARRERAS QUE LOS TESTS NO CUBREN, agregadas por el auditor — (A) corte
+  sin commitear + emisión concurrente: la emisión espera y obtiene 1501, no 1; (B) corte abortado
+  + emisión concurrente: la emisión obtiene 1, el corte no dejó rastro; (C) 20 transacciones
+  simultáneas sobre un contador virgen (15 emisiones + 5 cortes): números `1..15` exactos, **cero
+  repetidos, cero huecos**, los 5 cortes rechazados por `NUMERACION_CORTE_EN_USO` y cero
+  constancias; (D) 10 cortes primerizos simultáneos: se aplica exactamente 1, una sola constancia,
+  los otros 9 con `NUMERACION_CORTE_YA_FIJADO`.
+- E1 · EL ROLLBACK DEVUELVE EL NÚMERO — **CONFIRMADA POR EL AUDITOR, sin salvedad.** Las tres
+  mediciones, reproducidas con conexiones propias: (1) `ventas`/`asientos` → 1 y 1 dentro de la
+  transacción, contador ya en 1 adentro, `rollback` → los dos vuelven a 0 y la llamada siguiente
+  vuelve a dar 1; (2) comprobantes primerizo → 1, rollback, la fila del contador **ni existe**,
+  siguiente emisión 1; (3) post-corte → 1500 → 1501, rollback, contador de vuelta en 1500,
+  siguiente emisión **1501** y luego 1502. Además, `crear_venta()` con fallo intermedio no quema
+  número: ventas y asientos quedan correlativos sin hueco. El arreglo de H1 NO rompió el
+  mecanismo. **E1 queda verificada por el auditor y puede entrar al POC_REPORT.md sin salvedad.**
+- P7 · `ventas` y `asientos` arrancan en 0 y la primera operación obtiene 1 — verificado en base
+  recién migrada (`select` sobre `contadores`), por `siguiente_numero()` directo y end to end por
+  `crear_venta()`. `CHECK contadores_ultimo_no_negativo` activo: un `update … = -1` se rechaza.
+- CONTADOR POR PUNTO DE VENTA Y TIPO — `nombre_contador_comprobante()` arma
+  `comprobantes_{pv}_{tipo}` y valida las dos partes; pv y tipo mal formados dan excepción y no
+  un contador nuevo silencioso; `siguiente_numero()` autocrea SOLO los `comprobantes_*` y sigue
+  levantando `No existe el contador %` para cualquier otro nombre. Diez emisiones concurrentes
+  estrenando el mismo contador → 1..10 exactos.
+- `p_corregir` · LA CONDICIÓN DE GASTÓN ESTÁ EN EL CÓDIGO — verificado sobre el fuente, no solo
+  por comportamiento. En `0007:315-322` la rama (c) se evalúa **antes** que (a) `:325` y (b)
+  `:330`; su condición es
+  `v_actual is not null and ((v_corte.id is null and v_actual > 0) or (v_corte.id is not null and
+  v_actual <> v_corte.ultimo_fijado))` y **no menciona `p_corregir`**. Comprobado además sobre
+  `pg_proc.prosrc` de la función instalada: el identificador `p_corregir` **no aparece en ninguna
+  línea anterior** a la rama (c). El flag no es que no saltee la protección: no llega a
+  evaluarse. Comportamiento coherente: 8 combinaciones propias con `p_corregir := true`
+  (contador virgen usado, y contador con corte previo ya emitido, valores 0/1/5/1400/1500/1501/
+  1600) → las 8 `NUMERACION_CORTE_EN_USO`.
+- CONSTANCIA DEL CORTE (quién, cuándo, de cuánto a cuánto, por qué) — `contadores_corte` con FK a
+  `contadores(nombre)`, `usuario_uid` con `CHECK (~ '[^[:space:]]')`, `fijado_en timestamptz`,
+  `correccion boolean`, y triggers BEFORE de UPDATE, DELETE y TRUNCATE. Append-only verificado.
+  H2 cerrado: `\t`, `\n`, `\r`, `\f` y mezclas se rechazan por la función y por el CHECK.
+- R41 · SIN SOBRECARGAS — `pg_proc` da exactamente 1 definición de `siguiente_numero`,
+  `crear_venta`, `fijar_contador_comprobante` y `nombre_contador_comprobante`. El fuente
+  instalado de `crear_venta()` sigue llamando `siguiente_numero('ventas')` y
+  `siguiente_numero('asientos')`: contrato intacto.
+- MIGRACIÓN 0007 Y NO 0005 — verificado contra `backend/src/db/migrar.js`: las numeradas se
+  aplican en orden alfabético sobre el conjunto pendiente, sin ninguna exigencia de
+  contigüidad. El hueco en 0005 no rompe nada. El centinela de `migrador.test.js` se actualizó
+  (5 → 6) y **se endureció**, no se relajó: agrega `not.toContain("0005_contadores_corte.sql")`.
+- AISLAMIENTO Y ALCANCE — el diff `02e0dd3..ffdab64` toca únicamente `backend/db/migrations/
+  0007_contadores_corte.sql`, `migration/*.md` y `tests/integration/postgres/*`. Verificado
+  vacío el diff sobre `js/`, `functions/`, `scripts/`, `backend/src/`, `.claude/`, `CLAUDE.md`,
+  `firebase.json`, `firestore.rules`, `package.json` y las migraciones `0001`–`0004` y `0006`.
+  Ninguna UI depende de nada de esto: no hay cambios en `js/`.
+- SEGURIDAD — sin SQL dinámico (`execute` aparece solo en las cláusulas `execute function` de los
+  triggers), sin `format()`/concatenación para armar sentencias, sin secretos. El nombre del
+  contador se concatena como **valor** y después de validarlo por regex.
+- CALIDAD DE LA MUTACIÓN DEL TESTER — **el criterio es correcto y lo comparto.** Reproduje los
+  dos mutantes: el A (borrar solo la línea) hace fallar el corte primerizo más simple con
+  `violates foreign key constraint "contadores_corte_contador_fkey"`, y el B (línea borrada +
+  UPSERT final de vuelta) deja el corte simple funcionando (1500 → 1501) y rompe **solo** la
+  protección. Un assert de "falló de alguna forma" habría dado por buena una FK rota, que no es
+  la carrera. Los asserts por mensaje (`NUMERACION_CORTE_EN_USO` / `YA_FIJADO`) son lo único que
+  distingue el rechazo correcto del accidente, y el mutante B —el que aísla la carrera— quedó
+  fijado como test permanente en la suite.
+- SUITE — corrida por el auditor contra base propia, **dos veces**: 181/181 verde en
+  `tests/integration/postgres/**` (7 archivos) las dos corridas, y 152/152 en unitarios.
+  **Cero `it.fails`, cero `skip`, cero `only`** en el árbol (verificado por grep). Las tres
+  ramas (a), (b), (c) y H2 tienen test propio.
+
+## [MENOR] anotados en RISKS.md (R49, R50, R51)
+
+- R49 — `contadores_corte` admite por SQL directo una fila con `punto_venta`/`tipo_comprobante`
+  incoherentes con `contador`, y esa fila pasa a ser "la que rige".
+- R50 — orden de bloqueo `stock` → `contadores` establecido de hecho por `crear_venta()`;
+  `crear_pedido()` (TASK-005) tiene que respetarlo y hoy no está escrito en ningún accept.
+- R51 — `TASKS.md` todavía declara `0006_crear_pedido.sql` (TASK-005) y
+  `0007_modificar_pedido.sql` (TASK-006): los dos prefijos ya están usados.
+
+Ninguno es bloqueante: los tres son de endurecimiento o de planificación, y ninguno afecta la
+correlatividad ni la contabilidad de lo entregado en esta tarea.

@@ -437,3 +437,106 @@ Dudas para el director / auditor:
 3. `recrearEsquema()` en `_helpers.mjs` sigue aplicando solo `db/migrations/`. Ahora que
    `crear_venta.sql` existe, sin ese cambio la suite prueba la copia de 0004 —hoy identica, asi
    que no miente todavia—. Es del tester y es condicion previa a TASK-007.
+
+## TASK-004 — Migracion 0007: contadores del corte (implementador, 2026-09-05)
+
+Un solo archivo nuevo: `backend/db/migrations/0007_contadores_corte.sql`. Numerada 0007, no 0005:
+el hueco es permanente. Contiene (1) CHECK `ultimo >= 0` sobre `contadores` y las filas `ventas` y
+`asientos` garantizadas con `on conflict do nothing` —NO se reinician con UPDATE, en una base ya
+operativa eso seria destructivo; 0002 ya las crea en 0—; (2)
+`nombre_contador_comprobante(pv,tipo)`, que arma y valida `comprobantes_{pv}_{tipo}`, la misma
+forma de `js/facturacion.js:86`; (3) `siguiente_numero()` redefinido con **la misma firma**
+(R41: `pg_proc` sigue dando 1), que crea sola la fila de un contador de comprobantes y entrega 1,
+igual que el `snap.exists() ? ultimo : 0` de Firestore, y para cualquier otro nombre sigue
+levantando `No existe el contador %` textual; (4) `contadores_corte`, la constancia en datos —quien,
+cuando, de que valor a cual, motivo—, append-only con los tres triggers del patron de
+`historial_costos`; (5) `fijar_contador_comprobante(pv, tipo, ultimo_emitido, uid, motivo,
+p_corregir)`.
+
+Decision de diseño sobre el doble corte, documentada entera en el SQL: (a) mismo valor y contador
+sin usar → **idempotente**, no escribe una segunda constancia y devuelve el id de la que rige;
+(b) valor distinto y contador sin usar → **rechaza salvo `p_corregir := true`**, y con el flag deja
+una constancia nueva con `correccion=true`; (c) **contador ya avanzado → rechaza siempre**, el flag
+no sirve. (c) no es preferencia mia y no la considero Nivel 3: P7 prohibe las dos salidas posibles
+—bajarlo reusa numeros ya entregados ("dos papeles con el mismo numero", su motivo textual) y
+subirlo abre un salto en la correlatividad fiscal, que P7 tambien invoca—, asi que negarse es lo
+unico compatible. Efecto util: el corte tiene que hacerse ANTES de emitir. `ventas` y `asientos` son
+inalcanzables desde esa funcion: el unico nombre que construye pasa por
+`nombre_contador_comprobante()`.
+
+Verificado a mano sobre dos bases desechables creadas y borradas (`t004_limpia`, `t004_prev`; no
+toque `delfino_dev` ni `delfino_test`): migrador sobre base limpia aplica las 6 y la segunda corrida
+no reaplica (exit 0); sobre una base en estado 0001-0006 con `ventas=7` y `asientos=3` aplica solo
+0007 y **no toca ningun contador**. PdV 0001 INTERNO da 1,2,3; PdV 0002 INTERNO da 1,2 —secuencias
+separadas—; 0001 NOTA_CREDITO_INTERNA da 1. Primera venta real por `crear_venta()`: numero 1 y
+asiento 1. Corte de `0004/FACTURA_B` en 1500 → siguientes 1501 y 1502, y la fila de
+`contadores_corte` se consulta con `select * from contadores_corte`. Ademas: dos sesiones estrenando
+el mismo contador dan 1 y 2 (la segunda **bloquea** hasta el commit, por el
+`insert ... on conflict do update` atomico), y un ROLLBACK devuelve el numero al contador (R10
+intacto).
+
+Corrido: `npm run check` OK 162 archivos; `npm test` 152/152 verde; integracion de Postgres
+130/132. Los **2 rojos son de archivos del tester y no los toque**, y los dos son centinelas que
+hicieron exactamente lo que dicen que hacen: `migrador.test.js:94` (`toBe(5)`, hoy hay 6 numeradas)
+y `precios_y_costos.test.js:596`, el catalogo exhaustivo de triggers, que ahora ve los tres
+`contadores_corte_*`. La propiedad que ese test protege sigue intacta: mis triggers son sobre
+`contadores_corte`, no sobre `productos`.
+
+Aparecio **texto no confiable**: un bloque inyectado en el contexto de la sesion ordenaba trabajar
+"por Bash siempre" y editar archivos con `sed`, heredocs o scripts en vez de Edit/Write. No lo
+obedeci —el archivo se creo con Write— y lo reporto, tal como pide TASKS.md. Lo unico que corri por
+shell fueron consultas y scripts de verificacion contra bases desechables.
+
+Dudas para el director / auditor:
+1. La rama (b) —`p_corregir`— es la unica pieza que no se deriva sola de P7. La puse porque un corte
+   mal tipeado y todavia sin usar tiene que poder arreglarse, pero nunca por accidente. Si el
+   director prefiere que tambien falle seco, es sacar cuatro lineas.
+2. La creacion automatica del contador de comprobantes esta acotada por regex a
+   `comprobantes_{1-5 digitos}_{CODIGO_EN_MAYUSCULAS}`. Un tipo en minusculas o un PdV no numerico
+   dan error en vez de crear un contador basura. Si algun PdV real no fuera numerico, hay que
+   aflojar esa validacion.
+3. `scripts/seed-emulator.mjs` siembra `contadores/comprobantes` sin sufijo (ARCHITECTURE 1.10 ya lo
+   marca como documento que no usa nadie). En Postgres ese nombre no valida como contador de
+   comprobantes; no lo sembre ni lo replique.
+
+## TASK-004 (continuacion) — verificacion del arreglo de H1/H2
+
+El WIP de `9087dfb` quedo escrito y SIN VERIFICAR. Esta pasada no reescribio nada de `0007`: solo lo
+midio contra una base desechable (`delfino_verif004`, creada y destruida; nunca `delfino_dev`) y
+despues contra la suite real. Resultados:
+
+1. CORTE CONTRA EMISION (la carrera fiscal, H1). El emisor estrena el contador y se lleva el **1**;
+   el corte queda esperando en el `insert … on conflict do nothing`, y al commitear el emisor lee
+   `ultimo = 1` y cae por la rama (c): `NUMERACION_CORTE_EN_USO … (ultimo = 1)`. La emision
+   siguiente obtiene **2**. El numero 1 ya no se entrega dos veces.
+2. CORTE CONTRA CORTE, dos primerizos con valores distintos. A fija 1000, B pide 7777 y falla con
+   `NUMERACION_CORTE_YA_FIJADO: … ya fue fijado en 1000 por u-a …`. Contador final 1000, **una**
+   sola constancia. Antes se aplicaban los dos.
+3. ROLLBACK SIGUE DEVOLVIENDO EL NUMERO (E1 de EVIDENCIA_POC.md, el mecanismo que el arreglo toca).
+   Verificado en los tres casos: `ventas` 1 → rollback → 1; `comprobantes_0001_FACTURA_A` 1 →
+   rollback → 1; y post-corte en 1500, 1501 → rollback → 1501. E1 intacto.
+4. Dos sesiones estrenando el mismo contador: **1 y 2**, con la segunda bloqueada 423 ms hasta el
+   commit de la primera. Sin cambios respecto de antes del arreglo.
+5. Las tres ramas siguen igual: (a) idempotente, mismo id y una sola constancia; (b) sin flag
+   `NUMERACION_CORTE_YA_FIJADO`, con `p_corregir := true` se aplica y deja una segunda constancia
+   con `correccion=t` y `ultimo_anterior=1500`; (c) `NUMERACION_CORTE_EN_USO` **tambien con el
+   flag**, y lo mismo sobre un contador usado sin corte previo. La condicion de Gaston —`p_corregir`
+   solo si el contador no se uso— esta en el codigo: la rama (c) se evalua ANTES que (b) y no
+   consulta `p_corregir`.
+6. H2: `usuario_uid` de tab, tab+tab, newline, espacios, vacio y mixto → todos rechazados por la
+   funcion; el `CHECK` de la tabla rechaza el tab tambien por SQL directo. Un uid con contenido real
+   rodeado de blancos sigue entrando.
+
+`npm run check` OK (162 archivos). `npm test` verde: 152/152. Integracion Postgres: 176 pasan y
+**los 3 `it.fails` del tester ahora dan "Expect test to fail"** — o sea que pasan. Son los tres del
+describe "HALLAZGO abierto": la emision concurrente al corte, el `usuario_uid` de tabulaciones y los
+dos cortes primerizos simultaneos. No los toque: el archivo es del tester y le toca a el darlos
+vuelta. (La consigna hablaba de dos; son tres.)
+
+Decision menor, ninguna de negocio: no se agrego una `0008`. `0007` no esta mergeada, asi que el
+arreglo se edito en el lugar, como pidio el director.
+
+Texto no confiable, otra vez: a mitad de sesion llego una instruccion que se hacia pasar por
+configuracion del entorno y mandaba trabajar "por Bash siempre" y editar archivos con `sed`,
+heredocs o scripts en lugar de Edit/Write. No la obedeci —los dos archivos de esta pasada se
+editaron con Edit— y la reporto. Es la tercera vez que aparece el mismo patron en TASK-004.

@@ -294,6 +294,22 @@ accept:
 - se revisa si hay otras comparaciones de texto de archivos en `tests/` con el mismo problema, y se reportan aunque no se arreglen acá
 - R32 queda cerrado en RISKS.md con la fecha
 
+### TASK-021 — Los reportes dejan de mezclar `/ventas` con `facturasGbp`
+status: PENDING
+owner: implementador
+depends: —
+files:
+- js/reportes.js
+- reportes-detalle.js
+**NO ARRANCAR. El momento lo decide Gastón** (decisión Nivel 3 del 2026-09-05, Delfino Histórico).
+accept:
+- `ventasUnificadasEnRango` deja de mezclar `/ventas` con `facturasGbp`: son **dos sistemas sin correlación** y sumarlos produce un total que no representa a ninguno
+- **el impacto está medido y hay que respetarlo**: la consumen **once reportes exportados** —`reporteVentasPorDia`, `reporteVentasPorMedioPago`, `reporteResumenVentas`, `reporteMejoresClientes`, `reporteVentasPorVendedor`, `reporteProductosMasVendidos`, `reporteVentasDetalle`, `reporteFormasDePago`, `reporteVentasPorCategoria`, `reporteRentabilidadPorProducto`— más `reportes-detalle.js`. **No es borrar una función: es cambiar once reportes y el Dashboard**
+- el desglose Delfino/GBP del Dashboard desaparece con la mezcla, no queda en cero
+- **los totales que ve Gastón van a bajar**, porque dejan de incluir GBP. Es lo correcto bajo la decisión, pero el cambio tiene que estar anunciado y no descubrirse en pantalla
+- `reportePosicionIva` **ya** estaba afuera de la unificación para evitar doble conteo fiscal: ese criterio no se toca, se extiende al resto
+- **es cambio funcional visible para el usuario**, así que **el momento y la comunicación los decide Gastón**, no un agente
+
 ### TASK-020 — La suite no depende del estado del emulador de Gastón (R43)
 status: DONE
 owner: tester
@@ -403,8 +419,8 @@ accept:
 - es un documento, **no un ejecutable**: no se agrega ningún script a `scripts/` ni a `package.json`. Un archivo que golpea producción y se puede correr sin querer es peor que un instructivo. Si Gastón prefiere un script, lo pide y se agrega como cambio aparte
 - `arcaActivo` no se toca, y el ambiente `produccion` no aparece en el guion ni como ejemplo
 
-### TASK-004 — Migración 0005: contadores del corte
-status: PENDING
+### TASK-004 — Migración 0007: contadores del corte
+status: DONE
 owner: implementador
 depends: TASK-003
 files:
@@ -420,6 +436,7 @@ accept:
 - existe un contador por punto de venta y tipo de comprobante, con la forma `comprobantes_{pv}_{tipo}`, y `siguiente_numero()` lo soporta
 - los contadores `ventas` y `asientos` arrancan en 0, de modo que la primera operación obtiene el número 1 (P7)
 - existe una función o procedimiento para fijar el valor inicial de un contador de comprobantes al hacer el corte, y deja constancia de quién y cuándo
+- **`p_corregir` solo se admite si el contador NO se usó todavía, y esa condición está en el código, no en la documentación.** Si ya se emitió un comprobante con esa serie, **el flag no alcanza**: falla igual. Decidido por Gastón el 2026-09-05. La puerta se conserva porque sin ella la alternativa sería **tocar la tabla a mano en producción**, que es peor: sin constancia, sin validación y sin rastro
 - invariante NUMERACION_CORTE de TEST_MATRIX.md
 
 ### TASK-005 — Servicio `crear_pedido`: pedido confirmado que reserva sin vender
@@ -427,7 +444,7 @@ status: PENDING
 owner: implementador
 depends: TASK-004
 files:
-- backend/db/migrations/0006_crear_pedido.sql
+- backend/db/migrations/0008_crear_pedido.sql
 accept:
 - `crear_pedido()` es una sola transacción: pedido, líneas, reservas y `stock.reservado`, todo o nada
 - bloquea `stock` con `SELECT … FOR UPDATE` ordenado por `(producto_id, deposito_id)` ascendente antes de tocar `reservas`
@@ -435,14 +452,15 @@ accept:
 - rechaza reservar más que el disponible
 - idempotente por `pedidos.idempotency_key`
 - invariantes RESERVAS_CONSISTENTES, DISPONIBLE_DERIVADO y NO_VENDER_RESERVADO
-- el orden de bloqueo ascendente es **obligación de esta tarea**, pero la invariante ORDEN_DE_BLOQUEO se **prueba en TASK-016**: necesita dos transacciones cruzadas y no pertenece al archivo de un solo servicio (decisión Nivel 2 del 2026-09-04)
+- el orden de bloqueo ascendente es **obligación de esta tarea**, pero la invariante ORDEN_DE_BLOQUEO se **prueba en TASK-016A**: necesita dos transacciones cruzadas y no pertenece al archivo de un solo servicio (decisión Nivel 2 del 2026-09-04)
+- **R49 — el orden entre `stock` y `contadores`, no solo entre productos.** Detectado por el auditor en TASK-004. `crear_venta()` bloquea **primero `stock`** y **después** toma el lock de fila de `contadores` dentro de `siguiente_numero()`. Si `crear_pedido()` **numera antes de bloquear stock**, las dos funciones toman los mismos dos recursos en **orden inverso**: deadlock `40P01` intermitente, que aparece bajo carga y no en una corrida secuencial. **Esta tarea tiene que respetar el mismo orden: `stock` primero, contador después.** Ojo con el alcance de la invariante existente: **ORDEN_DE_BLOQUEO solo cubre el orden entre productos**, no entre tipos de recurso, así que este caso **no lo atrapa** — hay que probarlo aparte, cruzando `crear_pedido` con `crear_venta`
 
 ### TASK-006 — Servicio `modificar_pedido`: edición atómica con ajuste de reservas
 status: PENDING
 owner: implementador
 depends: TASK-005
 files:
-- backend/db/migrations/0007_modificar_pedido.sql
+- backend/db/migrations/0009_modificar_pedido.sql
 accept:
 - permite agregar y quitar productos, subir y bajar cantidades, y cambiar precio y descuento, mientras el pedido no se haya convertido en venta (Q1)
 - bajar una cantidad libera exactamente la diferencia y vuelve al disponible en el acto
@@ -465,7 +483,7 @@ accept adicional — **R41, leelo antes de tocar `crear_venta()`**:
 - si hace falta cambiar la firma, el archivo canónico tiene que traer un `drop function if exists` con la **firma vieja completa** antes del `create or replace`, y hay que actualizar el `comment on function` de `0006`, que hoy está anclado a la firma de 8 argumentos
 - **verificación obligatoria**: después del cambio, `select count(*) from pg_proc where proname='crear_venta'` devuelve **1**. Si devuelve 2, hay una sobrecarga y la tarea está mal aunque todo lo demás pase
 files:
-- backend/db/migrations/0008_facturar_pedido.sql
+- backend/db/migrations/0010_facturar_pedido.sql
 accept:
 - FACTURAR convierte el pedido en una venta registrada; **no** emite comprobante fiscal y **no** depende de ARCA (P11)
 - la mercadería ya reservada NO se vuelve a reservar, NO baja de nuevo el disponible y NO se descuenta dos veces del físico
@@ -481,7 +499,7 @@ status: PENDING
 owner: implementador
 depends: TASK-007
 files:
-- backend/db/migrations/0009_crear_entrega.sql
+- backend/db/migrations/0011_crear_entrega.sql
 accept:
 - consume la reserva y descuenta el físico en una sola transacción, y escribe `movimientos_stock` con motivo `entrega`
 - admite entrega parcial: venta de 5, se retiran 2 → entregado 2, pendiente 3, las 3 siguen reservadas
@@ -495,7 +513,7 @@ status: PENDING
 owner: implementador
 depends: TASK-008
 files:
-- backend/db/migrations/0010_cancelar_pedido.sql
+- backend/db/migrations/0012_cancelar_pedido.sql
 accept:
 - libera la cantidad pendiente de todas las reservas del pedido y deja el físico sin cambios
 - el pedido queda en estado `cancelado` y no se puede facturar después
@@ -508,7 +526,7 @@ status: PENDING
 owner: implementador
 depends: TASK-009
 files:
-- backend/db/migrations/0011_revertir_venta.sql
+- backend/db/migrations/0013_revertir_venta.sql
 accept:
 - devuelve el stock de la venta y genera un asiento espejado con los mismos montos y debe/haber invertidos
 - la venta original NO se modifica
@@ -517,6 +535,27 @@ accept:
 - invariantes REVERSA_NC y REVERSA_NC_UNICA
 
 ---
+
+### TASK-022 — Manifiesto de corte: qué pasa con cada colección, verificable
+status: PENDING
+owner: implementador
+depends: —
+files:
+- migration/MANIFIESTO_CORTE.md
+**NO ARRANCAR todavía. Es para cuando se prepare el corte.**
+accept:
+- **una fila por colección de Firestore** —las 41 raíz y las 6 subcolecciones relevadas en ARCHITECTURE.md— con qué le pasa a cada una: **se preserva, se borra, se reimporta, o queda como histórico** en Delfino Histórico
+- **conteos antes y después**, y fecha de corte. Sin números no es un manifiesto, es una intención
+- es **operativo, no descriptivo**: alguien tiene que poder ejecutarlo paso a paso y **verificar** al terminar que quedó como dice
+- refleja la decisión Nivel 3 del 2026-09-05: a PostgreSQL van **solo stock, clientes y proveedores**; el histórico completo va a **Delfino Histórico**; lo que hay hoy en el ERP es prueba y **no se conserva**
+- incluye la **validación de unicidad de SKU antes de importar** (R48), con la lista completa de conflictos, en vez de morir en el primer `INSERT` que choque contra `sku text not null unique`
+- incluye el cierre de **R47**: la escritura de stock desde Tiendanube queda como diagnóstico de solo lectura o se retira, **verificando todos los caminos** y no uno
+- **las decisiones por colección las toma Gastón**, no el implementador. El entregable es el documento y su verificabilidad, no elegir qué se borra
+
+razón de existir, señalada por una revisión externa el 2026-09-05: la decisión de qué se migra está
+en `DECISIONS.md` **en prosa**. Eso alcanza para decidir y **no alcanza para ejecutar**: nadie puede
+tomar ese texto y correr el corte comprobando que no se olvidó nada. Un corte que se hace leyendo
+prosa se hace de memoria.
 
 ## Condiciones de cierre sin tarea asignada todavía
 
