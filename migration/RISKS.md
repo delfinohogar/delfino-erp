@@ -978,6 +978,24 @@ las dos, y la primera es preferible:
   ausente o vieja **sin que nada lo avise nunca**, y que después de un `--marcar-aplicadas` hay
   que verificar `pg_get_functiondef()` a mano.
 
+**ENDURECIDO POR GASTÓN el 2026-09-05, antes de leer este texto y sobre la misma sustancia.** La
+condición de cierre de arriba ofrece dos salidas alternativas; Gastón deja **una sola, y más
+estricta**:
+
+- `--marcar-aplicadas` **FALLA** cuando lo que baselinea no existe en la base. **No avisa: falla.**
+- **La opción de documentarlo no alcanza** y queda descartada. Un párrafo en el README no evita
+  que la base quede mintiendo; solo deja constancia de que sabíamos que podía pasar.
+
+Motivo, textual: *"un `crear_venta()` equivocado corriendo en silencio no aparece en un test,
+aparece en una venta"*. Y sobre por qué un aviso no basta: el flag **ya** es explícito, sin
+abreviatura y documentado como peligroso; quien lo usa está decidido a usarlo, y un aviso más en
+esa salida se lee tarde o no se lee. La misma lógica que llevó R30 de BAJA a MEDIA: el costo de
+descubrirlo tarde es desproporcionado.
+
+Se cierra en **TASK-018**, y está en su `accept:`. La segunda vía que encontró el auditor —el
+`DROP FUNCTION` a mano— queda cubierta por el mismo chequeo, porque el problema es el mismo:
+`schema_repetibles` **declara** en vez de **observar**.
+
 [MENOR] cosmético de la misma familia, sugerido por el tester y compartido por el auditor: la
 línea de `--estado` para una repetible huérfana (`registrada pero NO esta en disco`) podría decir
 qué hacer —"si ya no debe existir, el `DROP FUNCTION` va en una migración numerada"—. La
