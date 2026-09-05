@@ -167,6 +167,30 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-04 — [NIVEL 2] Aprobación con salvedades: se mergea, no se cierra
+A pedido de Gastón, tras el corte del auditor en TASK-003. Un `.approved` que diga "no llegué a
+reproducir la mutación X" **no es lo mismo** que uno completo y no puede pasar a DONE como si lo
+fuera. La diferencia tiene que verse en el estado de la tarea, no solo en el texto del archivo.
+
+DECISIÓN: el auditor que no llegó a verificar todo escribe
+`migration/approvals/TASK-NNN.approved-parcial.md` en vez de `.approved`. La tarea queda en
+**APPROVED** y **ahí se queda**: se permite el merge, no el DONE. El director crea en el acto una
+tarea de verificación que enumera qué quedó sin reproducir. Cuando esa tarea cierra, el auditor
+escribe el `.approved` definitivo y recién entonces la original pasa a DONE.
+
+**Es barrera, no convención**, y esto es lo que hace que la regla valga: el hook veta DONE con un
+`Test-Path` **exacto** sobre `migration/approvals/TASK-NNN.approved`
+(`.claude/hooks/guard.ps1:139-141`). Un archivo llamado `.approved-parcial.md` no satisface ese
+test, así que el intento de marcar DONE **falla solo**. No depende de que el director se acuerde
+de la diferencia dos semanas después. No hizo falta tocar `.claude/` —que además no lo puede tocar
+ningún agente—: la barrera ya existía y solo había que elegir un nombre de archivo que cayera del
+lado correcto.
+
+Por qué se permite el merge y no se frena todo: la cadena TASK-001 → TASK-010 es lineal, así que
+bloquear el merge por una verificación pendiente detiene el proyecto entero. Lo que hay que evitar
+no es avanzar, es que una tarea **parezca** cerrada sin estarlo. Se elige visibilidad sobre
+bloqueo.
+
 ## 2026-09-04 — [NIVEL 2] Las funciones de dominio pasan a migraciones repetibles
 Cierra R28. Decidido antes de TASK-004, a pedido de Gastón, con el margen que da haber
 verificado que **TASK-004 no toca `crear_venta()`**: la función llama a `siguiente_numero('ventas')`
@@ -227,9 +251,20 @@ sincronización entre ellas, y verificar que **no** pasó algo —un deadlock, u
 vez de que pasó. El armado no se parece al de un test de operación y no se reutiliza; mezclarlos
 hace que el archivo de un servicio cargue infraestructura que solo usan dos de sus tests.
 
-**3. R20 multiplica el trabajo del tester, y hay que dimensionarlo.** Ésta es la parte que se
-descubrió midiendo, no razonando. El tester de TASK-003 **se cortó por límite de turnos** con 35
-tests escritos y sin commitear. La causa no es que 35 tests sean muchos: es que exigir la
+**3. R20 multiplica el trabajo del tester Y DEL AUDITOR, y hay que dimensionarlo.** Ésta es la
+parte que se descubrió midiendo, no razonando. En TASK-003 se cortaron **los dos**: el tester con
+35 tests escritos y sin commitear, y después el auditor sin dejar veredicto. Es la primera tarea
+donde pasa, y la carga era comparable — al auditor se le pidió reproducir tres mutaciones propias
+más verificar tres copias de `crear_venta()`.
+
+Consecuencia que hay que mirar de frente: **el problema no es solo del tester.** La regla de que
+el auditor reproduce por su cuenta en vez de creerle al reporte es la que sostiene R20 —sin ella
+la demostración de falla es una afirmación más— pero le da al auditor una carga del mismo orden
+que la del tester. Partir TASK-016 y TASK-017 alivia al tester y **no hace nada por el auditor**,
+que igual tiene que reproducir todo lo de la tarea que audita. Queda anotado como pregunta abierta
+para el próximo corte: si el auditor necesita un equivalente —auditar por bloques, o un veredicto
+en dos pasadas— o si alcanza con priorizar y permitir la aprobación con salvedades, que es lo que
+se probó primero. La causa no es que 35 tests sean muchos: es que exigir la
 demostración de que cada test **puede fallar** multiplica el trabajo. El tester no solo escribe —
 levanta la base, corre, diagnostica, **planta la mutación, verifica el rojo, la revierte** y
 vuelve a correr. TASK-002 fueron 34 tests con dos mutaciones y entró justo; TASK-003 fueron 35 con

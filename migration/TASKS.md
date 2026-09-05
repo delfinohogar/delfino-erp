@@ -14,6 +14,30 @@ Formato obligatorio. Un hook parsea `status:`, `owner:` y `files:`, así que no 
 Reglas: una sola tarea IN_PROGRESS por owner; dos tareas nunca comparten archivos en `files:`;
 ninguna tarea pasa a DONE sin `migration/approvals/TASK-NNN.approved`.
 
+## Aprobación completa vs. aprobación con salvedades
+
+Una auditoría que no llegó a verificar todo **no vale lo mismo** que una completa, y la diferencia
+tiene que verse en el **estado de la tarea**, no solo en el texto del archivo. Regla, decidida el
+2026-09-04:
+
+| Resultado del auditor | Archivo que escribe | Estado | ¿Merge? | ¿DONE? |
+|---|---|---|---|---|
+| Verificó todo | `TASK-NNN.approved` | APPROVED → DONE | sí | sí |
+| Verificó parte | `TASK-NNN.approved-parcial.md` | **APPROVED, y ahí se queda** | sí | **no** |
+| Rechaza | `TASK-NNN.rejected-N.md` | REJECTED | no | no |
+
+**Esto es una barrera, no una convención.** El hook bloquea DONE con un `Test-Path` exacto sobre
+`migration/approvals/TASK-NNN.approved`; un archivo llamado `.approved-parcial.md` no lo
+satisface, así que el intento de marcar DONE **falla solo**, sin depender de que alguien se
+acuerde. Es el mismo principio que venimos aplicando: si se puede eludir olvidándolo, no es una
+barrera.
+
+Con salvedades, además: el director **crea en el acto** una tarea de verificación que enumera
+**qué quedó sin reproducir**, con `depends:` de la tarea original, y la tarea original queda en
+APPROVED —mergeada pero visiblemente incompleta— hasta que el auditor escriba el `.approved`
+definitivo. Se permite el merge porque la cadena es lineal y frenarla entera por una verificación
+pendiente cuesta más de lo que protege; lo que no se permite es que la tarea **parezca** cerrada.
+
 Este es el **primer lote de FASE 1**: cubre los pasos 1 a 3 del plan maestro (backend mínimo,
 esquema al día, servicios de dominio en la base). Las tareas de API, adaptador y shadow se
 escriben cuando este lote esté aprobado, para no planificar sobre un esquema que todavía puede
