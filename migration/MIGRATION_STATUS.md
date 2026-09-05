@@ -17,7 +17,8 @@ FASE 0, el 2026-09-04:
 - **Se repararon tres afirmaciones falsas** que el repositorio daba por buenas: las decisiones
   P1–P12 y Q1–Q4 no estaban en DECISIONS.md (se incorporaron, textuales); R6–R11 y R18 nunca
   existieron (los riesgos se renumeraron y corren de R1 a R12 sin huecos); y el IVA en ventas no
-  está "calculado en $0" como dice CLAUDE.md, sino discriminado e imputado a 2.1.2.
+  está "calculado en $0" como decía CLAUDE.md, sino discriminado e imputado a 2.1.2. Esa línea de
+  CLAUDE.md la corrigió Gastón el 2026-09-04 en el commit `29eacb0`.
 - **Gastón resolvió tres decisiones de Nivel 3**: el IVA se calcula (corrige la premisa de P6),
   Tesorería queda fuera de la PoC pero se conserva el destino contable en `venta_pagos`, y solo
   los comprobantes conservan numeración en el corte (cierra P7).
