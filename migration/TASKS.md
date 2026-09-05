@@ -294,6 +294,22 @@ accept:
 - se revisa si hay otras comparaciones de texto de archivos en `tests/` con el mismo problema, y se reportan aunque no se arreglen acá
 - R32 queda cerrado en RISKS.md con la fecha
 
+### TASK-021 — Los reportes dejan de mezclar `/ventas` con `facturasGbp`
+status: PENDING
+owner: implementador
+depends: —
+files:
+- js/reportes.js
+- reportes-detalle.js
+**NO ARRANCAR. El momento lo decide Gastón** (decisión Nivel 3 del 2026-09-05, Delfino Histórico).
+accept:
+- `ventasUnificadasEnRango` deja de mezclar `/ventas` con `facturasGbp`: son **dos sistemas sin correlación** y sumarlos produce un total que no representa a ninguno
+- **el impacto está medido y hay que respetarlo**: la consumen **once reportes exportados** —`reporteVentasPorDia`, `reporteVentasPorMedioPago`, `reporteResumenVentas`, `reporteMejoresClientes`, `reporteVentasPorVendedor`, `reporteProductosMasVendidos`, `reporteVentasDetalle`, `reporteFormasDePago`, `reporteVentasPorCategoria`, `reporteRentabilidadPorProducto`— más `reportes-detalle.js`. **No es borrar una función: es cambiar once reportes y el Dashboard**
+- el desglose Delfino/GBP del Dashboard desaparece con la mezcla, no queda en cero
+- **los totales que ve Gastón van a bajar**, porque dejan de incluir GBP. Es lo correcto bajo la decisión, pero el cambio tiene que estar anunciado y no descubrirse en pantalla
+- `reportePosicionIva` **ya** estaba afuera de la unificación para evitar doble conteo fiscal: ese criterio no se toca, se extiende al resto
+- **es cambio funcional visible para el usuario**, así que **el momento y la comunicación los decide Gastón**, no un agente
+
 ### TASK-020 — La suite no depende del estado del emulador de Gastón (R43)
 status: DONE
 owner: tester

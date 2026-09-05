@@ -45,8 +45,6 @@ justifica una migración.
 
 ---
 
----
-
 # La otra cara: lo que NO salió como esperábamos
 
 Sección pedida por Gastón el 2026-09-05, con este argumento: **"si el informe solo tiene evidencia
@@ -101,6 +99,36 @@ tres propias salieron de tareas que estaban haciendo las cosas bien: TASK-018 ex
 TASK-002 y TASK-003 usaron el patrón correcto de no editar migraciones aplicadas. **No es deuda por
 descuido, es deuda por construcción**, y ésa es la que hay que presupuestar.
 
+## C4 — La reconciliación shadow contra `facturasGbp` pierde sentido
+Consecuencia de la decisión Nivel 3 del 2026-09-05 sobre **Delfino Histórico**. Es una entrada "en
+contra" porque **elimina una vía de validación que el plan daba por disponible**, no porque algo
+haya salido mal.
+
+El plan maestro define el **Alcance A** como "clientes, productos y venta completa contra PostgreSQL
+local, **validado por reconciliación contra Firestore donde exista contraparte**". Buena parte de
+esa contraparte iban a ser las `facturasGbp` sincronizadas.
+
+**Ya no.** Bajo la decisión: a PostgreSQL van **solo stock, clientes y proveedores**; el histórico
+—facturas, compras, SKUs, costos— va a **Delfino Histórico**, un sistema **separado y sin
+correlación**. Reconciliar contra `facturasGbp` sería comparar contra algo que **no va a estar del
+otro lado**.
+
+**Y hay una trampa que conviene dejar escrita acá también**, porque el shadow es justo donde
+aparecería: **los números de cliente, artículo y proveedor van a coincidir entre los dos sistemas**,
+porque la importación conserva los mismos. Un `JOIN` por número **devuelve filas**. Devuelve filas
+**equivocadas por diseño**, y produce un reporte plausible en vez de un error. Coincidencia de
+identificadores **no es identidad**.
+
+**Qué queda para validar el Alcance A:** clientes, productos y stock, que sí tienen contraparte. La
+venta se valida contra las invariantes de `TEST_MATRIX.md` y contra el comportamiento del ERP —como
+se hizo en TASK-002, con 34.136 comparaciones al centavo— pero **no** por reconciliación masiva de
+datos históricos.
+
+**Por qué es "en contra" y no un detalle:** el plan preveía una vía de validación empírica sobre
+datos reales y esa vía se achicó. Lo que queda es **más sólido en profundidad y más chico en
+volumen**, y el `POC_REPORT.md` tiene que decirlo así en vez de presentar la validación como si
+conservara el alcance original.
+
 ---
 
 ## Cómo se usa este archivo
@@ -115,4 +143,4 @@ medida. Al cerrar cada tarea se revisan las dos listas, no solo la primera.
 
 **Señal de alarma para el propio director:** si en algún momento las entradas `E` superan mucho a
 las `C`, lo más probable no es que el PoC vaya espectacular — es que se dejó de buscar la otra
-cara. Al 2026-09-05 van **1 a favor y 3 en contra**, y eso es sano, no preocupante.
+cara. Al 2026-09-05 van **1 a favor y 4 en contra**, y eso es sano, no preocupante.
