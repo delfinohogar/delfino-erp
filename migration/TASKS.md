@@ -135,12 +135,21 @@ accept:
 - `ventas.fecha_operacion` es `date` en hora local, nunca derivada de `toISOString()`: una venta registrada a las 21:00 hora Argentina queda con la fecha de ese día y no con la del día siguiente (cambio 8 de ARCHITECTURE §2.3, P8 + bug de UTC)
 
 ### TASK-003 — Migración 0004: lista de precios en la venta e historial de costos
-status: IN_PROGRESS
+status: IN_REVIEW
 nota para el auditor: el diff de esta rama incluye **dos commits de Gastón** sobre archivos que
   los agentes tienen prohibido tocar, y **no** son violación de alcance: `14c234d`
   (`.claude/settings.json`, levanta el `deny` de `seed-emulator.mjs` para desbloquear TASK-013) y
   `29eacb0` (`CLAUDE.md`, corrige la línea que decía que el IVA se calcula en $0). Lo que sí hay
   que verificar es lo contrario: que el implementador y el tester **no** los hayan tocado.
+segunda nota, error del director: el commit `1948cdd` dice
+  "MIGRATION_STATUS: el tercer pendiente es el PdV de producción para ARCA" pero **también
+  contiene un cambio a `tests/integration/postgres/migrador.test.js`** (el centinela de 3 a 4).
+  Ese cambio lo estaba escribiendo el tester en el árbol y el director se lo llevó puesto con un
+  `git commit -am`. El cambio es correcto y el tester lo verificó corriéndolo, pero **el commit
+  está mal etiquetado**: su mensaje no menciona el archivo de test. No se reescribe la historia
+  —es peor el remedio— pero queda anotado para que el auditor no lo lea como una modificación
+  encubierta de un test por parte del director. Lección: `git commit -am` con un subagente
+  trabajando en el mismo árbol barre su trabajo en curso.
 owner: implementador
 depends: TASK-002
 files:
