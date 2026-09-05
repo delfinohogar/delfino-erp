@@ -567,3 +567,159 @@ cuarta. No se tocó nada más de ese archivo.
 Ninguno por lógica y ninguno por infraestructura. Los cinco rojos de la sesión son mutaciones
 provocadas a propósito (un centavo de 2.1.2 a 4.1; el redondeo del IVA al final; 1.1.5 -> 1.1.1;
 `current_date`; `now()::date`), todas revertidas, y todas volvieron a verde al retirarlas.
+
+---
+
+## TASK-003 — listas de precios e historial de costos (P3, P4, P5)
+
+**Fecha:** 2026-09-04 · **Rama:** `task/TASK-003` · **Migración bajo prueba:**
+`backend/db/migrations/0004_precios_y_costos.sql`
+**Archivo nuevo:** `tests/integration/postgres/precios_y_costos.test.js` (33 tests)
+
+### Comandos
+
+`npm run test:integration` **no arrancó**: `firebase emulators:exec` aborta con
+*"Could not start Authentication Emulator, port taken"* porque ya había un emulador levantado
+(`npm run emulators`) ocupando 8080/9099/9199. Esto es **infraestructura, no lógica**. Se corrió
+la misma configuración de vitest contra ese emulador ya en pie, que es exactamente lo que
+`emulators:exec` habría hecho:
+
+    FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
+    FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 GCLOUD_PROJECT=delfino-hogar-erp
+    DATABASE_URL_TEST="postgres://delfino:delfino_local_dev@127.0.0.1:5432/delfino_test"
+    npx vitest run -c vitest.integration.config.js
+
+    npm test
+
+`DATABASE_URL_TEST` se pasó **explícito** a `delfino_test` en cada corrida. `delfino_dev` no se
+tocó: sigue con sus 23 tablas después de las dos corridas.
+
+### Resultado
+
+| Corrida | Comando | Archivos | Tests | Resultado |
+|---|---|---|---|---|
+| unitarios | `npm test` | 5 | 41 | **VERDE** |
+| integración 1 | vitest integración (suite completa) | 5 | 101 | **VERDE** |
+| integración 2 (seguida) | vitest integración (suite completa) | 5 | 101 | **VERDE** |
+
+Total 142 tests en verde, dos corridas consecutivas de integración, sin flakes.
+
+**Por invariante:**
+
+| Invariante | Estado | Dónde |
+|---|---|---|
+| LISTA_PRECIO_OPCIONAL (P3) | **VERDE** — 7 tests | `precios_y_costos.test.js` |
+| HISTORIAL_COSTOS_INMUTABLE (P5) | **VERDE** — 7 tests | idem |
+| COSTO_MAESTRO_NO_AUTOMATICO (P5) | **VERDE** — 11 tests | idem |
+| HISTORICO_INMUTABLE (P4) | **VERDE** — la parte de costos | idem |
+| IVA_DISCRIMINADO / IMPUTACION_PAGOS / FECHA_OPERACION_LOCAL | **VERDE** — revalidadas contra la `crear_venta()` de 0004 | bloque `CREAR_VENTA_0004` |
+| Las de TASK-001 y TASK-002 | **VERDE**, sin regresión | archivos existentes |
+
+**Residuos:** ninguno. Después de las dos corridas, `delfino_test` no tiene funciones `mut_*`,
+los triggers no internos son exactamente los cinco esperados
+(`asiento_balanceado_trg`, los tres de `historial_costos`, `pedido_items_editable`) y no quedaron
+bases temporales del migrador (`pg_database` = postgres, delfino_dev, delfino_test, templates).
+
+### 1. La mutación de R20 sobre el costo maestro — resultado literal
+
+El encargo pedía que el tester plantara **su propia** mutación y demostrara que **su** assert se
+pone rojo, porque un test que no distingue "el maestro no se movió" de "el maestro se movió" no
+sirve. El assert que decide está factorizado en `assertCompraNoPisaElMaestro()`: registra una
+compra a **715000** sobre un maestro de **600000** y exige que el maestro siga en 600000.
+
+Tres mutaciones plantadas, todas sobre la base de test y revertidas por `recrearEsquema()`:
+
+1. **Trigger `AFTER INSERT` sobre `historial_costos`** que hace
+   `update productos set costo_referencia = new.costo_nuevo`. Es la vía más silenciosa de
+   reintroducir el comportamiento de `js/compras.js`.
+   Resultado literal: `assertCompraNoPisaElMaestro()` **rechaza**, y el maestro pasa a
+   **715000** (`expect(await costoMaestro(1)).toBe(715000)` verifica el daño). Además,
+   `verificar_sin_recalculo_de_costo()` devuelve `{ objeto: 'mut_pisar_costo', tipo: 'funcion' }`.
+2. **`registrar_costo()` reinstalada con el `UPDATE productos` adentro**, tal como está hoy en el
+   ERP: mismo rojo, maestro en **715000**, y la función aparece en
+   `verificar_sin_recalculo_de_costo()`.
+3. **Un solo centavo**: trigger que hace `costo_referencia = costo_referencia + 0.01`. También
+   rojo; el maestro queda en **600000.01**. El assert es exacto, no tolerante.
+
+Sin mutación, el mismo assert pasa y el historial guarda `costo_anterior=600000`,
+`costo_nuevo=715000`. Con tres compras seguidas, `costo_anterior` es `[600000, 600000, 600000]`:
+ninguna fila encadena con la anterior, que es la consecuencia directa de no mover el maestro.
+En modo `promedio` (producto 5) tampoco se pondera: el maestro queda en 900000 y el promedio que
+el ERP habría escrito no aparece en ninguna parte.
+
+También hay mutaciones para las otras dos invariantes: `lista_precio_id NOT NULL` (pone rojo P3),
+y el retiro de los triggers de UPDATE / DELETE / TRUNCATE de `historial_costos`.
+
+### 2. Centinela de `migrador.test.js`
+
+`tests/integration/postgres/migrador.test.js` — `expect(filas.length).toBe(3)` pasó a
+**`toBe(4)`**. **Por qué cambia:** es un centinela deliberado, puesto en TASK-001 y subido en
+TASK-002, cuyo uso previsto es obligar a que alguien **revise** cada migración nueva antes de
+aceptarla en la cuenta. La cuarta es `0004_precios_y_costos.sql`, revisada en esta tarea
+(listas de precios, historial de costos inmutable, costo maestro no automático) y esperada por
+TASK-003. Se subió el número y se dejó el aviso para la quinta. No se tocó nada más del archivo.
+Nota: el cambio ya venía arrastrado en el árbol de trabajo y quedó registrado en el commit
+`1948cdd`; en esta sesión se verificó que corre y pasa.
+
+### 3. `crear_venta()` está redeclarada en 0004 — tercera copia en el repositorio
+
+Es un riesgo real de divergencia: si alguien arregla un bug en una copia y no en las otras, el
+resultado contable cambia según qué migración corrió última. Verificado, en tres niveles:
+
+- **Texto:** el cuerpo de 0004 es idéntico al de 0003 salvo **tres** agregados, todos de
+  `lista_precio_id` (la clave en el JSON de ítems, la lista de columnas del INSERT y el VALUES).
+  Al revertir esos tres, el texto normalizado coincide exacto con el de 0003. Si el implementador
+  hubiera cambiado cualquier otra cosa, el test lo muestra.
+- **Lo que corre en la base:** no alcanza con comparar archivos. Se compara
+  `pg_get_functiondef('crear_venta')` contra el cuerpo de 0004: coinciden.
+- **Comportamiento:** los tres criterios de TASK-002 revalidados contra la definición de 0004.
+  IVA a **2.1.2 = 648,68** (no 648,67) en la venta mixta 21 % + 10,5 %, con el esperado calculado
+  aparte en JS; imputación `caja`+`banco` -> 1.1.1 (3000), `cuentaPorCobrar` -> 1.1.5 (1500),
+  pendiente -> 1.1.2 (1500,03); fecha local invariante en tres husos separados 26 horas
+  (UTC, +14 y −12). Y la lista de precios **no** altera la contabilidad: con lista y sin lista, el
+  asiento es idéntico movimiento por movimiento.
+- Los 25 tests de TASK-002 en `iva_destino_y_fecha.test.js` siguen **verdes** contra el esquema
+  con 0004 aplicada.
+
+**Conclusión:** la de 0004 cumple todo lo de TASK-002. Pero la deuda queda: tres copias del mismo
+cuerpo mantenidas a mano. La comparación de textos de este archivo es el único centinela que hoy
+la vigila, y se romperá sola en la próxima redeclaración, que es lo buscado.
+
+### 4. Las dos dudas del implementador
+
+**(a) Con los campos actuales de P5 no se distingue una fila "compra registrada" de una futura
+"aceptación del maestro".** Es un agujero real, pero **todavía no puede hacer daño** y no reprueba
+TASK-003: hoy no existe ninguna operación de aceptación, así que ninguna fila puede leerse mal.
+Lo que sí hay que decir es que no se cierra con "una línea". `origen` es hoy
+`in ('manual','factura_compra')` y describe **de dónde salió el número**, no **si el maestro se
+movió**; son dos ejes distintos. Y `costo_anterior` se lee del maestro en cada INSERT, así que
+mientras no haya aceptación la columna repite siempre el mismo valor (`[600000,600000,600000]`
+en el test) — en cuanto exista la aceptación, esa misma columna pasa a significar otra cosa
+según la fila, sin nada que lo indique. Para el día que se implemente hace falta un eje propio
+(`aplicado_en` / `aplicado_por`, o un `origen='aceptacion_maestro'` con un CHECK que exija que el
+maestro efectivamente cambió), y **la migración que lo agregue tiene que venir con su propio
+test**. Mientras tanto queda plantado el centinela: el test "origen solo admite manual y
+factura_compra" se pone rojo el día que alguien amplíe el CHECK, y obliga a volver acá.
+
+**(b) No implementó la aceptación explícita del costo porque en modo `promedio` necesita la
+fórmula de ponderación y las cantidades de la compra, que son del servicio de compras y están
+fuera de alcance.** Bien resuelta, y en la dirección conservadora: **no implementar** la
+aceptación no puede violar COSTO_MAESTRO_NO_AUTOMATICO — el modo de falla de omitirla es que el
+maestro quede viejo, visible y corregible a mano; el de implementarla a medias es que el maestro
+se mueva solo, que es exactamente lo que P5 prohíbe. Adivinar la fórmula del promedio ponderado
+habría sido, además, una decisión de costeo (Nivel 3), no una de implementación.
+Queda **un residuo, y es de nomenclatura, no de comportamiento**: `metodo_costeo` se copia de
+`productos.costo_modo` a cada fila, pero en modo `promedio` el `costo_nuevo` guardado es el costo
+crudo de la factura, **no** un promedio ponderado. Quien lea el historial más adelante puede
+suponer que `costo_nuevo` ya está calculado "según el método" y equivocarse. El comportamiento
+está fijado por el test "en modo promedio tampoco pondera nada: guarda el método y deja el
+maestro quieto", así que un cambio silencioso se caza; lo que falta es que quien implemente la
+aceptación lea eso antes de escribir la fórmula.
+
+### Tipo de rojo
+
+**Ninguno por lógica.** Un rojo por **infraestructura**, ya descrito: `npm run test:integration`
+no arranca con un emulador ya levantado (puertos 8080/9099/9199 tomados). No es del código ni de
+los tests; se resuelve bajando el emulador o corriendo vitest contra el que ya está en pie.
+Los cinco rojos del archivo nuevo son mutaciones provocadas a propósito, todas revertidas por
+`recrearEsquema()` en el `beforeEach` siguiente, y todas vuelven a verde al retirarlas.
