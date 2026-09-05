@@ -238,7 +238,7 @@ accept:
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
 ### TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
-status: IN_REVIEW
+status: DONE
 desbloqueo: el directorio de repetibles se renombra de `backend/db/functions/` a
   **`backend/db/repetibles/`** (decisión de Gastón, 2026-09-05). El `deny` de `functions/**` matchea
   en cualquier nivel y `./` no ancla —ver R39—, así que en vez de agujerear la barrera se sale de
@@ -430,9 +430,13 @@ status: PENDING
 owner: implementador
 depends: TASK-006, TASK-018
 nota: depende de TASK-018 porque es la primera tarea que vuelve a tocar `crear_venta()`. Para
-  entonces la función ya tiene una sola copia canónica en `backend/db/functions/`, así que esta
+  entonces la función ya tiene una sola copia canónica en `backend/db/repetibles/`, así que esta
   tarea **no genera una cuarta copia**: edita el archivo de la función (R28, decisión Nivel 2 del
   2026-09-04).
+accept adicional — **R41, leelo antes de tocar `crear_venta()`**:
+- **si esta tarea le cambia los parámetros a `crear_venta()`, `CREATE OR REPLACE` NO la reemplaza: crea una sobrecarga y deja la vieja viva.** Quedan dos en `pg_proc`, los llamadores con la aridad vieja siguen corriendo **el cuerpo viejo sin error y sin aviso**, y el chequeo de R37 la da por desplegada porque encuentra la aridad nueva. Detectado por el auditor en TASK-018
+- si hace falta cambiar la firma, el archivo canónico tiene que traer un `drop function if exists` con la **firma vieja completa** antes del `create or replace`, y hay que actualizar el `comment on function` de `0006`, que hoy está anclado a la firma de 8 argumentos
+- **verificación obligatoria**: después del cambio, `select count(*) from pg_proc where proname='crear_venta'` devuelve **1**. Si devuelve 2, hay una sobrecarga y la tarea está mal aunque todo lo demás pase
 files:
 - backend/db/migrations/0008_facturar_pedido.sql
 accept:
