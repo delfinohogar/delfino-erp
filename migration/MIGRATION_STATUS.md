@@ -4,7 +4,7 @@ Fase actual: **1 en curso. 3 tareas cerradas, la suite en verde.**
 Rama de trabajo: `migration/postgresql`
 Última tarea cerrada: **TASK-002**, aprobada y mergeada el 2026-09-04
 Tareas bloqueadas: —
-Pendientes de Gastón: 3, en DECISIONS.md § PENDIENTE DE GASTÓN
+Pendientes de Gastón: 2, en DECISIONS.md § PENDIENTE DE GASTÓN
 
 ## Qué se hizo
 
