@@ -4,7 +4,7 @@ Fase actual: **1 en curso. 3 tareas cerradas, la suite en verde.**
 Rama de trabajo: `migration/postgresql`
 Última tarea cerrada: **TASK-002**, aprobada y mergeada el 2026-09-04
 Tareas bloqueadas: —
-Pendientes de Gastón: 3, en DECISIONS.md § PENDIENTE DE GASTÓN
+Pendientes de Gastón: 2, en DECISIONS.md § PENDIENTE DE GASTÓN
 
 ## Qué se hizo
 
@@ -88,8 +88,8 @@ dependen del esquema anterior.
 ## Qué está bloqueado o pendiente de Gastón
 
 Los pendientes de Gastón viven en la sección **PENDIENTE DE GASTÓN de DECISIONS.md**, que es
-donde él los busca. Quedan tres: la línea falsa de CLAUDE.md sobre el IVA en $0, el acceso a
-`js/firebase.js` que necesita el adaptador, y el **punto de venta de producción para ARCA** —si
+donde él los busca. Quedan dos: el acceso a `js/firebase.js` que necesita el adaptador, y el
+**punto de venta de producción para ARCA** —si
 Delfino comparte los de GBP con numeración intercalada o usa uno exclusivo—, que es Nivel 3 por
 fiscal y por tocar un sistema que hoy factura. Ninguno bloquea TASK-001 a TASK-010, y el de ARCA
 tampoco bloquea homologación: los puntos de venta 4, 5 y 6 ya están habilitados para servicios

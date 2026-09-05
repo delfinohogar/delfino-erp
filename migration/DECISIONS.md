@@ -92,12 +92,6 @@ dos. Con un punto de venta exclusivo, Delfino controla su propia serie de punta 
 No la toma ningún agente. TASK-014 puede juntar los datos que ayuden a decidirla —cómo numera GBP
 hoy, qué implica intercalar— pero no la resuelve ni la asume.
 
-### 2026-09-04 — CLAUDE.md afirma que el IVA en ventas se calcula en $0
-Es falso —el IVA está discriminado e imputado a 2.1.2— y contradice la decisión de Nivel 3 del
-2026-09-04, que además corrige la premisa de P6. `CLAUDE.md` solo lo modifica Gastón. Impacto:
-mientras siga ahí, todo agente que lea las instrucciones del proyecto parte de una premisa
-equivocada sobre el dominio que TASK-002 implementa.
-
 ### 2026-09-04 — El adaptador necesita `js/firebase.js`, que solo modifica Gastón
 El punto de interposición natural entre la UI y la persistencia es `js/firebase.js`, único acceso
 al SDK, y está en la lista de archivos que solo modifica Gastón. Además las páginas cargan desde
@@ -172,6 +166,22 @@ válido; lo que no es válido es un intento sin diagnóstico.
 Consecuencia que conviene tener presente: antes había código fiscal a un flag de distancia; ahora
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
+
+## 2026-09-04 — [GASTÓN] CLAUDE.md corregido: el IVA no se calcula en $0
+Corregido por Gastón en el commit `29eacb0`. La línea decía "El IVA en ventas está preparado pero
+calculado en $0" y era falsa: `js/ventas.js` lo discrimina desde hace tiempo. La afirmación venía
+del propio archivo de instrucciones del proyecto, así que **todo agente que lo leyera partía de
+una premisa equivocada** sobre el dominio que TASK-002 implementa.
+
+El texto nuevo no se limita a desmentirla: documenta la regla de redondeo —IVA redondeado por
+línea y sumado, neto como residuo, el centavo cae en 4.1 y nunca en la cuenta fiscal— porque es
+justo lo que hace falta saber para no reimplementarla al revés, y ya costó una consulta de
+Nivel 3. Y deja explícito que esto **no** es facturación fiscal: `arcaActivo` sigue en `false`.
+
+Vale como precedente: las tres afirmaciones falsas que FASE 0 encontró en el repositorio no eran
+descuido de nadie, eran documentación que envejeció al lado de código que cambió. La corrección
+sirve si además explica lo suficiente como para que la próxima persona no tenga que ir a leer el
+código para creerle.
 
 ## 2026-09-04 — [GASTÓN] La primera invocación de ARCA la ejecuta Gastón, no un agente
 El director marcó que "ambiente `testing`" limita el riesgo del lado de ARCA —no se emite un

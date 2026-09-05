@@ -127,6 +127,11 @@ accept:
 
 ### TASK-003 — Migración 0004: lista de precios en la venta e historial de costos
 status: IN_PROGRESS
+nota para el auditor: el diff de esta rama incluye **dos commits de Gastón** sobre archivos que
+  los agentes tienen prohibido tocar, y **no** son violación de alcance: `14c234d`
+  (`.claude/settings.json`, levanta el `deny` de `seed-emulator.mjs` para desbloquear TASK-013) y
+  `29eacb0` (`CLAUDE.md`, corrige la línea que decía que el IVA se calcula en $0). Lo que sí hay
+  que verificar es lo contrario: que el implementador y el tester **no** los hayan tocado.
 owner: implementador
 depends: TASK-002
 files:
