@@ -110,8 +110,9 @@ uso del tester y no se citan en veredictos contables.
 | CONCURRENCIA | **known-failing** (R1) | debe pasar |
 | DOBLE_ENVIO | **known-failing** por el TOCTOU de 1.6 | debe pasar |
 | NUMERACION_CORTE | **known-failing**: los contadores queman números (R10) | debe pasar |
-| FECHA_OPERACION_LOCAL | **known-failing**: `normalizarFecha` corre el día por UTC | debe pasar |
-| IVA_DISCRIMINADO | pasa: el código ya lo hace | debe pasar |
+| FECHA_OPERACION_LOCAL | **known-failing**: `normalizarFecha` corre el día por UTC | **pasa** (TASK-002) |
+| IVA_DISCRIMINADO | pasa: el código ya lo hace | **pasa** (TASK-002) |
+| IMPUTACION_PAGOS | pasa: `cuentaParaDestinoTesoreria` ya rutea | **pasa** (TASK-002) |
 | Bloque C completo | **no aplica**: la funcionalidad no existe en Firestore | debe pasar |
 | resto del bloque A | por verificar en FASE 1 | debe pasar |
 
@@ -130,15 +131,29 @@ known-failing no es una regresión: es la razón de la migración.
 
 ## Estado actual de la suite
 
-75 tests en el repositorio (actualizado 2026-09-04, TASK-001). Unitarios (`npm test`): 32 =
-13 de `backend-pool-entorno` + 10 de `backend-higiene` + 4 de contabilidad + 5 de facturación.
-Integración: 43 = 21 de invariantes contra PostgreSQL
-(`tests/integration/postgres/invariantes.test.js`), 18 del migrador
-(`tests/integration/postgres/migrador.test.js`) y 4 de aislamiento contra el emulador
-(uno de ellos, `_safety`, en rojo conocido por las reglas de Firestore: ver TEST_RESULTS.md).
-Los 21 de invariantes cubren
-VENTA_NORMAL, STOCK_INSUFICIENTE, FALLO_INTERMEDIO, DOBLE_ENVIO, CONTABILIDAD, PAGOS_VENTA,
-PENDIENTE_CON_CLIENTE, RESERVAS_CONSISTENTES, NO_VENDER_RESERVADO, NO_CONSUMIR_DE_MAS,
-CONCURRENCIA, ORDEN_DE_BLOQUEO e INTEGRIDAD_GLOBAL.
+109 tests en el repositorio (actualizado 2026-09-04, TASK-002), todos en verde.
 
-Falta escribir todo el bloque B, la mayor parte del C y todo el D.
+Unitarios (`npm test`): 41 = 13 de `backend-pool-entorno` + 10 de `backend-higiene` +
+4 de contabilidad + 5 de facturación + **9 de `iva-redondeo`** (aritmética exacta del IVA:
+suma de redondeados contra redondeo al final, y verificación de la identidad
+`Σ round(neto_i) = total − Σ round(iva_i)`).
+
+Integración: 68 = 21 de invariantes contra PostgreSQL
+(`tests/integration/postgres/invariantes.test.js`), **25 de IVA, destino de pago y fecha local**
+(`tests/integration/postgres/iva_destino_y_fecha.test.js`), 18 del migrador
+(`tests/integration/postgres/migrador.test.js`) y 4 de aislamiento contra el emulador
+(los 4 en verde desde TASK-011).
+
+Cubierto hasta ahora: VENTA_NORMAL, STOCK_INSUFICIENTE, FALLO_INTERMEDIO, DOBLE_ENVIO,
+CONTABILIDAD, PAGOS_VENTA, PENDIENTE_CON_CLIENTE, RESERVAS_CONSISTENTES, NO_VENDER_RESERVADO,
+NO_CONSUMIR_DE_MAS, CONCURRENCIA, ORDEN_DE_BLOQUEO, INTEGRIDAD_GLOBAL, **IVA_DISCRIMINADO**,
+**IMPUTACION_PAGOS**, **FECHA_OPERACION_LOCAL** y la parte de IVA de **HISTORICO_INMUTABLE**.
+
+Falta escribir el resto del bloque B (COMBO_CASCADA, REVERSA_NC, REVERSA_NC_UNICA,
+NUMERACION_CORTE), la mayor parte del C y todo el D.
+
+**Nota de método, de TASK-002:** en IVA_DISCRIMINADO, Debe = Haber **no** es verificación
+suficiente. Con el neto calculado como residuo el asiento cierra igual aunque el centavo esté
+mal repartido; hay que comparar el importe imputado a **2.1.2** contra el cálculo por línea
+hecho por una vía independiente. Demostrado con la mutación de un centavo de 2.1.2 a 4.1: el
+asiento sigue balanceado y el test se pone rojo igual. Ver TEST_RESULTS.md, TASK-002 punto 1.

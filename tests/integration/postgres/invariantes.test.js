@@ -74,7 +74,15 @@ describe("DOBLE_ENVIO", () => {
 });
 
 describe("CONTABILIDAD", () => {
-  it("una venta con pago parcial genera Caja + Deudores contra Ventas, y CMV contra Bienes de Cambio", async () => {
+  // Actualizado en TASK-002 (tester). Este test esperaba `4.1 haber 850000` y ningún
+  // movimiento a 2.1.2, porque asumía IVA en cero. Esa premisa era falsa y la corrigió una
+  // decisión aprobada: "P6 corregida: el IVA se calcula, no queda en cero" (Nivel 3, Gastón,
+  // 2026-09-04, migration/DECISIONS.md), que replica lo que js/ventas.js ya hace hoy.
+  // El cambio de expectativa es consecuencia de esa decisión, NO un ajuste para que pase:
+  // 850000 / 1,21 = 702479,3388… ⇒ IVA = round(147520,6611…) = 147520,66 (exacto, a 2.1.2)
+  // y neto = 850000 − 147520,66 = 702479,34 (residuo, a 4.1). Los mismos números salen del
+  // cálculo independiente de tests/_aritmetica_iva.mjs, usado en iva_destino_y_fecha.test.js.
+  it("una venta con pago parcial genera Caja + Deudores contra Ventas neto + IVA, y CMV contra Bienes de Cambio", async () => {
     await crearVenta(1, pool, {
       items: [{ producto_id: 1, deposito_id: 1, cantidad: 1, precio_unitario: 850000, costo_unitario: 600000 }],
       pagos: [{ medio_id: 1, monto: 300000 }],
@@ -85,10 +93,15 @@ describe("CONTABILIDAD", () => {
     expect(rows).toEqual([
       { cuenta: "1.1.1", debe: 300000, haber: 0 },
       { cuenta: "1.1.2", debe: 550000, haber: 0 },
-      { cuenta: "4.1", debe: 0, haber: 850000 },
+      { cuenta: "4.1", debe: 0, haber: 702479.34 },
+      { cuenta: "2.1.2", debe: 0, haber: 147520.66 },
       { cuenta: "5.1", debe: 600000, haber: 0 },
       { cuenta: "1.1.3", debe: 0, haber: 600000 },
     ]);
+    // Debe = Haber no alcanza (con el neto como tapón cierra igual aunque el centavo esté mal
+    // repartido), así que se verifica además el monto imputado a 2.1.2 contra el cálculo por
+    // línea. La batería completa de ese control está en iva_destino_y_fecha.test.js.
+    expect(rows.find((r) => r.cuenta === "2.1.2").haber).toBe(147520.66);
     expect(await asientosDesbalanceados(pool)).toEqual([]);
   });
 
