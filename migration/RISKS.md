@@ -991,8 +991,12 @@ Por qué NO bloqueó TASK-012:
   estado. Usarlo a conciencia.");
 - es la semántica del patrón `R__` de Flyway: arreglarla bien es comparar la base contra el
   archivo, o sea un cambio de diseño, no un parche de esta tarea;
-- hoy **no hay ni una repetible en el repo** (`backend/db/functions/` ni existe), así que el daño
-  concreto no puede materializarse en este commit.
+- ~~hoy **no hay ni una repetible en el repo** (`backend/db/functions/` ni existe), así que el daño
+  concreto no puede materializarse en este commit~~ — **desactualizado desde TASK-018**: ya existe
+  `backend/db/repetibles/crear_venta.sql`, así que el daño **sí** puede materializarse. Por eso
+  R37 se cerró en esa misma tarea, con `--marcar-aplicadas` fallando en vez de avisar. El
+  implementador de TASK-018 detectó que esta línea quedaba vieja y **no la editó por no ser suyo**
+  el riesgo; la corrige el director el 2026-09-05.
 
 Por qué igual importa: con una migración numerada un baseline mal hecho revienta enseguida —la
 tabla no está y todo falla—. Con una repetible **no revienta nada**: la base se queda con
