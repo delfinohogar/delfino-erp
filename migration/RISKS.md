@@ -594,6 +594,23 @@ a tocar es **TASK-007** (`facturar_pedido`, que convierte el pedido en venta).
 `crear_venta()` ahí. A partir de entonces la función tiene **una sola copia canónica** y las
 migraciones numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.
 
+**SIGUE ABIERTO al 2026-09-05.** No por el contenido: la mudanza está medida y es
+comportamentalmente neutra, pero `backend/db/functions/crear_venta.sql` **no se pudo crear**. El
+`deny` de `.claude/settings.json` sigue alcanzando ese directorio incluso después de anclarlo a
+`./functions/**`, y el implementador **no lo esquivó por shell** por segunda vez. Lo que ya está
+medido, sobre una base desechable y con el archivo candidato fuera del repositorio:
+
+- el cuerpo candidato es **byte a byte idéntico** a `0004_precios_y_costos.sql:241-408`
+  (168 líneas, mismo SHA-256 tras normalizar a LF);
+- desplegado como repetible, `pg_get_functiondef('crear_venta')` **antes y después** de la mudanza
+  es idéntico normalizando los dos lados, y el `prosrc` también;
+- la mudanza sí cambia los **bytes** de lo desplegado: 163 CRLF antes —la numerada se aplica
+  cruda—, 0 después, porque las repetibles se despliegan normalizadas a LF. Es lo que R33 pedía y
+  no cambia una letra del SQL.
+
+R28 se cierra en el commit que finalmente cree el archivo. Sigue siendo condición previa a
+TASK-007.
+
 ## R29 — [MEDIA] `historial_costos` no distingue "compra registrada" de "aceptación del maestro"
 Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003. Detectado antes por el
 implementador (IMPLEMENTATION_LOG, duda 1) y evaluado por el tester (TEST_RESULTS, punto 4a).
@@ -935,7 +952,7 @@ Regla practica para agentes, hasta que alguien la mejore: un emulador descartabl
 `--project` **distinto** del de Gaston (por ejemplo `auditor-descartable`), y no se usan
 `--export-on-exit` ni comandos que hablen con el hub mientras haya otro emulador en pie.
 
-## R37 — [MEDIA] `schema_repetibles` declara el estado de la base, no lo observa
+## R37 — [RESUELTO 2026-09-05] `schema_repetibles` declara el estado de la base, no lo observa
 Registrado por el auditor de TASK-012 el 2026-09-05. Lo detectó el tester para el caso de
 `--marcar-aplicadas`; el auditor lo reprodujo y encontró que es una clase, no un caso.
 
@@ -995,6 +1012,32 @@ descubrirlo tarde es desproporcionado.
 Se cierra en **TASK-018**, y está en su `accept:`. La segunda vía que encontró el auditor —el
 `DROP FUNCTION` a mano— queda cubierta por el mismo chequeo, porque el problema es el mismo:
 `schema_repetibles` **declara** en vez de **observar**.
+
+**CERRADO el 2026-09-05, en TASK-018** (`backend/src/db/migrar.js`, `backend/README.md`). Se tomó
+la salida que dejó Gastón, la única: **falla, no avisa**.
+
+- `verificarRepetiblesDesplegadas()` corre en `principal()` **antes** de escribir una sola fila. Si
+  alguna repetible declara una función que la base no tiene, lanza: exit ≠ 0, y `schema_migrations`
+  y `schema_repetibles` quedan **exactamente como estaban** —ni numeradas ni repetibles marcadas—.
+- **Mira `pg_proc`, no `schema_repetibles`.** Consultar la tabla de control heredaría el agujero:
+  la raíz del riesgo es justamente que esa tabla *declara* en vez de *observar*.
+- **Recorre todas las repetibles en disco, no solo las pendientes.** Por eso el segundo camino que
+  encontró el auditor —`DROP FUNCTION` a mano, que deja la fila al día y por lo tanto *no*
+  pendiente— queda cubierto por el mismo control, sin un chequeo aparte.
+- Se comparan **nombre y aridad**, no los tipos: interpretar `double precision`, arrays o typmods
+  sería fuente de falsos positivos y no hace falta para detectar las dos formas de ausencia.
+  Limitación conocida y aceptada: parámetros `OUT` cuentan distinto que `pg_proc.pronargs`;
+  ninguna función del dominio los usa y el resultado sería un error legible, no un silencio.
+- La opción de documentarlo **quedó descartada** y no se tomó. El README se actualizó igual, pero
+  como descripción del comportamiento nuevo, no como sustituto del chequeo.
+
+Documentación: `backend/README.md`, sección "`--marcar-aplicadas` FALLA si una repetible no está
+desplegada (R37)". La semántica vieja —"registra su nombre y su hash sin correr el SQL", sin más—
+ya no figura para las repetibles.
+
+Nota sobre el orden de cierre: R37 se cierra en el mismo commit en que **R28 quedó sin cerrar** por
+un bloqueo de permisos, no por el contenido. Los dos estaban en el `accept:` de TASK-018 y el
+mecanismo de R37 vive en `migrar.js`, que sí se pudo escribir. Ver IMPLEMENTATION_LOG.
 
 [MENOR] cosmético de la misma familia, sugerido por el tester y compartido por el auditor: la
 línea de `--estado` para una repetible huérfana (`registrada pero NO esta en disco`) podría decir

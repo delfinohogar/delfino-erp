@@ -64,7 +64,8 @@ La PoC corre siempre contra el Postgres local. El escape es explicito: `DELFINO_
 
     node backend/src/db/migrar.js                     # aplica las pendientes
     node backend/src/db/migrar.js --estado            # informa; no ejecuta ninguna migracion
-    node backend/src/db/migrar.js --marcar-aplicadas  # baseline explicito, ver abajo
+    node backend/src/db/migrar.js --marcar-aplicadas  # baseline explicito, ver abajo.
+                                                      # FALLA si una repetible no esta en la base (R37)
 
 Esos son **todos** los flags, y hay que escribirlos exactos. Cualquier otro argumento —un typo
 como `--estad`, una abreviatura como `--marcar-aplicada`, un flag inventado— **aborta con exit 1
@@ -168,8 +169,52 @@ una migracion que no ejecuto. Dos salidas, las dos explicitas:
   Registra las pendientes **sin ejecutarlas** y lo dice en pantalla. Alcanza tambien a las
   repetibles: registra su nombre y su hash sin correr el SQL, por el mismo criterio —si el
   operador declara que la base ya esta en el estado de los archivos, tambien lo esta el de las
-  funciones—. Si el esquema real no coincide con los `.sql`, esto deja la base mintiendo sobre
-  su estado. Usarlo a conciencia.
+  funciones—. Para las **numeradas** sigue valiendo la advertencia de siempre: si el esquema real
+  no coincide con los `.sql`, esto deja la base mintiendo sobre su estado. Usarlo a conciencia.
+
+  Para las **repetibles ya no depende del cuidado del operador**: ver abajo.
+
+#### `--marcar-aplicadas` FALLA si una repetible no esta desplegada (R37)
+
+Antes, el flag baselineaba las repetibles a ciegas: escribia nombre y hash en `schema_repetibles`
+sin mirar la base. La asimetria con las numeradas es lo que lo hacia peligroso. Con una numerada,
+un baseline mal hecho revienta enseguida —la tabla no esta y la primera consulta falla—. Con una
+repetible **no revienta nada**: la base se queda con `crear_venta()` vieja, o sin ella, mientras
+el migrador informa `Repetibles: sin cambios` y `--estado` dice `al dia`. Textual de Gaston:
+*"un `crear_venta()` equivocado corriendo en silencio no aparece en un test, aparece en una
+venta"*.
+
+Desde TASK-018 el flag **no avisa: falla**. Antes de escribir una sola fila —ni numeradas ni
+repetibles— lee cada archivo de `db/functions/`, saca que funciones declara (nombre y cantidad de
+argumentos) y **consulta `pg_proc`**, o sea la base. Si alguna no esta desplegada, aborta con
+exit 1 y `schema_migrations` y `schema_repetibles` quedan **exactamente como estaban**:
+
+    --marcar-aplicadas ABORTADO: hay repetibles que NO estan desplegadas en la base.
+    No se marco NADA: ni migraciones numeradas ni repetibles.
+
+      crear_venta.sql declara crear_venta(8 argumento(s)) y en la base NO existe.
+    ...
+    Que hacer: correr el migrador SIN flags para desplegarlas de verdad, y recien despues
+    baselinear si todavia hace falta.
+
+Dos detalles del chequeo, y los dos importan:
+
+- **mira la base, no `schema_repetibles`.** La raiz del problema es que esa tabla *declara* el
+  estado de la base en vez de *observarlo*; un control que la consultara a ella heredaria el
+  mismo agujero;
+- **recorre TODAS las repetibles en disco, no solo las pendientes.** Un `DROP FUNCTION` a mano
+  despues de haber aplicado la funcion deja la fila al dia —y por lo tanto *no* pendiente— con la
+  funcion ausente. Es el mismo estado incoherente por otro camino, y queda cubierto por el mismo
+  control.
+
+Se comparan **nombre y aridad**, no los tipos: interpretar `double precision`, arrays o typmods
+seria una fuente de falsos positivos y para detectar las dos formas de ausencia no hace falta.
+Limitacion conocida y aceptada: una funcion con parametros `OUT` cuenta distinto que
+`pg_proc.pronargs`; ninguna funcion del dominio los usa y, si alguna los usara, el resultado
+seria un error explicito y legible, no un silencio.
+
+Documentar esto **no alcanzaba** y esa salida quedo descartada: el flag ya es explicito y
+peligroso, y un aviso en esa salida se lee tarde.
 
 ## Estructura
 
