@@ -241,7 +241,11 @@ accept:
 ### TASK-014 — Relevamiento de ARCA homologación: checklist accionable
 status: PENDING
 owner: implementador
-depends: TASK-003
+depends: TASK-018
+nota: la dependencia es de **secuencia, no de contenido** — ARCA no depende del esquema. Gastón
+  decidió el 2026-09-04 no abrir un segundo hilo en el mismo árbol de trabajo mientras corren
+  TASK-013, TASK-012 y TASK-018, después del incidente del `git commit -am` que barrió trabajo en
+  curso de un subagente. Un solo hilo por vez.
 files:
 - migration/ARCA_HOMOLOGACION.md
 accept:
@@ -376,6 +380,23 @@ accept:
 - invariantes REVERSA_NC y REVERSA_NC_UNICA
 
 ---
+
+## Condiciones de cierre sin tarea asignada todavía
+
+Se listan acá porque la tarea que las tiene que cumplir **no está escrita**. Cuando se escriba,
+esto entra en su `accept:` — no se resuelven por acordarse.
+
+**R30 — el rol de la aplicación no puede ser dueño de las tablas ni superusuario.** Va en la tarea
+que **provisione PostgreSQL en la nube**, que hoy no existe porque Cloud SQL está postergado por
+P12 hasta que haya GO. Con `DISABLE TRIGGER` o `session_replication_role='replica'` la
+inmutabilidad de `historial_costos` se cae, y las dos vías fueron reproducidas por el auditor. Lo
+que obliga a decidirlo temprano: **la propiedad de las tablas la fija quien corre la primera
+migración**, así que descubrirlo con datos adentro cuesta recrear la instancia. Subido a MEDIA por
+Gastón el 2026-09-04 por esa razón. Detalle y criterios verificables en R30.
+
+**R29 — `historial_costos` no distingue "compra registrada" de "aceptación del maestro".** Va en
+la tarea que implemente la aceptación explícita del costo. El eje —`aplicado_en`/`aplicado_por` o
+`origen='aceptacion_maestro'` con CHECK— **lo decide Gastón**, no un agente.
 
 ## Condición de cierre obligatoria antes del paso 4 del plan maestro (API)
 

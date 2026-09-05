@@ -553,8 +553,13 @@ Mientras tanto queda plantado el centinela: el test `origen solo admite manual y
 de `tests/integration/postgres/precios_y_costos.test.js` se pone rojo el día que alguien amplíe el
 CHECK, y obliga a volver acá.
 
-## R30 — [BAJA] La inmutabilidad del historial se cae si el rol de la aplicación es dueño o superusuario
-Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003.
+## R30 — [MEDIA] La inmutabilidad del historial se cae si el rol de la aplicación es dueño o superusuario
+Registrado por el auditor el 2026-09-04 en la aprobación de TASK-003, como BAJA.
+**Subido a MEDIA el 2026-09-04 por Gastón**, con este argumento: no es un detalle de
+configuración, es una **restricción de provisionamiento**. Los roles y la propiedad de las tablas
+se fijan al crear la instancia de Cloud SQL y al correr la primera migración; si se decide tarde,
+**hay que recrear la base**. Un riesgo cuyo costo de corrección salta de "un `GRANT`" a "recrear
+la instancia" según cuándo se lo mire no es BAJA.
 
 Los tres triggers BEFORE de `0004_precios_y_costos.sql:142-159` rechazan **toda** la vía DML:
 verificado por el auditor con SQL directo — UPDATE con y sin WHERE, UPDATE que no cambia nada,
@@ -569,11 +574,28 @@ de las dos, el UPDATE siguiente pasa y reescribe la fila. El rol `delfino` de la
 superusuario**, así que hoy, en desarrollo, la inmutabilidad es una convención sostenida por que
 nadie lo intente.
 
-No bloquea: `backend/src/` está vacío, no hay ningún llamador y en la PoC no existe todavía un rol
-de aplicación. **Condición de cierre:** la tarea que cree el usuario de base de la aplicación tiene
-que darle un rol **no dueño de las tablas y no superusuario**, con permisos DML acotados, y dejar
-un test que compruebe que desde ese rol `ALTER TABLE … DISABLE TRIGGER` y
-`SET session_replication_role` fallan. Migraciones y despliegue corren con otro rol.
+No bloquea la PoC: `backend/src/` está vacío, no hay ningún llamador y todavía no existe un rol de
+aplicación.
+
+**CONDICIÓN DE CIERRE OBLIGATORIA, atada a la tarea que provisione PostgreSQL en la nube.** Esa
+tarea todavía no existe —Cloud SQL está postergado por P12 hasta que haya GO— así que la
+condición queda escrita acá y repetida en TASKS.md, en la sección de condiciones de cierre sin
+tarea asignada. Cuando la tarea se escriba, esto entra en su `accept:`:
+
+- el rol de la aplicación **no es dueño de ninguna tabla y no es superusuario**, con permisos DML
+  acotados; migraciones y despliegue corren con **otro** rol;
+- hay un test que comprueba que **desde ese rol** fallan `ALTER TABLE historial_costos DISABLE
+  TRIGGER …` y `SET session_replication_role = 'replica'`;
+- el test corre contra la instancia provisionada, no solo contra la base local.
+
+**Por qué no puede quedar para después:** la propiedad de las tablas la fija quien corre la
+primera migración. Descubrirlo con datos adentro obliga a recrear la instancia o a una migración
+de propiedad delicada. Es de las pocas decisiones de esta lista que **se abarata muchísimo si se
+toma temprano y se encarece de golpe si no**.
+
+Nota sobre hoy: el rol `delfino` de la base local **es superusuario**, así que en desarrollo la
+inmutabilidad es una convención sostenida por que nadie lo intente. Eso es tolerable en el
+emulador de trabajo y no lo es en la instancia que guarde datos reales.
 
 ## R31 — [INFORMATIVO] `verificar_sin_recalculo_de_costo()` es una heurística de texto y se puede evadir
 Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003.
