@@ -95,6 +95,8 @@ accept:
 - el seed sigue abortando si las variables de emulador no están o no son locales: esa barrera no se toca
 - correrlo deja el usuario `admin@delfino.local` y su perfil en `/usuarios/{uid}` **visibles para el ERP local**, que es el síntoma que originó R16
 - correrlo dos veces seguidas sigue siendo idempotente
+- **reporta qué quedó sembrado en `demo-delfino`**: usuarios de Auth, perfiles y colecciones con su conteo. El namespace equivocado ya tiene datos de corridas anteriores y hay perfiles duplicados en los dos
+- puede además limpiar `demo-delfino` (autorizado por Gastón el 2026-09-04), con estas condiciones: la limpieza es **explícita**, nunca automática al sembrar; solo alcanza al namespace `demo-delfino`; **jamás** puede tocar `delfino-hogar-erp`; y aborta si las variables de emulador no están o no son locales. Si el barrido no puede garantizar eso, se entrega solo el reporte
 - R16 queda actualizado en RISKS.md como mitigado, con la fecha
 
 ### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
@@ -127,6 +129,8 @@ accept:
 - tabla `historial_costos` con producto, costo anterior, costo nuevo, fecha, usuario, `origen` CHECK en (`manual`, `factura_compra`), compra relacionada nullable, método de costeo y motivo
 - `historial_costos` es inmutable: un UPDATE o un DELETE sobre una fila existente se rechaza
 - el esquema NO recalcula el costo maestro automáticamente en ninguna operación (P5)
+- **DIVERGENCIA DELIBERADA CON EL ERP, no la "corrijas" hacia el código.** `js/compras.js` hoy **sí** actualiza el costo maestro solo al registrar una compra. P5 decide lo contrario: una compra puede registrar un costo distinto en `historial_costos` sin modificar el maestro, y el cambio del maestro requiere **aceptación explícita**. Acá la decisión le gana al código actual. Si algo parece un bug porque no coincide con `js/compras.js`, no lo es: es esta decisión
+- el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
 ### TASK-004 — Migración 0005: contadores del corte
 status: PENDING
