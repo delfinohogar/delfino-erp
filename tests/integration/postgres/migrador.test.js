@@ -86,12 +86,17 @@ describe("MIGRADOR_IDEMPOTENCIA", () => {
       const filas = await filasSchemaMigrations(c);
       expect(filas.map((f) => f.nombre)).toEqual(MIGRACIONES_REALES);
       expect(filas.length).toBe(MIGRACIONES_REALES.length);
-      // Centinela: hoy son 0001, 0002, 0003, 0004 y 0006 (esta última la agregó TASK-018 el
-      // 2026-09-05: deja constancia del corte y NO redefine crear_venta(), que pasa a vivir en
-      // backend/db/repetibles/crear_venta.sql. No hay 0005: ese número está reservado para
-      // TASK-004, contadores del corte, todavía PENDING).
-      // Si aparece una sexta, revisar antes de subir el número.
-      expect(filas.length).toBe(5);
+      // Centinela: hoy son 0001, 0002, 0003, 0004, 0006 y 0007.
+      //   - 0006 la agregó TASK-018 el 2026-09-05: deja constancia del corte y NO redefine
+      //     crear_venta(), que pasa a vivir en backend/db/repetibles/crear_venta.sql;
+      //   - 0007 la agregó TASK-004 el 2026-09-05: contadores del corte (P7).
+      // NO HAY 0005 Y NO VA A HABERLA. El hueco es permanente y deliberado: TASK-018 salteó el
+      // número, así que una migración 0005 se aplicaría ANTES de 0006 en una base nueva y
+      // DESPUÉS en la base de Gastón, que ya tiene 0006 registrada. Rellenar el hueco
+      // reintroduce ese problema. Si alguien agrega un 0005, este assert de nombres lo caza.
+      // Si aparece una séptima migración, revisar antes de subir el número.
+      expect(filas.length).toBe(6);
+      expect(filas.map((f) => f.nombre)).not.toContain("0005_contadores_corte.sql");
       for (const f of filas) {
         expect(typeof f.nombre).toBe("string");
         expect(f.aplicada_en).toBeInstanceOf(Date);

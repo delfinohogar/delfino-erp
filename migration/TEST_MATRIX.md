@@ -36,7 +36,7 @@ Cada invariante indica su origen, para que el auditor pueda rastrear por qué ex
 | REVERSA_NC | nota de crédito sobre una venta ya registrada | stock devuelto (combos expandidos igual que al vender); asiento espejado con los mismos montos y debe/haber invertidos; la venta original **no se modifica** | relevamiento 1.9 |
 | REVERSA_NC_UNICA | dos reversas de la misma venta | la segunda devuelve el resultado de la primera; el stock se devuelve una sola vez | relevamiento 1.9 |
 | FECHA_OPERACION_LOCAL | venta cargada a las 21:00 hora argentina | `fecha_operacion` es **ese** día, no el siguiente; `creado_en` conserva el instante real | P8 + bug de UTC |
-| NUMERACION_CORTE | arranque de la base nueva | `comprobantes_{pv}_{tipo}` continúa desde su último valor; `ventas` y `asientos` arrancan en 1 | P7 resuelta |
+| NUMERACION_CORTE | arranque de la base nueva | `comprobantes_{pv}_{tipo}` continúa desde su último valor, **una secuencia por punto de venta y por tipo, nunca compartida**; `ventas` y `asientos` **arrancan en 0**, de modo que la primera operación obtiene el **1**; el corte deja constancia consultable (quién, cuándo, de cuánto a cuánto, si fue corrección); un ROLLBACK **devuelve** el número en vez de quemarlo (R10) | P7 resuelta · probada en TASK-004 |
 | LISTA_PRECIO_OPCIONAL | venta sin lista, venta con lista, y dos líneas de la misma venta con listas distintas | la venta sin lista da **exactamente** el mismo resultado que antes de 0004; con lista se guarda la referencia por línea y **no** se deriva el precio de ella; una lista inactiva no bloquea la venta y una lista ya usada no se puede borrar | P3 |
 | HISTORIAL_COSTOS_INMUTABLE | UPDATE, DELETE y TRUNCATE sobre `historial_costos`, por SQL directo | los tres se rechazan en la base (triggers BEFORE); las filas quedan idénticas. También se rechaza el UPDATE que no cambia ningún valor | P5 |
 | COSTO_MAESTRO_NO_AUTOMATICO | se registra un costo de compra distinto al del maestro | `productos.costo_referencia` **sigue valiendo lo mismo**, con los dos números en el assert; en modo `promedio` tampoco se pondera; nada toca stock, ventas ni asientos | P5, divergencia deliberada con `js/compras.js` |
@@ -151,7 +151,7 @@ hay que borrar nada para saber qué habría borrado.
 | FALLO_INTERMEDIO | **known-failing** (R1) | debe pasar |
 | CONCURRENCIA | **known-failing** (R1) | debe pasar |
 | DOBLE_ENVIO | **known-failing** por el TOCTOU de 1.6 | debe pasar |
-| NUMERACION_CORTE | **known-failing**: los contadores queman números (R10) | debe pasar |
+| NUMERACION_CORTE | **known-failing**: los contadores queman números (R10) | **pasa** (TASK-004) |
 | FECHA_OPERACION_LOCAL | **known-failing**: `normalizarFecha` corre el día por UTC | **pasa** (TASK-002) |
 | IVA_DISCRIMINADO | pasa: el código ya lo hace | **pasa** (TASK-002) |
 | IMPUTACION_PAGOS | pasa: `cuentaParaDestinoTesoreria` ya rutea | **pasa** (TASK-002) |
@@ -173,12 +173,23 @@ known-failing no es una regresión: es la razón de la migración.
 
 ## Estado actual de la suite
 
-**Medición vigente (2026-09-05, TASK-020):** 303 tests = **152 unitarios** (`npm test`) +
-**151 de integración**. **303 en verde, 0 en rojo**, en cuatro corridas: dos contra el emulador de
-trabajo de Gastón y dos contra un **emulador vacío levantado aparte**, en el que nadie corrió
-`npm run seed`. Ésa segunda pareja es la que vale para CI. Integración por archivo:
+**Medición vigente (2026-09-05, TASK-004):** 350 tests = **152 unitarios** (`npm test`) +
+**198 de integración**. **350 en verde, 0 en rojo**, en dos corridas seguidas de cada suite contra
+el emulador de trabajo de Gastón y Postgres local (`delfino_test`). Integración por archivo:
 `invariantes` 21, `iva_destino_y_fecha` 25, `precios_y_costos` 33, `migrador` 19,
-`migrador_repetibles` 30, `seed-emulator` 15, `crear_venta_canonica` 4, `safety` 4.
+`migrador_repetibles` 30, `seed-emulator` 15, `crear_venta_canonica` 4, `safety` 4,
+**`numeracion_corte` 47** (TASK-004).
+
+Tres de los 47 de `numeracion_corte` son `it.fails`: documentan hallazgos abiertos y **cuentan como
+verdes hoy**, pero se ponen rojos el día en que se arreglen, para obligar a actualizar el archivo.
+Ver TEST_RESULTS.md, TASK-004, "Hallazgos abiertos" (H1: la barrera del corte no es a prueba de
+carrera cuando el contador todavía no tiene fila; H2: `btrim()` no recorta tabulaciones en el guard
+del "quién").
+
+**Medición anterior (2026-09-05, TASK-020):** 303 tests = 152 unitarios + 151 de integración, 303
+en verde, en cuatro corridas: dos contra el emulador de trabajo de Gastón y dos contra un emulador
+vacío levantado aparte, en el que nadie corrió `npm run seed`. Ésa segunda pareja es la que vale
+para CI.
 
 Los desgloses por tarea que siguen vienen de tareas anteriores y su aritmética quedó desactualizada
 (suman 296, no 303). Se dejan como historia; el número medido es el de arriba.
@@ -221,18 +232,33 @@ Cubierto hasta ahora: VENTA_NORMAL, STOCK_INSUFICIENTE, FALLO_INTERMEDIO, DOBLE_
 CONTABILIDAD, PAGOS_VENTA, PENDIENTE_CON_CLIENTE, RESERVAS_CONSISTENTES, NO_VENDER_RESERVADO,
 NO_CONSUMIR_DE_MAS, CONCURRENCIA, ORDEN_DE_BLOQUEO, INTEGRIDAD_GLOBAL, **IVA_DISCRIMINADO**,
 IMPUTACION_PAGOS, FECHA_OPERACION_LOCAL, **LISTA_PRECIO_OPCIONAL**,
-**HISTORIAL_COSTOS_INMUTABLE**, **COSTO_MAESTRO_NO_AUTOMATICO** y **HISTORICO_INMUTABLE**
-(la parte de IVA desde TASK-002; desde TASK-003, también que registrar un costo nuevo no
-modifica la línea ya vendida).
+**HISTORIAL_COSTOS_INMUTABLE**, **COSTO_MAESTRO_NO_AUTOMATICO**, **HISTORICO_INMUTABLE** y
+**NUMERACION_CORTE** (la parte de IVA desde TASK-002; desde TASK-003, también que registrar un
+costo nuevo no modifica la línea ya vendida; NUMERACION_CORTE desde TASK-004).
 
-Falta escribir el resto del bloque B (COMBO_CASCADA, REVERSA_NC, REVERSA_NC_UNICA,
-NUMERACION_CORTE), la mayor parte del C y todo el D.
+Falta escribir el resto del bloque B (COMBO_CASCADA, REVERSA_NC, REVERSA_NC_UNICA),
+la mayor parte del C y todo el D.
 
 **Nota de método, de TASK-002:** en IVA_DISCRIMINADO, Debe = Haber **no** es verificación
 suficiente. Con el neto calculado como residuo el asiento cierra igual aunque el centavo esté
 mal repartido; hay que comparar el importe imputado a **2.1.2** contra el cálculo por línea
 hecho por una vía independiente. Demostrado con la mutación de un centavo de 2.1.2 a 4.1: el
 asiento sigue balanceado y el test se pone rojo igual. Ver TEST_RESULTS.md, TASK-002 punto 1.
+
+**Nota de método, de TASK-004:** para probar que dos puntos de venta no comparten secuencia no
+alcanza con pedirle números a dos nombres escritos a mano en el test: eso prueba que dos strings
+distintos son dos filas distintas, que es una propiedad de la clave primaria, no del sistema. El
+test tiene que resolver el nombre por **la misma vía que el ERP** —`nombre_contador_comprobante()`
+dentro del `select`—, y solo entonces la mutación muerde. Demostrado con tres mutantes: nombre que
+ignora el punto de venta (`0002` pasa de `[1,2]` a `[4,5]`), `siguiente_numero()` que borra el
+punto de venta del nombre (mismo efecto, y el contador de `0001` ni existe), y corte de un punto de
+venta que pisa el del otro (`0002` emite 1501 en vez de 1). Ver TEST_RESULTS.md, TASK-004.
+
+**Segunda nota de método, de TASK-004:** un hallazgo que el tester encuentra pero no puede
+arreglar —no toca `backend/`— no se deja como comentario ni como test rojo permanente: se escribe
+como `it.fails` con el assert de **lo que debería pasar**. La suite queda verde hoy, el hallazgo
+queda ejecutándose, y el día en que alguien lo arregla el `it.fails` se pone rojo y obliga a volver
+al archivo. Un test rojo permanente se normaliza; un `it.fails` no.
 
 **Nota de método, de TASK-013:** para probar el alcance de un borrado no hace falta borrar. El
 seed le habla al emulador por REST y el projectId viaja en la **ruta**, así que la lista de URLs
