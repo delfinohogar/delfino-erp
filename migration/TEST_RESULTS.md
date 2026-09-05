@@ -1094,3 +1094,129 @@ la sesión es el ya conocido `npm run test:integration` → "port taken", que no
 del `accept` —marcar R16 como mitigado en `RISKS.md` con la fecha— es del implementador y ya está
 hecho: `migration/RISKS.md:173` dice `## R16 — [MITIGADO 2026-09-04]`. Verificado por lectura, no
 por test.
+
+---
+
+## TASK-013 (corrección 2026-09-05) — SEED_REPORTE_FIEL se reapunta a lo que el seed sí controla
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-013` sobre `e8fed57` (corrección del implementador) +
+  `49960a7` (decisión del director). No se cambió de rama, no se hizo merge ni push.
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (127.0.0.1:5432, base `delfino_test`), emulador de Firebase ya levantado por Gastón en
+  8080/9099 con `--project delfino-hogar-erp --import ./emulator-data`. **No se levantó ningún
+  emulador descartable**: el espejo se fabrica sobre el emulador falso, en proceso.
+- **Veredicto: VERDE.** 269 de 269 tests del repositorio, en **dos corridas seguidas** de cada
+  suite. Cero rojos de lógica y cero de infraestructura.
+- **Alcance de lo tocado:** solo `SEED_REPORTE_FIEL` y su auxiliar. Los otros 125 tests de
+  TASK-013 quedaron **sin una línea de cambio** (`git diff` sobre `tests/unit/seed-emulator-*`
+  distintos del nuevo, y sobre los seis `describe` restantes de integración).
+
+### Comandos ejecutados
+
+    npm test                                              -> 152/152 verde (9 archivos), x2 corridas
+    npx vitest run -c vitest.integration.config.js        -> 117/117 verde (6 archivos), x2 corridas
+      (con FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 y FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099)
+    npm run test:integration                              -> NO ARRANCA: "Could not start
+                                                             Authentication Emulator, port taken"
+
+`npm run test:integration` sigue chocando los puertos con el emulador que ya está en pie: es el
+**rojo de infraestructura conocido desde TASK-001**, no un rojo de esta corrección. Se corrió
+`vitest -c vitest.integration.config.js` contra el emulador levantado: misma config, mismo
+`globalSetup`, misma base.
+
+### Verde / rojo por invariante
+
+| Invariante | Dónde | Resultado |
+|---|---|---|
+| SEED_PROYECTO_UNICO | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_PROYECTO_COINCIDE | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_BARRERA_EMULADOR | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_BARRIDO_ACOTADO | `tests/unit/seed-emulator-barrido.test.js` (31) | **VERDE** |
+| SEED_LIMPIEZA_NO_AUTOMATICA | `tests/unit/seed-emulator-barrido.test.js` | **VERDE** |
+| R20 (mutación por propiedad) | `tests/unit/seed-emulator-r20.test.js` (7) | **VERDE** |
+| **SEED_REPORTE_FIEL** (reapuntada) | `tests/unit/seed-emulator-reporte-fiel.test.js` (2) | **VERDE** |
+| SEED_USUARIO_VISIBLE | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_IDEMPOTENTE | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_REPORTE_DEMO | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_LIMPIEZA_REAL | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| **SEED_SALIDA_LIMPIA** | `tests/integration/seed-emulator.test.js` | **VERDE** (era rojo; el
+  implementador sacó el `process.exit()` del camino de reporte y `--reporte-demo` sale 0) |
+| SEED_ERP_INTACTO | `tests/integration/seed-emulator.test.js` + REST fuera de vitest | **VERDE** |
+
+Conteo: unitarios 152 = 41 anteriores + **111 de TASK-013** (barreras 71, barrido 31, R20 7,
+reporte-fiel 2). Integración 117 = 101 anteriores + **16 de TASK-013**. Total de TASK-013: **127**
+(eran 126; el `it` de SEED_REPORTE_FIEL salió de integración y entraron 2 unitarios, el real y su
+mutante de R20).
+
+### 1. Qué se reapuntó y por qué
+
+**Enunciado viejo:** `inventarioNamespace(sonda_virgen).totalDocs === 0`.
+**Problema:** eso es una propiedad **del emulador** (`"singleProjectMode": true` en
+`firebase.json`), no del archivo bajo prueba. Ningún cambio en `scripts/seed-emulator.mjs` podía
+ponerlo verde ni rojo, así que el test no medía la unidad que decía medir. El hallazgo en sí era
+correcto y quedó registrado como **R35 [MEDIA]**; lo que estaba mal era el lugar del assert.
+
+**Enunciado nuevo:** dado un namespace **espejado** —`demo-delfino` devuelve los documentos del
+ERP y CERO usuarios de Auth, que es exactamente lo que ve el script cuando el emulador espeja—,
+`--reporte-demo` tiene que **advertir** en vez de reclamarlos. Se exige, todo junto:
+
+1. el reporte hace su trabajo: sale con 0 y publica el inventario (10 colecciones, 35 documentos,
+   `Usuarios de Auth: 0`). No vale "advertir" muriendo;
+2. dice que esos 35 documentos **no se pueden dar por propios** del namespace;
+3. nombra la causa: `singleProjectMode`;
+4. señala la firma del espejo: **35 documentos con CERO usuarios de Auth**;
+5. **orden**: el aviso va después del conteo que califica y antes de cualquier aparición de
+   `--limpiar-demo-delfino`. Nadie puede leer el número, ni el comando de borrado, sin el aviso;
+6. no aparece ninguna frase que dé lo listado por propio (`Esto es lo que quedo del bug`,
+   `Para borrarlo`: las dos textuales del reporte anterior a la corrección);
+7. cero DELETE emitidos y **un solo namespace consultado**: `demo-delfino`. El aviso sale de
+   razonar sobre lo que ve, no de espiar otro namespace, que violaría SEED_BARRIDO_ACOTADO.
+
+**Cómo se fabrica el espejo:** con el emulador falso de `tests/herramientas/`, declarando el
+estado de `demo-delfino` igual al del ERP y sin usuarios de Auth. Por REST eso es indistinguible
+de un espejo real —el emulador reescribe el campo `name` de cada documento con el projectId
+pedido—, así que el seed recibe la misma entrada que en la máquina de Gastón, y además de forma
+determinista: no depende de si alguien escribió antes en ese namespace ni de reiniciar el emulador.
+
+### 2. La demostración de que el test reapuntado PUEDE fallar (R20)
+
+Mutante: la misma copia del seed fuera del repo, con la advertencia sacada
+(`advertirSiPuedeSerEspejo(inv);` reemplazada por un comentario y la rama que avisa "puede no
+haber NADA propio" cortada con `if (false)`). Se evalúa con **exactamente la misma función** que
+el test real, `verificarReporteHonestoAnteEspejo`. Salida literal de la corrida:
+
+    [CON la advertencia (repo sin mutar)] VERDE: la verificacion pasa (codigo 0).
+    [SIN la advertencia (mutante R20)]    ROJO: el reporte no avisa que los 35 documentos NO se
+                                          pueden dar por propios de "demo-delfino"
+
+El mutante **sigue siendo un reporte que funciona** —sale con 0, imprime `Colecciones: 10,
+documentos: 35` y encima invita a borrar—, así que el rojo viene de que falta el aviso y no de que
+el script se haya roto. Eso está aserto dentro del propio test, junto con
+`expect(r.salida).not.toMatch(/singleProjectMode/)`. `mutar()` exige que cada fragmento aparezca
+exactamente una vez: si el seed cambia, el test revienta en vez de mentir. Detalle medido de paso:
+`scripts/seed-emulator.mjs` está en **CRLF**, así que los fragmentos a mutar no pueden llevar `\n`
+(la primera versión falló con `[MUTACION INVALIDA] ... aparece 0 veces`).
+
+### 3. `delfino-hogar-erp` quedó como lo encontramos
+
+Huella completa por REST —documentos, campos, `createTime`, `updateTime`, subcolecciones y
+usuarios de Auth— tomada **antes** de tocar nada y **después** de las cuatro corridas de suite:
+35 documentos y 1 usuario en las dos, **idénticas byte a byte**. Ni siquiera apareció la deriva de
+`lastRefreshAt` que podía traer una sesión de navegador abierta. `demo-delfino` quedó en 0
+documentos y 0 usuarios, y no quedó ningún namespace `tester-task013-*` con datos.
+
+### Tipo de rojo
+
+**Ninguno.** No hubo rojos de lógica ni de infraestructura en esta corrección. El único incidente
+de infraestructura es el ya conocido y ajeno a la tarea: `npm run test:integration` no arranca
+mientras el emulador de Gastón esté en pie (puerto 9099 tomado).
+
+### Desacuerdo registrado
+
+Ninguno. La objeción del director es correcta y la comparto: el enunciado viejo asertaba sobre el
+emulador y no sobre el seed, y un test así no puede discriminar ninguna versión del archivo bajo
+prueba. Lo que se pierde con el reapuntado —que el comportamiento de `singleProjectMode` deje de
+tener un test que lo vigile— no se pierde de verdad: está en R35, que es donde se decide, y el
+test nuevo cubre justamente el daño que ese comportamiento causaba (que el operador leyera un
+conteo ajeno como propio arriba de un borrado).

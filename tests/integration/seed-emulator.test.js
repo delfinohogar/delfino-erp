@@ -306,40 +306,18 @@ describe("SEED_LIMPIEZA_REAL — la limpieza borra demo-delfino de verdad y nada
   }, 60000);
 });
 
-// ---------------------------------------------------------------------------------------------
-describe("SEED_REPORTE_FIEL — el reporte de demo-delfino tiene que ser de demo-delfino", () => {
-  it("un namespace del emulador al que nunca se le escribio NO devuelve los documentos del ERP", async () => {
-    // SOLO LECTURA, sobre un projectId inventado que nadie escribio nunca.
-    //
-    // Por que este test existe: si leer un namespace virgen devuelve el dataset del ERP, entonces
-    // `--reporte-demo` sobre un emulador recien arrancado —el estado normal despues de
-    // `npm run emulators --import ./emulator-data`— informa los documentos del ERP como si fueran
-    // basura de "demo-delfino", y `--limpiar-demo-delfino` imprime "SE VA A BORRAR ESTO, y solo
-    // esto" arriba de la lista de datos del ERP. El borrado en si NO los alcanza (verificado
-    // aparte, sobre un emulador descartable), pero el operador no tiene como saberlo leyendo la
-    // salida, y esa confusion entre namespaces es exactamente lo que originó R16.
-    const sonda = `sonda-nunca-escrita-${randomUUID().slice(0, 8)}`;
-    const inv = await inventarioNamespace(F, A, sonda);
-    const erp = await inventarioNamespace(F, A, PROYECTO_PROTEGIDO);
-    expect(
-      inv.totalDocs,
-      `el namespace virgen "${sonda}" devuelve ${inv.totalDocs} documentos en ${inv.colecciones.length} colecciones ` +
-        `(${inv.colecciones.map((c) => c.nombre).join(", ")}), que son los de "${PROYECTO_PROTEGIDO}" (${erp.totalDocs} documentos). ` +
-        `Consecuencia: el reporte y el preview de borrado de "${NAMESPACE_BASURA}" atribuyen a ese namespace datos que no son suyos ` +
-        `cada vez que el emulador se reinicia.\n` +
-        `CAUSA: firebase.json declara "singleProjectMode": true. El emulador avisa por stderr ` +
-        `("Multiple projectIds are not recommended in single project mode") y sirve el dataset del ` +
-        `proyecto configurado a cualquier projectId al que todavia no se le haya escrito.\n` +
-        `ALCANCE MEDIDO (emulador DESCARTABLE en 8085/9095, con una copia de ./emulator-data, ` +
-        `TASK-013 2026-09-05): el alias es de LECTURA. Con "${NAMESPACE_BASURA}" virgen, ` +
-        `\`seed --limpiar-demo-delfino\` mostro los 35 documentos del ERP en el preview de borrado ` +
-        `y despues del borrado "${PROYECTO_PROTEGIDO}" seguia con 35 documentos y 1 usuario de Auth, ` +
-        `mientras "${NAMESPACE_BASURA}" quedo en 0. O sea: el defecto es de INFORMACION, no ` +
-        `destructivo. Este rojo es la constancia de que el operador ve datos del ERP bajo el titulo ` +
-        `de otro namespace, justo arriba de un borrado.`
-    ).toBe(0);
-  }, 60000);
-});
+// SEED_REPORTE_FIEL vive ahora en tests/unit/seed-emulator-reporte-fiel.test.js.
+//
+// Estaba aca y apuntaba a que un namespace virgen del emulador devolviera vacio. Eso es una
+// propiedad del EMULADOR —`"singleProjectMode": true` en firebase.json— y no del archivo bajo
+// prueba: ningun cambio en `scripts/seed-emulator.mjs` podia hacerlo pasar ni fallar. El
+// comportamiento del emulador quedo registrado como riesgo (R35); la invariante se reapunto a lo
+// que el seed si controla —que ante un namespace espejado el reporte ADVIERTA en vez de reclamar
+// los documentos como propios— y alli se prueba de forma determinista, con el espejo fabricado
+// sobre el emulador falso, sin depender de si alguien escribio antes en ese namespace.
+//
+// Lo que sigue midiendose aca contra el emulador de verdad es que el reporte ve EXACTAMENTE los
+// marcadores de esta corrida (SEED_LIMPIEZA_REAL, mas arriba).
 
 // ---------------------------------------------------------------------------------------------
 describe("SEED_SALIDA_LIMPIA — una corrida exitosa tiene que salir con 0", () => {

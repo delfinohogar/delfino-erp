@@ -155,6 +155,72 @@ export function verificarQueNoBorroNada(peticiones) {
   }
 }
 
+/**
+ * SEED_REPORTE_FIEL — ante un namespace ESPEJADO, el reporte advierte en vez de reclamar los
+ * documentos como propios.
+ *
+ * Contexto. El emulador corre con `"singleProjectMode": true` (firebase.json) y en ese modo le
+ * sirve los documentos del proyecto principal a cualquier projectId al que todavia no se le haya
+ * escrito: un `demo-delfino` virgen "devuelve" los 35 documentos del ERP. Eso es una propiedad DEL
+ * EMULADOR y no la puede arreglar `scripts/seed-emulator.mjs`; tampoco se puede distinguir por API
+ * desde el script (el emulador reescribe el campo `name` con el projectId pedido, y consultar un
+ * namespace de control violaria SEED_BARRIDO_ACOTADO). Lo que el seed SI controla —y lo unico que
+ * tiene sentido exigirle— es que no mienta: frente a esa entrada tiene que avisar.
+ *
+ * Se exige, todo junto y sobre la salida que ve el operador:
+ *   1. el reporte hizo su trabajo (codigo 0 y el inventario impreso). No vale "advertir" muriendo.
+ *   2. dice que esos documentos NO se pueden dar por propios del namespace.
+ *   3. nombra la causa, `singleProjectMode`, para que el operador pueda confirmarlo.
+ *   4. senala la firma tipica del espejo: N documentos con CERO usuarios de Auth.
+ *   5. la advertencia va DESPUES del conteo que califica y ANTES de cualquier invitacion a borrar:
+ *      nadie puede leer el numero, ni el comando de limpieza, sin haber leido el aviso.
+ *   6. no aparece ninguna frase que reclame lo listado como propio del namespace.
+ *
+ * @param {{codigo: number, salida: string, error: string, todo: string}} r
+ * @param {{totalDocs: number, colecciones: number}} esperado
+ */
+export function verificarReporteHonestoAnteEspejo(r, { totalDocs, colecciones }) {
+  if (codigoContraEmuladorFalso(r) !== 0) fallar(`el reporte tenia que salir con 0 y salio ${r.codigo}`, r);
+
+  const texto = r.salida;
+  const lineaConteo = new RegExp(`Colecciones: ${colecciones}, documentos: ${totalDocs}\\b`);
+  if (!lineaConteo.test(texto)) fallar(`el reporte no informa el inventario (${colecciones} colecciones, ${totalDocs} documentos)`, r);
+  if (!/Usuarios de Auth: 0\b/.test(texto)) fallar("el reporte no informa que el namespace tiene CERO usuarios de Auth", r);
+
+  if (!/no se pueden dar por propios/i.test(texto)) {
+    fallar(`el reporte no avisa que los ${totalDocs} documentos NO se pueden dar por propios de "${NAMESPACE_BASURA}"`, r);
+  }
+  if (!new RegExp(`Los ${totalDocs} documentos`).test(texto)) {
+    fallar(`la advertencia no se refiere a los ${totalDocs} documentos que acaba de listar`, r);
+  }
+  if (!/singleProjectMode/.test(texto)) fallar("la advertencia no nombra la causa (singleProjectMode)", r);
+  if (!new RegExp(`${totalDocs} documentos con CERO usuarios de Auth`, "i").test(texto)) {
+    fallar(`la advertencia no senala la firma del espejo (${totalDocs} documentos con CERO usuarios de Auth)`, r);
+  }
+  if (!/puede no haber NADA propio/i.test(texto)) {
+    fallar(`el reporte no dice que puede no haber NADA propio de "${NAMESPACE_BASURA}" que borrar`, r);
+  }
+
+  const iConteo = texto.search(lineaConteo);
+  const iAviso = texto.search(/no se pueden dar por propios/i);
+  if (iAviso < iConteo) fallar("la advertencia aparece ANTES del conteo que califica: el operador lee el numero sin el aviso", r);
+  const iComando = texto.indexOf("--limpiar-demo-delfino");
+  if (iComando !== -1 && iComando < iAviso) {
+    fallar("el reporte invita a borrar ANTES de advertir: el operador ve el comando de limpieza sin el aviso", r);
+  }
+
+  for (const frase of FRASES_QUE_RECLAMAN_LO_AJENO) {
+    if (frase.test(texto)) fallar(`el reporte reclama lo listado como propio de "${NAMESPACE_BASURA}" (${frase})`, r);
+  }
+}
+
+/**
+ * Frases que dan por propio del namespace basura lo que el emulador puede estar espejando.
+ * Las dos son textuales del reporte ANTERIOR a la correccion de TASK-013, que afirmaba
+ * "Esto es lo que quedo del bug R16 ... Para borrarlo:" arriba de los documentos del ERP.
+ */
+const FRASES_QUE_RECLAMAN_LO_AJENO = [/Esto es lo que quedo del bug/i, /\bPara borrarlo\b/i];
+
 /** El reporte informa usuarios de Auth, perfiles de /usuarios y colecciones con su conteo. */
 export function verificarReporte(r, { usuariosAuth, perfiles, colecciones, docsPorColeccion }) {
   const texto = r.salida;
