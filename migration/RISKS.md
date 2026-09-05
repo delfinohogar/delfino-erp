@@ -659,3 +659,32 @@ migración es un control secundario y así la usan los tests.
 **Qué no hacer:** usarla como única garantía, ni convertirla en el chequeo de un hook o de CI que
 "demuestre" que nadie reintrodujo el recálculo. Para eso vale la enumeración de triggers y el
 assert de comportamiento.
+
+## R32 — [MEDIA] Tests que comparan texto de archivos se rompen al cambiar de rama, por CRLF
+Registrado por el director el 2026-09-05, a partir de un hallazgo del implementador en TASK-013.
+
+`tests/integration/postgres/precios_y_costos.test.js` tiene **2 tests en rojo** que comparan el
+texto de `backend/db/migrations/0004_precios_y_costos.sql` contra literales con `\n`. El
+repositorio **no tiene `.gitattributes`**, y en Windows el checkout convierte los finales de línea:
+`file` confirma que hoy los dos archivos están en el árbol con **CRLF**. La comparación falla por
+los `\r`, no por el contenido.
+
+**Lo importante es cuándo apareció.** Esos tests estuvieron **verdes** para el tester y para el
+auditor de TASK-003, que la aprobó. Se pusieron rojos **después**, cuando el árbol pasó por
+`git checkout` y `git merge` al cerrar la tarea y abrir `task/TASK-013`: el agente los escribió con
+LF y git los reescribió con CRLF. O sea que un test puede pasar la auditoría y romperse por una
+operación de git que no toca su contenido.
+
+Por qué MEDIA: no hay riesgo de datos ni de producción, pero **la suite deja de estar verde sin
+que nadie haya cambiado nada**, y eso erosiona la señal igual que un rojo crónico — que es
+exactamente lo que costó cerrar en TASK-011. Además es un modo de falla que **la aprobación no
+puede detectar**, porque en el momento de auditar el problema no existe.
+
+**Condición de cierre — TASK-019.** La salida elegida es normalizar en el test —comparar con los
+finales de línea neutralizados— y **no** agregar `.gitattributes`: ese archivo cambia el checkout
+de todo el repositorio y es una decisión de configuración global con radio de acción mucho mayor
+que el problema. Si más adelante se quiere igual, es una decisión aparte y de Gastón.
+
+Regla que se desprende, para las tareas que vienen: **un test que compara texto de archivos del
+repositorio tiene que ser insensible a los finales de línea.** Vale para TASK-018, que va a
+comparar la definición de `crear_venta()` con la que corre en la base.

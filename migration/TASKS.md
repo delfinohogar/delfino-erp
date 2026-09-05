@@ -232,6 +232,20 @@ accept:
 - **`recrearEsquema()` en `tests/integration/postgres/_helpers.mjs:22` aplica HOY solo `backend/db/migrations/*.sql`.** Si no se actualiza para aplicar también `backend/db/functions/`, después de esta tarea los tests dejarían viva la copia de 0004 y **la suite quedaría verde probando la función equivocada**. Lo detectó el auditor en TASK-003. Ese archivo es del tester: la tarea NO se cierra sin que esté hecho, y el auditor tiene que verificar que la función que corre en los tests es la de `functions/`, con `pg_get_functiondef()`
 - R28 queda marcado como cerrado en RISKS.md, con la fecha
 
+### TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
+status: PENDING
+owner: tester
+depends: TASK-013
+files:
+- tests/integration/postgres/precios_y_costos.test.js
+accept:
+- los 2 tests en rojo vuelven a verde **normalizando los finales de línea antes de comparar**, no cambiando lo que comparan ni relajando el assert
+- **NO se agrega `.gitattributes`**: cambia el checkout de todo el repositorio y es una decisión global con radio mucho mayor que el problema. Si se quiere igual, es decisión aparte de Gastón
+- el resto de los tests del archivo no se toca
+- **la prueba de que el arreglo sirve**: los tests pasan con el archivo en LF **y** en CRLF. Demostralo convirtiendo una copia y corriéndolos contra las dos, no razonando que debería andar
+- se revisa si hay otras comparaciones de texto de archivos en `tests/` con el mismo problema, y se reportan aunque no se arreglen acá
+- R32 queda cerrado en RISKS.md con la fecha
+
 ### TASK-016 — Invariantes de concurrencia entre operaciones
 status: PENDING
 owner: tester
