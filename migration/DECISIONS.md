@@ -167,6 +167,73 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — ANÁLISIS pedido por Gastón: aislamiento de emuladores (R36) y `singleProjectMode`
+Análisis, **no** decisión. No se cambió nada. Gastón decide.
+
+### R36 — ¿se puede aislar de verdad un emulador en la misma máquina? **Sí, y el lever es el `--project`**
+
+Verificado en esta máquina, no deducido:
+- `firebase.json` **no declara puerto de `hub`**, así que toda instancia usa el 4400 por defecto.
+- Existe `%TEMP%\hub-delfino-hogar-erp.json`, con
+  `{"version":"15.29.0","origins":["http://127.0.0.1:4400",…],"pid":21660}`.
+
+**El archivo de descubrimiento se llama por el `projectId`, no por el puerto.** Ahí está la
+explicación de R36: el auditor levantó su emulador descartable con **el mismo `--project`**, así
+que la CLI encontró el locator de la instancia de Gastón y le habló. Cambiar de puerto no aísla
+porque el puerto no interviene en el descubrimiento.
+
+Palancas, de más a menos fuerte:
+1. **`--project` distinto** → otro nombre de locator → no hay descubrimiento cruzado. Es la
+   palanca principal y la más barata.
+2. **`TEMP`/`TMP` distinto** para el proceso hijo → el locator se escribe en otro lado y es
+   invisible. Es la única que aísla **aunque el `projectId` coincida**.
+3. **Puertos distintos, incluido `emulators.hub.port`** en un `firebase.json` aparte vía
+   `--config`. Necesaria para no chocar, pero **no suficiente** por sí sola.
+
+**Corrección a la premisa de Gastón:** las dos veces que se usó la técnica no salieron bien "por
+suerte". En TASK-011 el tester levantó el segundo Firestore con `--project prod-simulada`, o sea
+**con la palanca 1 aplicada**: estaba aislado por diseño. El que no lo estaba fue el del auditor,
+que reusó el `projectId`. La técnica sirve; lo que faltaba era la regla de usarla bien.
+
+Pendiente antes de confiar: la afirmación "el descubrimiento es por `projectId`" está inferida del
+nombre del locator más el comportamiento observado. **Se confirma empíricamente** levantando dos
+instancias con proyectos distintos y viendo que aparecen dos locators y que ninguna alcanza a la
+otra. Barato y conviene hacerlo antes de volver a usar la técnica.
+
+### `singleProjectMode` — qué hace, qué cuesta sacarlo
+
+**Qué hace:** enruta **toda** petición de Firestore al único proyecto configurado, sea cual sea el
+`projectId` que pida el cliente, y reescribe el campo `name` con el pedido. **Auth no.** Su razón
+de ser es evitar el error de escribir en un namespace que nadie mira — es decir, **protege contra
+la clase de bug de R16**, pero solo del lado de Firestore.
+
+**Qué se rompe si se saca: en la suite actual, nada.** Verificado leyendo los dos únicos lugares
+que modelan el espejo:
+- `tests/unit/seed-emulator-reporte-fiel.test.js` usa un **emulador falso**
+  (`levantarEmuladorFalso(estadoEspejado())`): fabrica el espejo, no lo toma del real. Sigue igual.
+- `tests/integration/seed-emulator.test.js:109-113` **se defiende** del espejo vaciando su
+  namespace antes de sembrar. Sin espejo, ese vaciado pasa a ser un no-op inofensivo.
+
+O sea: los dos usos son defensivos, ninguno **depende** de que el espejo exista.
+
+**Qué cuesta dejarlo:** mientras esté activo, toda verificación de la forma "este dato está en el
+namespace X y no en el Y" es **inválida**. Eso golpea al shadow, que es exactamente esa forma de
+verificación, y ya costó una evidencia falsa en R16.
+
+**Efecto lateral favorable:** sin `singleProjectMode`, dos `projectId` distintos dentro del
+**mismo** emulador quedan aislados, así que buena parte de lo que hoy se resuelve levantando un
+segundo emulador —la técnica de R36— dejaría de necesitarlo.
+
+### Una pregunta que estos dos análisis abren y que NO hay que responder adivinando
+Con `singleProjectMode` activo, los documentos de Firestore **eran visibles para el ERP sin
+importar en qué namespace hubiera sembrado el seed**. Entonces el perfil no pudo ser la causa de
+que el login de Gastón fallara: lo habría encontrado igual. La causa compatible con toda la
+evidencia es el **usuario de Auth**, que no espeja. La historia causal de R16 que veníamos
+contando —"el perfil quedó en el namespace equivocado"— **no se sostiene**; lo que sí se sostiene
+es que el seed apuntaba al proyecto equivocado y que eso rompía el login. Queda como pregunta
+abierta, no como conclusión nueva: es la tercera vez en el proyecto que una explicación cómoda no
+resiste, y no conviene reemplazarla por otra sin verificar.
+
 ## 2026-09-05 — [NIVEL 2] `SEED_REPORTE_FIEL` se reapunta; no se toca `firebase.json`
 El implementador pidió `firebase.json` para cerrar el último test rojo de TASK-013: sacar
 `"singleProjectMode": true` es lo único que lo pone verde. **No se le da**, por tres razones, y
