@@ -154,7 +154,12 @@ create table contadores_corte (
   ultimo_anterior bigint not null check (ultimo_anterior >= 0),
   ultimo_fijado bigint not null check (ultimo_fijado >= 0),
   correccion boolean not null default false,
-  usuario_uid text not null check (btrim(usuario_uid) <> ''),
+  -- El "quien" tiene que tener al menos UN caracter que no sea espacio en blanco. No se usa
+  -- btrim(): btrim() sin segundo argumento recorta SOLO el espacio U+0020, asi que un
+  -- usuario_uid de una tabulacion pasaba el guard y la constancia quedaba con responsable
+  -- vacio (H2, hallazgo del tester en TASK-004). El criterio es el mismo de antes —"no puede
+  -- estar en blanco"—; lo que cambia es que ahora blanco incluye tab, salto de linea y demas.
+  usuario_uid text not null check (usuario_uid ~ '[^[:space:]]'),
   motivo text,
   fijado_en timestamptz not null default now()
 );
@@ -259,19 +264,54 @@ begin
     raise exception 'NUMERACION_CORTE: el ultimo numero emitido tiene que ser >= 0 (llego %)',
       coalesce(p_ultimo_emitido::text, '<null>') using errcode = 'invalid_parameter_value';
   end if;
-  if p_usuario_uid is null or btrim(p_usuario_uid) = '' then
+  -- Mismo criterio que el CHECK de contadores_corte, y por el mismo motivo: btrim() recorta
+  -- solo el espacio U+0020, así que un uid de una tabulación pasaba por "quién" (H2).
+  if p_usuario_uid is null or p_usuario_uid !~ '[^[:space:]]' then
     raise exception 'NUMERACION_CORTE: falta el usuario que hace el corte'
       using errcode = 'invalid_parameter_value';
   end if;
 
-  -- Serializa dos cortes simultáneos del mismo contador. FOR UPDATE sobre la fila si existe;
-  -- si no existe, el INSERT de más abajo es quien serializa por la clave primaria.
+  -- SERIALIZACIÓN DEL CORTE: primero MATERIALIZAR la fila, después trabarla.
+  --
+  -- Por qué no alcanza `SELECT … FOR UPDATE` solo (H1, medido por el tester): FOR UPDATE traba
+  -- filas que EXISTEN; sobre una fila que todavía no existe no traba nada y no espera a nadie.
+  -- Y ése es justo el caso normal del corte: un punto de venta que nunca emitió no tiene fila.
+  -- Las dos carreras que eso abría, las dos esquivando la rama (c) por scheduling y no por el
+  -- flag:
+  --   - CORTE CONTRA EMISIÓN: el emisor estrena el contador (fila nueva, sin commitear) y se
+  --     lleva el 1; el corte no ve nada, se cree primerizo, y su UPSERT final —que sí espera al
+  --     emisor— le pisa el valor con el del corte. El número 1 se entrega DOS VECES.
+  --   - CORTE CONTRA CORTE: dos primerizos simultáneos con valores distintos no se ven entre sí
+  --     y se aplican los dos, dejando dos constancias iniciales contradictorias.
+  -- Un número de comprobante repetido rompe la correlatividad, que es obligación fiscal y es el
+  -- invariante que P7 manda sostener: no se difiere.
+  --
+  -- El arreglo: `insert … on conflict do nothing` ANTES del lock. Ese INSERT sí se serializa
+  -- contra cualquier otra transacción que esté creando o tocando la misma clave primaria —es el
+  -- índice único quien hace esperar—, así que al salir de él la fila EXISTE sí o sí: o la creó
+  -- esta transacción, o ya estaba y la creó la otra, ya commiteada. Recién entonces el
+  -- `SELECT … FOR UPDATE` tiene siempre algo que trabar y lee el valor definitivo. Con eso, el
+  -- corte contra emisión lee `ultimo = 1` y cae por (c), y el corte contra corte ve la
+  -- constancia del que ganó y cae por (b) —o por (a) si declara lo mismo—.
+  -- Se inserta en 0 y no en p_ultimo_emitido: 0 es el estado neutro "sin números entregados",
+  -- que es exactamente lo que las tres ramas de abajo esperan de un contador primerizo. Si
+  -- alguna rama rechaza, el rollback se lleva también esta fila.
+  --
+  -- Por qué NO pg_advisory_xact_lock: serializa los cortes entre sí, pero no contra
+  -- siguiente_numero(), que no lo toma —y no puede tomarlo sin meter un lock extra en el camino
+  -- de cada venta—, así que dejaría abierta la carrera corte contra emisión, que es la fiscal.
+  -- Por qué NO LOCK TABLE contadores: cubre las dos, pero frena las emisiones de TODOS los
+  -- puntos de venta y de 'ventas' y 'asientos' mientras dure el corte. Serializa de más.
+  insert into contadores(nombre, ultimo) values (v_nombre, 0) on conflict (nombre) do nothing;
   select ultimo into v_actual from contadores where nombre = v_nombre for update;
 
   select * into v_corte from contadores_corte
     where contador = v_nombre order by fijado_en desc, id desc limit 1;
 
   -- (c) El contador ya entregó números: ni antes ni después de un corte se puede pisar.
+  -- Después de materializar, v_actual nunca es null: un contador primerizo vale 0 y no dispara
+  -- esta rama. El `is not null` se conserva porque la condición sigue siendo la correcta y no
+  -- depende de esa garantía.
   if v_actual is not null
      and ((v_corte.id is null and v_actual > 0)
           or (v_corte.id is not null and v_actual <> v_corte.ultimo_fijado)) then
@@ -294,8 +334,11 @@ begin
       using errcode = 'restrict_violation';
   end if;
 
-  insert into contadores(nombre, ultimo) values (v_nombre, p_ultimo_emitido)
-    on conflict (nombre) do update set ultimo = excluded.ultimo;
+  -- UPDATE a secas, no UPSERT: después de materializar la fila arriba, existe y está trabada
+  -- por esta transacción, así que nadie pudo cambiarla entre el chequeo de (c) y esta línea. El
+  -- UPSERT que había acá era el que, al esperar al emisor y después pisarlo, reseteaba el
+  -- contador ya usado; un UPDATE sobre una fila propia y trabada no puede hacer eso.
+  update contadores set ultimo = p_ultimo_emitido where nombre = v_nombre;
 
   insert into contadores_corte(contador, punto_venta, tipo_comprobante,
                                ultimo_anterior, ultimo_fijado, correccion, usuario_uid, motivo)
