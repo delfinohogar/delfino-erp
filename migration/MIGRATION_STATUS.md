@@ -88,8 +88,12 @@ dependen del esquema anterior.
 ## Qué está bloqueado o pendiente de Gastón
 
 Los pendientes de Gastón viven en la sección **PENDIENTE DE GASTÓN de DECISIONS.md**, que es
-donde él los busca. Quedan dos: la línea falsa de CLAUDE.md sobre el IVA en $0, y el acceso a
-`js/firebase.js` que necesita el adaptador. Ninguno bloquea TASK-001 a TASK-010.
+donde él los busca. Quedan tres: la línea falsa de CLAUDE.md sobre el IVA en $0, el acceso a
+`js/firebase.js` que necesita el adaptador, y el **punto de venta de producción para ARCA** —si
+Delfino comparte los de GBP con numeración intercalada o usa uno exclusivo—, que es Nivel 3 por
+fiscal y por tocar un sistema que hoy factura. Ninguno bloquea TASK-001 a TASK-010, y el de ARCA
+tampoco bloquea homologación: los puntos de venta 4, 5 y 6 ya están habilitados para servicios
+web y no hay que crear ninguno.
 
 **R8 se cerró** el 2026-09-04: Gastón verificó en Firebase Console que `arcaAutorizarComprobante`
 no estaba desplegada —las 25 que había no la incluían— y la desplegó en `southamerica-east1`, con

@@ -67,9 +67,10 @@ describe("MIGRADOR_IDEMPOTENCIA", () => {
       const filas = await filasSchemaMigrations(c);
       expect(filas.map((f) => f.nombre)).toEqual(MIGRACIONES_REALES);
       expect(filas.length).toBe(MIGRACIONES_REALES.length);
-      // Centinela: hoy son 0001, 0002 y 0003 (esta última la agregó TASK-002, revisada por el
-      // tester el 2026-09-04). Si aparece una cuarta, revisar antes de subir el número.
-      expect(filas.length).toBe(3);
+      // Centinela: hoy son 0001, 0002, 0003 y 0004 (esta última la agregó TASK-003, revisada
+      // por el tester el 2026-09-04: listas de precios e historial de costos inmutable).
+      // Si aparece una quinta, revisar antes de subir el número.
+      expect(filas.length).toBe(4);
       for (const f of filas) {
         expect(typeof f.nombre).toBe("string");
         expect(f.aplicada_en).toBeInstanceOf(Date);
