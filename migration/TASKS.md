@@ -98,7 +98,7 @@ accept:
 - R16 queda actualizado en RISKS.md como mitigado, con la fecha
 
 ### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
-status: PENDING
+status: DONE
 owner: implementador
 depends: TASK-001, TASK-011
 files:
@@ -109,6 +109,8 @@ accept:
 - `crear_venta()` calcula `iva_pct` e `iva_monto` por línea restando hacia atrás sobre el precio, que ya incluye IVA, y llena `ventas.iva_total`
 - el asiento imputa el neto a 4.1 y el IVA a 2.1.2; cada pago a 1.1.1 o 1.1.5 según su destino; el pendiente a 1.1.2
 - el asiento cierra Debe = Haber en todos los casos, incluido el de alícuotas mixtas 21 % y 10,5 %
+- el centavo de redondeo lo absorbe el **neto**, no el IVA: `iva_total = round(SUM(iva_linea))` y `neto_total = round(total − iva_total)` como residuo, igual que `js/ventas.js:412-413` (decisión Nivel 3 del 2026-09-04). El neto **no** se calcula por línea ni se suma
+- Debe = Haber NO alcanza como verificación: con el neto como tapón el asiento cierra igual aunque el centavo esté mal repartido. Hay que verificar el monto imputado a **2.1.2** contra el cálculo por línea
 - invariantes IVA_DISCRIMINADO e IMPUTACION_PAGOS de TEST_MATRIX.md
 - si algún test existente asumía IVA en cero, el implementador lo reporta y NO lo modifica: los tests son del tester
 - `ventas.fecha_operacion` es `date` en hora local, nunca derivada de `toISOString()`: una venta registrada a las 21:00 hora Argentina queda con la fecha de ese día y no con la del día siguiente (cambio 8 de ARCHITECTURE §2.3, P8 + bug de UTC)
@@ -223,6 +225,22 @@ accept:
 - invariantes REVERSA_NC y REVERSA_NC_UNICA
 
 ---
+
+## Condición de cierre obligatoria antes del paso 4 del plan maestro (API)
+
+**R23 — el pago sin destino se imputa a 1.1.1 Caja, y el ERP lo manda a 1.1.2.** La tarea que
+construya el primer llamador de `crear_venta()` en `backend/src/` tiene que cerrarlo **en la misma
+tarea**, y su auditor verificarlo. Dos salidas y solo dos:
+
+- **Fallar fuerte (preferida):** sacar el `coalesce(…, 'caja')` de `crear_venta()`, levantar
+  `DESTINO_PAGO`, y sacar el `default 'caja'` de la columna. La información faltante deja de
+  convertirse en plata en Caja.
+- **Replicar el ERP:** cuarto estado explícito `sinUbicar` que impute a 1.1.2. Cambia el esquema y
+  la invariante IMPUTACION_PAGOS: es **Nivel 3**, lo decide Gastón, no un agente.
+
+No bloquea hoy porque el estado "sin destino" no es representable en el esquema y `crear_venta()`
+todavía no tiene ningún llamador. Bloquea el día que exista el endpoint: un campo olvidado en el
+JSON no daría error, daría plata en Caja que no está en la caja.
 
 ## Pendiente de resolver antes del paso 5 del plan maestro
 

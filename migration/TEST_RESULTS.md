@@ -316,3 +316,254 @@ No hubo ningún rojo por lógica. Los únicos rojos de esta corrida son los **pr
 (4 inyecciones + 2 mutaciones), y todos volvieron a verde al retirar la inyección. Rojo por
 infraestructura: ninguno; `npm run test:integration` no arranca con el emulador de larga vida en
 marcha (puertos tomados) — limitación conocida del entorno, no de la tarea.
+
+---
+
+## TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
+
+- **Fecha:** 2026-09-04
+- **Rama / commit bajo prueba:** `task/TASK-002` sobre `ece570d`
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (`delfino-pg-dev`, 127.0.0.1:5432, `TZ=America/Argentina/Buenos_Aires`), emulador de
+  Firebase de larga vida ya levantado en 8080/9099/9199.
+- **Base usada:** `delfino_test` vía `DATABASE_URL_TEST`. `delfino_dev` no se tocó
+  (verificado al cerrar: 0 ventas, `fecha_local()` original).
+- **Veredicto: VERDE.** Los 9 criterios de aceptación se verifican y pasan.
+
+### Comandos ejecutados
+
+    npm test                                                  -> 41/41 verde (5 archivos)
+    DATABASE_URL_TEST=... npx vitest run -c vitest.integration.config.js
+                                                              -> 68/68 verde (4 archivos)
+
+Dos corridas seguidas de las dos suites, las cuatro en verde, sin residuos: no quedan bases
+`delfino_test_mig_*`, y `crear_venta()` y `fecha_local()` en `delfino_test` quedan en su
+versión original (el archivo nuevo instala versiones mutadas y las revierte en su `afterAll`).
+
+**Vía usada, y por qué no `npm run test:integration`:** ese script envuelve la corrida en
+`firebase emulators:exec`, que **no arranca** con el emulador de larga vida ya en marcha
+(`Error: Could not start Authentication Emulator, port taken`). Es la misma limitación de
+entorno anotada en TASK-011, no un problema de esta tarea. Se corrió `vitest` directo contra
+el emulador que ya estaba, exportando `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`,
+`FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099`, `FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199`
+y `GCLOUD_PROJECT=delfino-hogar-erp`. `tests/integration/setup.mjs` volvió a verificar que el
+emulador es local y responde, así que la barrera de aislamiento siguió en pie.
+
+### Tests escritos
+
+34 tests nuevos: 25 de integración en `tests/integration/postgres/iva_destino_y_fecha.test.js`
+y 9 unitarios en `tests/unit/iva-redondeo.test.js`, más el módulo de apoyo
+`tests/_aritmetica_iva.mjs` (aritmética del IVA en centavos enteros con BigInt, exacta).
+Total de la suite: 41 unitarios + 68 de integración = 109.
+
+Los montos esperados **no** se leen de `venta_items` ni de `verificar_iva_imputado()`: se
+calculan en JS por una vía independiente. Verificar la implementación con su propia función
+de verificación sería el error de TASK-011 otra vez (R20).
+
+### Verde/rojo por invariante
+
+| Invariante | Resultado | Dónde |
+|---|---|---|
+| IVA_DISCRIMINADO | VERDE (11 tests) | `iva_destino_y_fecha.test.js`, `iva-redondeo.test.js` |
+| IMPUTACION_PAGOS | VERDE (7 tests) | `iva_destino_y_fecha.test.js` |
+| FECHA_OPERACION_LOCAL | VERDE (7 tests) | `iva_destino_y_fecha.test.js` |
+| CONTABILIDAD | VERDE | `invariantes.test.js` (actualizado, ver abajo) |
+| HISTORICO_INMUTABLE (parcial: IVA) | VERDE | la alícuota queda congelada en la línea |
+| VENTA_NORMAL, STOCK_INSUFICIENTE, FALLO_INTERMEDIO, DOBLE_ENVIO, PAGOS_VENTA, PENDIENTE_CON_CLIENTE, RESERVAS_CONSISTENTES, NO_VENDER_RESERVADO, NO_CONSUMIR_DE_MAS, CONCURRENCIA, ORDEN_DE_BLOQUEO, INTEGRIDAD_GLOBAL | VERDE, sin regresión | `invariantes.test.js` |
+| Bloque F (migrador) | VERDE | `migrador.test.js` |
+
+Ningún rojo por lógica. Ningún rojo por infraestructura. Los únicos rojos de esta sesión son
+las mutaciones provocadas a propósito, que se detallan abajo.
+
+### Punto 1 — La mutación que decide la tarea (R20). Evidencia literal
+
+Con el neto calculado como residuo, Debe = Haber **no puede** desbalancearse por redondeo, así
+que un test que solo verifique el balance pasa igual con el centavo mal imputado. Se corrieron
+los asserts REALES contra un asiento mutado (venta de 1000,01 al 21 % + 5000,02 al 10,5 %,
+`update` de las dos patas en la MISMA transacción, porque el trigger es `deferrable` y
+controla al COMMIT):
+
+    PUNTO 1 · un centavo de 2.1.2 a 4.1
+      OK   Debe = Haber sigue cerrando (la verificación clásica NO lo detecta)  <- VERDE
+      FAIL ASSERT REAL: el asiento imputa el neto a 4.1 y el IVA a 2.1.2        <- ROJO
+        -     "haber": 648.68,   (2.1.2 esperado)
+        +     "haber": 648.67,   (2.1.2 recibido)
+
+O sea: los dos escenarios se distinguen. `asientosDesbalanceados()` devuelve `[]` en los dos;
+el assert sobre el monto imputado a **2.1.2** solo pasa en el correcto. La demostración quedó
+como test permanente en `iva_destino_y_fecha.test.js` ("MUTACIÓN R20 · un centavo movido de
+2.1.2 a 4.1"), que verifica las dos cosas a la vez: que el asiento cierra y que el importe de
+2.1.2 quedó mal.
+
+Segunda mutación, sobre el ORDEN de las operaciones: se reinstala en `delfino_test` el texto de
+`crear_venta()` tomado de la migración con tres sustituciones que llevan el redondeo del IVA al
+final (`iva_l numeric(14,2)` -> `numeric(20,8)`, `v_iva_total` ídem, y `discriminar_iva(sub,ali)`
+-> la resta sin redondear). Resultado: `iva_total = 648,67`, `2.1.2 = 648,67`,
+`asientosDesbalanceados() = []`. Un centavo menos en la cuenta fiscal, con el asiento cerrando
+perfecto. El test lo caza por el importe de 2.1.2. Si una sustitución no encontrara su texto,
+`mutarCrearVenta()` falla: una mutación que no se aplica daría un falso verde.
+
+### Punto 2 — La aritmética exacta del IVA
+
+Fijado en dos niveles y con enteros exactos (BigInt sobre centavos: en punto flotante el test
+estaría verificando el redondeo de IEEE-754, no el de PostgreSQL):
+
+    1000,01 al 21 %   -> 173,56
+    5000,02 al 10,5 % -> 475,12
+    suma de redondeados (criterio APROBADO)  = 648,68   <- lo que hace la migración
+    redondeo al final  (criterio RECHAZADO)  = 648,67
+    diferencia = 1 centavo, en 2.1.2 IVA Débito Fiscal
+
+El unitario calcula los dos criterios y exige que difieran en exactamente 1 centavo, así que
+si alguien cambiara el orden de las operaciones el test se pone rojo por los dos lados. Además
+se cruza contra `discriminarIva()` de `js/contabilidad.js`, que es la fuente de la que se copió
+el criterio: da los mismos 173,56 / 475,12 / 648,68, y el neto de la venta como residuo
+(6000,03 - 648,68 = 5351,35), igual que `js/ventas.js:412-413`.
+
+### Punto 3 — Verificación de la afirmación del implementador
+
+AFIRMACIÓN: `SUMA round(neto_i)` coincide SIEMPRE con `total - iva_total` para subtotales de 2
+decimales, y por eso la discrepancia "neto por línea vs. neto residual" no puede existir.
+
+**CONFIRMADA para las alícuotas del ERP, y además demostrada, no solo buscada.** El argumento:
+para un subtotal de `c` centavos enteros y un IVA exacto `x`, vale `round(c - x) = c - round(x)`
+salvo que `x` sea un empate exacto de medio centavo. Basta con probar que el empate es
+imposible:
+
+    a = 21   -> x = 21c/121 = k+1/2  =>  42c = 121(2k+1)  =>  121 | c  =>  x entero. Absurdo.
+    a = 10,5 -> x = 21c/221 = k+1/2  =>  42c = 221(2k+1)  =>  221 | c  =>  x entero. Absurdo.
+
+Búsqueda propia además del argumento: exhaustiva sobre todos los subtotales de 0 a 200.000
+centavos para 21 %, 10,5 %, 27 %, 5 % y 2,5 % (1.000.001 casos), más 5.000 ventas multilínea de
+alícuotas mixtas con subtotales pseudoaleatorios. Cero contraejemplos.
+
+**PERO la afirmación no es universal, y conviene que quede escrito.** El empate existe para
+otras alícuotas que el CHECK `iva >= 0` admite: con `a = 100 %` y subtotal 0,01, el IVA exacto y
+el neto exacto valen medio centavo cada uno y los dos redondean hacia arriba, así que
+`SUMA round(neto_i) = 0,01` mientras `total - iva_total = 0,00`. Queda como test
+(`PERO la afirmación no es universal...`). No rompe nada hoy —el neto se calcula como residuo, el
+asiento cierra y 2.1.2 queda exacto también en ese caso—, pero significa que la implementación
+**no puede apoyarse** en esa coincidencia: si alguien pasara a sumar netos por línea, el asiento
+se desbalancearía con alícuotas raras.
+
+CONCLUSIÓN: siendo cierta la identidad para 21 % y 10,5 %, el riesgo de esta tarea se concentra
+**entero** en el punto 2, el orden de redondeo del IVA. Es el único lugar donde un centavo puede
+irse a la cuenta equivocada sin que ninguna invariante estructural se entere.
+
+### Punto 4 — La fecha local. Evidencia literal
+
+La suite corrió a las **21:04-21:15 hora argentina del 2026-09-04**, o sea dentro de la ventana
+donde el bug se manifiesta: en ese instante UTC ya era el 5.
+
+Prueba a las 21:00 sin depender de la hora de la corrida: se lee el cuerpo **desplegado** de
+`fecha_local()` del catálogo (`pg_get_functiondef`, no el archivo), se le sustituye `now()` por
+el instante fijo `2019-06-15 21:00:00-03` y se evalúa con la sesión en `UTC`, `Asia/Tokyo` y
+Argentina. Da `2019-06-15` en las tres. Control en el mismo test: ese instante proyectado a UTC
+es `2019-06-16`, o sea el día ya cambió. Fecha vieja a propósito, para que "hoy" no pueda dar
+el resultado correcto por casualidad.
+
+Prueba de que no depende de la sesión: una venta sin fecha explícita, creada con la sesión en
+`UTC`, `Pacific/Kiritimati` (+14), `Etc/GMT+12` (-12) y Argentina, da la misma fecha en las
+cuatro, y esa fecha es la que Node calcula con `Intl` para Argentina. Las dos zonas extremas
+están 26 horas separadas: **nunca** comparten fecha, así que la comparación discrimina a
+cualquier hora del día, no solo a las 21:00.
+
+MUTACIÓN (asserts reales, con `fecha_local()` reemplazada en `delfino_test`):
+
+    create or replace function fecha_local() returns date as $$ select current_date $$ ...
+      FAIL ASSERT REAL: 21:00 en Argentina queda fechado ESE día
+        AssertionError: fecha_local() no parte de un instante: no aparece now():
+        expected 'select current_date' to match /now\(\)/
+      FAIL ASSERT REAL: la venta se fecha con el día argentino en cualquier zona
+        AssertionError: zona UTC: expected [ '2026-09-04', '2026-09-04' ] to include '2026-09-05'
+        [demo] fechas obtenidas: {"UTC":"2026-09-05","Pacific/Kiritimati":"2026-09-05",
+                                  "Etc/GMT+12":"2026-09-04","America/Argentina/...":"2026-09-04"}
+
+    create or replace function fecha_local() returns date as $$ select now()::date $$ ...
+      FAIL ASSERT REAL: la fecha no puede depender de la sesión: expected 2 to be 1
+        [demo] fechas obtenidas: {"UTC":"2026-09-05","Pacific/Kiritimati":"2026-09-05",
+                                  "Etc/GMT+12":"2026-09-04","America/Argentina/...":"2026-09-04"}
+
+Las dos mutaciones ponen el test en ROJO; con `fecha_local()` intacta, verde. Quedaron como
+tests permanentes ("MUTACIÓN R20 · con current_date..." y "... con now()::date..."), que afirman
+el comportamiento equivocado, de modo que si alguien "arreglara" la migración cambiando a
+`current_date` los dos rojos aparecerían igual desde el otro lado.
+
+También se verifica que `ventas.fecha_operacion` es `date` con default `fecha_local()` (un
+INSERT directo con la sesión en UTC queda con el día argentino) y que `creado_en` sigue siendo
+`timestamptz` con el instante real.
+
+### Punto 5 — Imputación de pagos
+
+Venta de 6000,03 cobrada 1000 en efectivo (`caja`), 2000 por transferencia (`banco`), 1500 con
+tarjeta (`cuentaPorCobrar`) y 1500,03 a cuenta corriente:
+
+    1.1.1  debe 3000.00     (caja + banco)
+    1.1.5  debe 1500.00     (tarjeta: plata que todavía no está disponible)
+    1.1.2  debe 1500.03     (pendiente)
+    4.1    haber 5351.35    (neto residual)
+    2.1.2  haber 648.68     (IVA exacto)
+
+Debe = Haber = 6000,03. Cada pago conserva su `destino_contable` en `venta_pagos`. Un destino
+desconocido se rechaza por dos vías independientes: `crear_venta()` lanza `DESTINO_PAGO` y no
+deja venta, y el CHECK de la columna rechaza también un INSERT directo (y el NOT NULL rechaza
+`null`). Las cuentas 1.1.5 y 2.1.2 existen, son imputables y tienen el nombre de
+`PLAN_DE_CUENTAS` de `js/contabilidad.js`.
+
+Nota sobre el enunciado: el director escribió el mapeo como "caja->1.1.1, banco->1.1.5,
+cuentaPorCobrar->1.1.2". Se probó el mapeo de la ESPECIFICACIÓN, que dice otra cosa y es
+consistente en las tres fuentes: TASKS.md accept ("cada pago a 1.1.1 o 1.1.5 según su destino"),
+TEST_MATRIX.md IMPUTACION_PAGOS ("caja/banco a 1.1.1; cuentaPorCobrar a 1.1.5; el pendiente a
+1.1.2") y DECISIONS.md 2026-09-04 Tesorería, que se remite a
+`cuentaParaDestinoTesoreria()` de `js/contabilidad.js:67-71`, donde `caja` y `banco` devuelven
+1.1.1 y `cuentaPorCobrar` devuelve 1.1.5. La implementación coincide con la especificación.
+
+MUTACIÓN: se reinstala `crear_venta()` con `'1.1.5'` cambiado por `'1.1.1'`. El asiento **sigue
+cerrando** (`asientosDesbalanceados() = []`) y 1.1.1 pasa a 4500: el test lo caza por el importe
+de 1.1.5. Otra vez, Debe = Haber no alcanza.
+
+### Test existente actualizado, y por qué no es un ajuste para que pase
+
+`tests/integration/postgres/invariantes.test.js` — `CONTABILIDAD > venta con pago parcial`
+esperaba `4.1 haber 850000` y ningún movimiento a 2.1.2 **porque asumía IVA en cero**. Esa
+premisa era falsa y la corrigió una decisión aprobada: *"P6 corregida: el IVA se calcula, no
+queda en cero"*, Nivel 3 de Gastón, 2026-09-04, en `migration/DECISIONS.md`, que replica lo que
+`js/ventas.js` ya hace en producción. Los valores nuevos no se copiaron de la corrida: salen del
+cálculo independiente, 850000 / 1,21 = 702479,3388... => IVA = round(147520,6611...) =
+**147520,66** (exacto, a 2.1.2) y neto = 850000 - 147520,66 = **702479,34** (residuo, a 4.1). El
+test además verifica ahora el importe de 2.1.2 aparte del balance.
+
+Segundo test que estaba en rojo y que el implementador no reportó: `migrador.test.js:70`,
+`expect(filas.length).toBe(2)` con el comentario *"hoy son 0001 y 0002; si aparece una tercera,
+revisar"*. Es un centinela deliberado de TASK-001. Revisado: la tercera es
+`0003_iva_y_destino_pago.sql`, esperada por esta tarea. Se subió a 3 y se dejó el aviso para la
+cuarta. No se tocó nada más de ese archivo.
+
+### Observaciones al director (no son fallas de los criterios de aceptación)
+
+1. **`destino_contable` con `default 'caja'` + `coalesce(pg->>'destino_contable','caja')`.** Los
+   criterios de TASK-002 solo piden la columna y su CHECK, así que esto no reprueba nada, pero
+   se aparta de lo que hace el ERP hoy: `js/contabilidad.js -> cuentaParaDestinoTesoreria`
+   devuelve **null** para un destino que no se pudo rutear, con el comentario explícito *"no se
+   asume Caja"*, y `js/ventas.js` manda esa plata a **1.1.2 Deudores por Ventas**. Con el default
+   vigente, un pago con tarjeta cargado sin destino se imputa en silencio a 1.1.1 y sobrestima el
+   disponible, que es exactamente el error que la decisión de Tesorería del 2026-09-04 quería
+   evitar. Como conserva el comportamiento de 0002 (donde todo iba a 1.1.1) es defendible, pero
+   es una decisión de imputación contable y la reporto en vez de resolverla. Queda un test que
+   **documenta** el comportamiento actual, marcado `OBSERVACIÓN`.
+2. **`verificar_iva_imputado()` no estaba pedida en la tarea.** Es de solo lectura, no escribe
+   nada, y su lógica es correcta. No molesta. Pero es una función escrita por el implementador
+   que verifica código del implementador: **ningún test de esta tanda la usa como assert** —
+   todos los importes esperados se calculan aparte en JS. Sirve como control de operación (correr
+   la función y esperar cero filas), no como prueba.
+3. **`productos.iva` es `numeric(5,2)`**, no `numeric` a secas. Cumple el criterio y acota bien;
+   se anota nada más porque limita la alícuota a 999,99.
+4. **`subtotal` de `ventas` y de `venta_items` sigue siendo el importe CON IVA**, y el neto no se
+   guarda en ninguna columna: se deriva del asiento. Es coherente con Firestore y con la decisión
+   del residuo, pero conviene tenerlo presente para el shadow y para los reportes.
+
+### Tipo de rojo
+
+Ninguno por lógica y ninguno por infraestructura. Los cinco rojos de la sesión son mutaciones
+provocadas a propósito (un centavo de 2.1.2 a 4.1; el redondeo del IVA al final; 1.1.5 -> 1.1.1;
+`current_date`; `now()::date`), todas revertidas, y todas volvieron a verde al retirarlas.
