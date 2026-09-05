@@ -832,3 +832,70 @@ cualquier prueba de aislamiento por proyecto.
 medir: esa opción probablemente esté puesta a propósito y cambiarla altera el comportamiento del
 emulador para todo el proyecto. Queda para que Gastón decida si se saca, con esta información
 sobre la mesa.
+
+## R35 — nota del auditor, 2026-09-05 (TASK-013): confirmado, pero enunciado de mas
+Reproducido por el auditor en un emulador descartable propio (puertos 18081/19100, `--project
+delfino-hogar-erp`, `"singleProjectMode": true`, apagado al terminar). El espejo existe, y **solo
+alcanza a los documentos que entraron por `--import`**:
+
+- Emulador SIN `--import`. Se escriben 5 documentos en `delfino-hogar-erp` en vivo. Un namespace
+  virgen (`demo-delfino`, `sonda-virgen-auditor`) devuelve **docs=0**. No hay espejo. Medido dos
+  veces, la segunda con el seed real sembrando sus 35 documentos: `demo-delfino` siguio en 0.
+- Mismo emulador levantado CON `--import` de ese estado. `delfino-hogar-erp` docs=35,
+  `demo-delfino` docs=35, `sonda-virgen-auditor` docs=35, las tres con las mismas 10 colecciones y
+  con el campo `name` reescrito con el projectId pedido
+  (`projects/sonda-virgen-auditor/databases/(default)/documents/categorias/electro`).
+- Auth **no** espeja en ninguno de los dos casos: `auth=1` en el proyecto principal, `auth=0` en
+  los otros dos. Confirma la asimetria que R35 ya describia.
+
+O sea: el mecanismo no es "namespace virgen ve el proyecto principal", es "los datos importados no
+quedan atados a ningun projectId y se sirven a cualquiera que todavia no haya escrito". La
+consecuencia practica de R35 se sostiene entera, porque `npm run emulators` siempre corre con
+`--import ./emulator-data`, pero el enunciado importa para no perseguir el fantasma equivocado
+cuando alguien intente reproducirlo sin import.
+
+**Y el barrido de TASK-013 es seguro incluso con el espejo activo.** Medido en ese mismo emulador
+con `demo-delfino` mostrando los 35 documentos espejados: despues de
+`node scripts/seed-emulator.mjs --limpiar-demo-delfino` (exit 0), `delfino-hogar-erp` quedo en
+docs=35 auth=1 —intacto— y `demo-delfino` en docs=0. El espejo es de lectura y el projectId viaja
+en la URL del DELETE.
+
+### La evidencia del "perfil duplicado" de R16 SE RETIRA
+La sospecha del director era correcta. Tres mediciones independientes:
+
+1. El export que `npm run emulators` importa —`emulator-data/firestore_export/all_namespaces/
+   all_kinds/output-0`— contiene **35 apariciones de `delfino-hogar-erp` y CERO de
+   `demo-delfino`**. No hay ningun documento almacenado bajo el namespace basura.
+2. En el emulador de Gaston, el perfil que se veia en `demo-delfino/usuarios` tenia el **mismo uid**
+   que el de `delfino-hogar-erp` (`HfH7fg2RWwLBI6Lacotphm3rM1H9`). Un sembrado real en otro
+   namespace habria creado un usuario de Auth propio y por lo tanto un uid **distinto**.
+3. `demo-delfino` mostraba 35 documentos con **cero usuarios de Auth**, y Auth no espeja. El seed
+   nunca deja documentos sin dejar tambien el usuario admin. Esa asimetria es incompatible con un
+   sembrado real y es exactamente la firma del espejo.
+
+Se retira la evidencia, como se hizo con la version vieja de R8. **El bug de R16 no se toca**: el
+default `|| "demo-delfino"` estaba en el codigo, es verificable leyendolo, y Gaston confirmo que el
+login volvio a andar. Lo que se cae es una de las evidencias citadas, no la conclusion. Tambien hay
+que releer bajo esta luz la frase de R16 "`demo-delfino` paso de 10 colecciones / 35 docs a 0
+colecciones / 0 docs": el "paso a 0" es real, pero lo que habia antes era el espejo, no residuo; el
+DELETE hizo que el namespace dejara de ser virgen y por eso dejo de espejar.
+
+## R36 — [MEDIA] Un emulador descartable con el mismo `--project` puede ser alcanzado por el hub del que ya corre
+Registrado por el auditor de TASK-013 el 2026-09-05, por algo que le paso a el.
+
+Levante un emulador descartable en puertos propios (18081/19100, config propia fuera del repo) con
+`firebase emulators:exec --project delfino-hogar-erp ... --export-on-exit <carpeta mia>`. El
+emulador arranco bien y aviso `hub unable to start on port 4400, starting on 4401 instead`, porque
+el hub del emulador de Gaston ya tenia el 4400. Al salir, el export que quedo en mi carpeta **no
+era el de mi instancia** —no contenia los 5 documentos que yo habia escrito— sino los 35 del
+emulador de Gaston: `--export-on-exit` resuelve el hub por el **archivo localizador del sistema,
+indexado por projectId**, no por los puertos de la instancia.
+
+En este caso fue inofensivo: un export es de solo lectura y verifique despues que el emulador de
+Gaston seguia con sus 35 documentos y su usuario de Auth. Pero la misma resolucion por projectId
+la usan otros comandos del CLI, y algunos **si** escriben. La leccion es la misma que R16 pero al
+reves: aislarse cambiando de puerto **no alcanza**.
+
+Regla practica para agentes, hasta que alguien la mejore: un emulador descartable se levanta con un
+`--project` **distinto** del de Gaston (por ejemplo `auditor-descartable`), y no se usan
+`--export-on-exit` ni comandos que hablen con el hub mientras haya otro emulador en pie.

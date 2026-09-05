@@ -1,0 +1,133 @@
+VEREDICTO: APROBADO
+Fecha: 2026-09-05
+Commit auditado: c107359 (rama task/TASK-013)
+Rango revisado: 335707a..c107359, mas el commit de implementacion 66aa8d2 que ya estaba en la base
+Auditor: independiente del implementador y del tester
+
+## Invariantes verificadas por el auditor (reproducidas, no leidas)
+
+SEED_BARRIDO_ACOTADO — verificada. 13 vias propias contra un emulador FALSO del auditor que
+  registra cada URL emitida. Resultado literal, una linea por via:
+    [V1  --limpiar-demo-delfino]                     exit=0 urls_con_ERP=0 deletes=2
+    [V2  --limpiar-demo-delfino delfino-hogar-erp]   exit=1 urls_con_ERP=0 deletes=0
+    [V3  --limpiar-demo-delfino demo-delfino-x]      exit=1 urls_con_ERP=0 deletes=0
+    [V4  --LIMPIAR-DEMO-DELFINO]                     exit=1 urls_con_ERP=0 deletes=0
+    [V5  "  --limpiar-demo-delfino  "]               exit=1 urls_con_ERP=0 deletes=0
+    [V6  delfino-hogar-erp (arg pelado)]             exit=1 urls_con_ERP=0 deletes=0
+    [V7  --limpiar-demo-delfino=delfino-hogar-erp]   exit=1 urls_con_ERP=0 deletes=0
+    [V8  --reporte-demo]                             exit=0 urls_con_ERP=0 deletes=0
+    [V9  dos modos a la vez]                         exit=1 urls_con_ERP=0 deletes=0
+    [V10 --limpiar-demo-delfino delfino-hogar-erp-x] exit=1 urls_con_ERP=0 deletes=0
+    [V11 sin argumentos (sembrar)]                   exit=1 urls_con_ERP=2 deletes=0
+    [V12 GCLOUD_PROJECT=GOOGLE_CLOUD_PROJECT=delfino-hogar-erp + --limpiar-demo-delfino]
+                                                     exit=0 urls_con_ERP=0 deletes=2
+    [V13 NAMESPACE_BASURA/SEED_NAMESPACE/NAMESPACES_BORRABLES=delfino-hogar-erp por entorno]
+                                                     exit=0 urls_con_ERP=0 deletes=2
+  Los unicos DELETE emitidos, en las tres vias que borran, son exactamente:
+    DELETE /emulator/v1/projects/demo-delfino/databases/(default)/documents
+    DELETE /emulator/v1/projects/demo-delfino/accounts
+  V11 es el modo sembrar y sus 2 URLs con `delfino-hogar-erp` son de ESCRITURA en el namespace del
+  ERP, que es su trabajo; no hay ningun DELETE. Ninguna via alcanza `delfino-hogar-erp` con un
+  borrado. `NAMESPACE_BASURA` esta fijo en el codigo (scripts/seed-emulator.mjs:116) y no se toma
+  de argumentos ni de entorno: V13 lo confirma empiricamente.
+
+SEED_BARRIDO_NO_DANA_AL_ERP (bajo espejo activo) — verificada contra un emulador de VERDAD,
+  descartable, puertos propios 18081/19100, `singleProjectMode: true` y `--import`, apagado al
+  terminar. Con el espejo ACTIVO (demo-delfino devolviendo los 35 documentos del ERP):
+    ANTES   ERP  docs=35 auth=1   DEMO docs=35 auth=0
+    DESPUES ERP  docs=35 auth=1   DEMO docs=0  auth=0     EXIT_LIMPIEZA=0
+  El namespace del ERP quedo intacto: el espejo es de lectura y el DELETE lleva el proyecto en la
+  URL. Esta es la prueba que faltaba, porque los 23 casos del tester miden URLs y no el efecto.
+
+BARRERA_PROYECTO_FORZADO — verificada, por separado y con cero pedidos al emulador:
+    GCLOUD_PROJECT=namespace-ajeno        exit=1  pedidos=0  nombra los DOS valores: si
+    GOOGLE_CLOUD_PROJECT=namespace-ajeno  exit=1  pedidos=0  nombra los DOS valores: si
+  El mensaje imprime `proyecto del ERP  delfino-hogar-erp` y `proyecto forzado  namespace-ajeno
+  (variable de entorno ...)`.
+
+BARRERA_VARIABLES_DE_EMULADOR — verificada: sin las dos variables exit=1 pedidos=0; con una sola
+  de las dos, tambien exit=1 pedidos=0.
+
+BARRERA_EMULADOR_LOCAL — verificada en 4 formas: firestore.googleapis.com:443, identitytoolkit
+  .googleapis.com:443, `127.0.0.1.evil.com:8080` (prefijo enganoso) y `10.0.0.5:8080` en modo
+  limpieza. Las cuatro: exit=1, pedidos al emulador=0. Las tres barreras corren ANTES de tocar
+  nada; el contador de pedidos del emulador falso en 0 lo demuestra sin interpretacion.
+
+SEED_PROYECTO_UNICO — verificada. El default es `delfino-hogar-erp` y sale de
+  js/firebase-config.js leido como texto, fuente unica; si ese archivo no declara exactamente un
+  projectId, aborta. Ya no existe `demo-delfino` como default.
+
+SEED_DEJA_EL_ADMIN_USABLE + IDEMPOTENCIA — verificada en emulador descartable, dos corridas
+  seguidas de `node scripts/seed-emulator.mjs`:
+    corrida 1: exit=0  ERP docs=35  auth=[admin@delfino.local/UfWwapUVdO5reO31ioE3Rf8xsPUI]
+               perfil usuarios/{uid} = {rol: administrador, activo: true, email: admin@delfino.local}
+    corrida 2: exit=0  ERP docs=35  auth=[admin@delfino.local/UfWwapUVdO5reO31ioE3Rf8xsPUI]
+  Mismo uid, mismo inventario, mismas 10 colecciones. Y `demo-delfino` quedo en docs=0 auth=0: el
+  seed no lo toca.
+
+CODIGO_DE_SALIDA_DE_LOS_MODOS_DE_LECTURA — verificada contra emulador real descartable:
+  `--reporte-demo` EXIT=0 y `--limpiar-demo-delfino` EXIT=0. Ya no aparece 0xC0000409.
+
+SEED_REPORTE_FIEL (el punto que se pidio mirar con desconfianza) — verificada, y el test nuevo SI
+  discrimina. Mutacion PROPIA del auditor, distinta de la del tester: en vez de sacar la llamada,
+  se deja todo en pie y se hace que `advertirSiPuedeSerEspejo()` vuelva sin imprimir nunca
+  (`if (inv.totalDocs === 0) return;` -> `if (inv.totalDocs >= 0) return;`). Evaluada con la MISMA
+  funcion `verificarReporteHonestoAnteEspejo`. Salida literal:
+    [ORIGINAL (repo)]      exit=0 conteo=true aviso=true  invita_a_borrar=true => VERDE
+    [COPIA SANA (control)] exit=0 conteo=true aviso=true  invita_a_borrar=true => VERDE
+    [MUTANTE AUDITOR]      exit=0 conteo=true aviso=false invita_a_borrar=true => ROJO ->
+      el reporte no avisa que los 35 documentos NO se pueden dar por propios de "demo-delfino"
+  El mutante sale con 0, imprime el mismo inventario y hasta invita a borrar: el rojo viene del
+  aviso faltante y no de un script roto. No es el caso R20.
+
+ARGUMENTO_DE_LA_DECISION_DEL_DIRECTOR — verificado y correcto. La asercion vieja
+  (`inventarioNamespace(sonda_virgen).totalDocs === 0`) mide el emulador, no el seed: lo comprobe
+  a mano levantando un emulador descartable con `singleProjectMode: true` y `--import`, donde
+  `sonda-virgen-auditor` devuelve los 35 documentos sin que `scripts/seed-emulator.mjs` intervenga
+  en absoluto. Ninguna version del archivo bajo prueba puede mover esa asercion. No fue bajar la
+  vara: la asercion nueva es mas dificil de pasar que la vieja, porque exige seis propiedades de
+  la salida (conteo, aviso, causa, firma, ORDEN respecto del comando de borrado, y ausencia de las
+  dos frases que reclamaban lo ajeno) y ademas se demuestra falsable.
+
+ALCANCE — verificado. En 335707a..c107359 el implementador toco solo `scripts/seed-emulator.mjs` +
+  `migration/IMPLEMENTATION_LOG.md`; el tester solo `tests/**` + `migration/TEST_*.md`; el
+  director solo `migration/DECISIONS.md`, `migration/RISKS.md` y `migration/TASKS.md`. NO se
+  tocaron: firebase.json, js/firebase-config.js, js/*.js, .claude/, CLAUDE.md, package.json,
+  backend/, functions/, firestore.rules, build.js, netlify.toml, publicar/, dist/.
+
+CONTRATO / REGRESIONES — sin impacto. La tarea no toca ningun modulo de `js/`, asi que ninguna
+  firma exportada cambia y ningun modulo de UI depende de lo modificado.
+
+AISLAMIENTO — verificado. Nada apunta a produccion: los tres modos exigen las dos variables de
+  emulador y que apunten a 127.0.0.1/localhost, y los endpoints `/emulator/v1/` no existen fuera
+  de un emulador. El emulador de Gaston quedo como estaba: delfino-hogar-erp docs=35 auth=1,
+  demo-delfino docs=0 auth=0, arbol de git limpio, y todos mis servidores y emuladores
+  descartables apagados (puertos 18080/18081/18085/19099/19100 libres).
+
+SUITE — `npx vitest run` completo: 9 archivos, 152/152 verde, sin skips.
+
+## Sobre R35 y la evidencia de R16 (respuesta al punto 6)
+
+R35 CONFIRMADO, con una correccion de alcance importante, y la evidencia de R16 SE RETIRA.
+Detalle y mediciones en RISKS.md, R35 (nota del auditor) y R36.
+
+## [MENOR] anotados en RISKS.md
+
+1. [MENOR] R35 esta enunciado de mas: el espejo NO ocurre con cualquier namespace virgen, sino
+   solo con los documentos que entraron por `--import`. Medido en las dos direcciones.
+2. [MENOR] La evidencia "perfil duplicado en los dos namespaces" de R16 es un artefacto del
+   espejo y hay que retirarla; el bug de R16 no se toca.
+3. [MENOR] `scripts/seed-emulator.mjs:391-393` reescribe `contadores/{ventas,asientos,comprobantes}`
+   con `ultimo: 0` y `:377` reescribe `productos/*` completo. Re-sembrar sobre un emulador ya usado
+   reinicia la numeracion y el stock. Es idempotente en el sentido de "mismo estado final", no en
+   el de "no destruye lo que habia".
+4. [MENOR] `tests/integration/seed-emulator.test.js` (352 lineas) no se ejecuto en la ultima ronda
+   ni por el tester ni por mi: `npm run test:integration` no arranca con el emulador de Gaston en
+   pie (puerto 9099 tomado). Evidencia no verificada, cubierta por otras vias.
+5. [MENOR] Los modos `--reporte-demo` y `--limpiar-demo-delfino` no validan
+   GCLOUD_PROJECT/GOOGLE_CLOUD_PROJECT. Es inocuo —el namespace esta fijo en el codigo y la via
+   V12 lo confirma— pero conviene tenerlo escrito: la barrera de proyecto forzado protege solo al
+   modo sembrar.
+6. [MENOR] R36 nuevo: un emulador descartable levantado con el MISMO `--project` que el de Gaston
+   puede ser alcanzado por comandos del CLI que resuelven el hub por archivo localizador, aunque
+   corra en otros puertos. Me paso a mi con `--export-on-exit`.
