@@ -8,11 +8,12 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R28 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+R31 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
 auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011, R20 el director, R21-R22 el
 auditor en la confirmación de TASK-011, R23-R25 el auditor en la aprobación de TASK-002, y
-R26-R27 el director con datos de Gastón y R28 el director en TASK-003, todos el 2026-09-04. R21 en
-adelante se agregan al final por orden de registro, no por severidad.
+R26-R27 el director con datos de Gastón, R28 el director en TASK-003 y R29-R31 el auditor en la
+aprobación de TASK-003, todos el 2026-09-04. R21 en adelante se agregan al final por orden de
+registro, no por severidad.
 
 ---
 
@@ -515,3 +516,82 @@ a tocar es **TASK-007** (`facturar_pedido`, que convierte el pedido en venta).
 `backend/db/functions/` cuyos archivos se reaplican cuando cambia su hash, y TASK-018 mueve
 `crear_venta()` ahí. A partir de entonces la función tiene **una sola copia canónica** y las
 migraciones numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.
+
+## R29 — [MEDIA] `historial_costos` no distingue "compra registrada" de "aceptación del maestro"
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003. Detectado antes por el
+implementador (IMPLEMENTATION_LOG, duda 1) y evaluado por el tester (TEST_RESULTS, punto 4a).
+
+`0004_precios_y_costos.sql:103-117` da a `historial_costos` los nueve campos que pide P5. Con
+esos campos, la fila que dice "esta factura costó otra cosa" y la fila que el día de mañana diga
+"un usuario autorizado aceptó el costo nuevo y el maestro se movió" se ven **idénticas**. `origen`
+(`manual` | `factura_compra`) describe **de dónde salió el número**, no **si el maestro cambió**:
+son dos ejes distintos. Y `costo_anterior` se lee de `productos.costo_referencia` en cada INSERT,
+así que hoy repite siempre el mismo valor (`[600000, 600000, 600000]` en el test de tres compras
+seguidas); en cuanto exista la aceptación, esa misma columna pasa a significar una cosa distinta
+según la fila, sin nada que lo indique.
+
+**Por qué NO bloqueó TASK-003:** los criterios de aceptación piden exactamente los campos de P5 y
+están todos; la operación que vuelve ambigua la lectura no existe (`backend/src/` no tiene servicio
+de compras y la aceptación explícita quedó deliberadamente sin implementar, ARCHITECTURE §2.3), así
+que hoy ninguna fila puede leerse mal; y elegir el eje es una decisión de modelo contable, no de
+implementación: no la toma un agente solo.
+
+**Por qué es MEDIA y no informativo:** el historial de costos es la fuente de la que van a salir
+los márgenes. Una lectura que confunda "el proveedor me cobró esto" con "esto es lo que el ERP usa
+para costear" no da error: da un margen mal calculado, silencioso y hacia atrás.
+
+**Condición de cierre (obligatoria, no opcional).** La tarea que implemente la **aceptación
+explícita del costo maestro** tiene que agregar el eje en la misma tarea, y su auditor verificarlo:
+- un eje propio (`aplicado_en` / `aplicado_por`, o un `origen='aceptacion_maestro'` con CHECK que
+  exija que el maestro efectivamente cambió) — cuál de los dos es **decisión de Gastón**;
+- su propio test, que distinga las dos clases de fila por comportamiento;
+- y revisar el residuo de nomenclatura que dejó el tester: `metodo_costeo` se copia de
+  `productos.costo_modo` a cada fila, pero en modo `promedio` el `costo_nuevo` guardado es el costo
+  **crudo de la factura**, no un promedio ponderado. Quien escriba la fórmula tiene que leer eso
+  antes, o va a suponer que el número ya viene calculado "según el método".
+Mientras tanto queda plantado el centinela: el test `origen solo admite manual y factura_compra`
+de `tests/integration/postgres/precios_y_costos.test.js` se pone rojo el día que alguien amplíe el
+CHECK, y obliga a volver acá.
+
+## R30 — [BAJA] La inmutabilidad del historial se cae si el rol de la aplicación es dueño o superusuario
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003.
+
+Los tres triggers BEFORE de `0004_precios_y_costos.sql:142-159` rechazan **toda** la vía DML:
+verificado por el auditor con SQL directo — UPDATE con y sin WHERE, UPDATE que no cambia nada,
+DELETE con y sin WHERE, DELETE dentro de una CTE, DELETE desde una función plpgsql SECURITY
+DEFINER, TRUNCATE y TRUNCATE CASCADE, los ocho con SQLSTATE 23001 y la fila intacta. La migración
+ya dice que DROP TABLE no lo cubre ningún trigger y que eso es cuestión de permisos.
+
+Lo que falta decir es que hay **dos vías más** de la misma clase, reproducidas por el auditor sobre
+`delfino_test`: `SET session_replication_role = 'replica'` (requiere superusuario) y
+`ALTER TABLE historial_costos DISABLE TRIGGER …` (requiere ser dueño de la tabla). Con cualquiera
+de las dos, el UPDATE siguiente pasa y reescribe la fila. El rol `delfino` de la base local **es
+superusuario**, así que hoy, en desarrollo, la inmutabilidad es una convención sostenida por que
+nadie lo intente.
+
+No bloquea: `backend/src/` está vacío, no hay ningún llamador y en la PoC no existe todavía un rol
+de aplicación. **Condición de cierre:** la tarea que cree el usuario de base de la aplicación tiene
+que darle un rol **no dueño de las tablas y no superusuario**, con permisos DML acotados, y dejar
+un test que compruebe que desde ese rol `ALTER TABLE … DISABLE TRIGGER` y
+`SET session_replication_role` fallan. Migraciones y despliegue corren con otro rol.
+
+## R31 — [INFORMATIVO] `verificar_sin_recalculo_de_costo()` es una heurística de texto y se puede evadir
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003.
+
+`0004_precios_y_costos.sql:214-227` busca en `pg_proc.prosrc` con
+`prosrc ~* 'update\s+productos'` **y** `prosrc ~* 'costo_referencia'`. Es una lectura del texto
+fuente, no del plan: el auditor plantó una función con
+`update public.productos set costo_referencia = …` en un trigger AFTER INSERT sobre
+`historial_costos`; el maestro pasó de 600000 a 715000 y `verificar_sin_recalculo_de_costo()`
+devolvió **vacío**. Un `update "productos"`, un alias o un `EXECUTE` armado por concatenación
+tienen el mismo efecto.
+
+No es un defecto que importe hoy, y por eso queda informativo: lo que decide la invariante es el
+assert de comportamiento (`assertCompraNoPisaElMaestro`, que compara el número del maestro antes y
+después), y el tester tiene además un test propio que enumera **todos** los triggers no internos
+del esquema público contra una lista cerrada — ése sí caza la mutación evasiva. La función de la
+migración es un control secundario y así la usan los tests.
+
+**Qué no hacer:** usarla como única garantía, ni convertirla en el chequeo de un hook o de CI que
+"demuestre" que nadie reintrodujo el recálculo. Para eso vale la enumeración de triggers y el
+assert de comportamiento.
