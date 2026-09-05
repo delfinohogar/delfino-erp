@@ -98,7 +98,7 @@ accept:
 - R16 queda actualizado en RISKS.md como mitigado, con la fecha
 
 ### TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
-status: IN_PROGRESS
+status: IN_REVIEW
 owner: implementador
 depends: TASK-001, TASK-011
 files:
