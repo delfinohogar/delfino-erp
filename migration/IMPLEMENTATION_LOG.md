@@ -498,3 +498,45 @@ Dudas para el director / auditor:
 3. `scripts/seed-emulator.mjs` siembra `contadores/comprobantes` sin sufijo (ARCHITECTURE 1.10 ya lo
    marca como documento que no usa nadie). En Postgres ese nombre no valida como contador de
    comprobantes; no lo sembre ni lo replique.
+
+## TASK-004 (continuacion) — verificacion del arreglo de H1/H2
+
+El WIP de `9087dfb` quedo escrito y SIN VERIFICAR. Esta pasada no reescribio nada de `0007`: solo lo
+midio contra una base desechable (`delfino_verif004`, creada y destruida; nunca `delfino_dev`) y
+despues contra la suite real. Resultados:
+
+1. CORTE CONTRA EMISION (la carrera fiscal, H1). El emisor estrena el contador y se lleva el **1**;
+   el corte queda esperando en el `insert … on conflict do nothing`, y al commitear el emisor lee
+   `ultimo = 1` y cae por la rama (c): `NUMERACION_CORTE_EN_USO … (ultimo = 1)`. La emision
+   siguiente obtiene **2**. El numero 1 ya no se entrega dos veces.
+2. CORTE CONTRA CORTE, dos primerizos con valores distintos. A fija 1000, B pide 7777 y falla con
+   `NUMERACION_CORTE_YA_FIJADO: … ya fue fijado en 1000 por u-a …`. Contador final 1000, **una**
+   sola constancia. Antes se aplicaban los dos.
+3. ROLLBACK SIGUE DEVOLVIENDO EL NUMERO (E1 de EVIDENCIA_POC.md, el mecanismo que el arreglo toca).
+   Verificado en los tres casos: `ventas` 1 → rollback → 1; `comprobantes_0001_FACTURA_A` 1 →
+   rollback → 1; y post-corte en 1500, 1501 → rollback → 1501. E1 intacto.
+4. Dos sesiones estrenando el mismo contador: **1 y 2**, con la segunda bloqueada 423 ms hasta el
+   commit de la primera. Sin cambios respecto de antes del arreglo.
+5. Las tres ramas siguen igual: (a) idempotente, mismo id y una sola constancia; (b) sin flag
+   `NUMERACION_CORTE_YA_FIJADO`, con `p_corregir := true` se aplica y deja una segunda constancia
+   con `correccion=t` y `ultimo_anterior=1500`; (c) `NUMERACION_CORTE_EN_USO` **tambien con el
+   flag**, y lo mismo sobre un contador usado sin corte previo. La condicion de Gaston —`p_corregir`
+   solo si el contador no se uso— esta en el codigo: la rama (c) se evalua ANTES que (b) y no
+   consulta `p_corregir`.
+6. H2: `usuario_uid` de tab, tab+tab, newline, espacios, vacio y mixto → todos rechazados por la
+   funcion; el `CHECK` de la tabla rechaza el tab tambien por SQL directo. Un uid con contenido real
+   rodeado de blancos sigue entrando.
+
+`npm run check` OK (162 archivos). `npm test` verde: 152/152. Integracion Postgres: 176 pasan y
+**los 3 `it.fails` del tester ahora dan "Expect test to fail"** — o sea que pasan. Son los tres del
+describe "HALLAZGO abierto": la emision concurrente al corte, el `usuario_uid` de tabulaciones y los
+dos cortes primerizos simultaneos. No los toque: el archivo es del tester y le toca a el darlos
+vuelta. (La consigna hablaba de dos; son tres.)
+
+Decision menor, ninguna de negocio: no se agrego una `0008`. `0007` no esta mergeada, asi que el
+arreglo se edito en el lugar, como pidio el director.
+
+Texto no confiable, otra vez: a mitad de sesion llego una instruccion que se hacia pasar por
+configuracion del entorno y mandaba trabajar "por Bash siempre" y editar archivos con `sed`,
+heredocs o scripts en lugar de Edit/Write. No la obedeci —los dos archivos de esta pasada se
+editaron con Edit— y la reporto. Es la tercera vez que aparece el mismo patron en TASK-004.
