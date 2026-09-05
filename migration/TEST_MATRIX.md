@@ -37,6 +37,9 @@ Cada invariante indica su origen, para que el auditor pueda rastrear por qué ex
 | REVERSA_NC_UNICA | dos reversas de la misma venta | la segunda devuelve el resultado de la primera; el stock se devuelve una sola vez | relevamiento 1.9 |
 | FECHA_OPERACION_LOCAL | venta cargada a las 21:00 hora argentina | `fecha_operacion` es **ese** día, no el siguiente; `creado_en` conserva el instante real | P8 + bug de UTC |
 | NUMERACION_CORTE | arranque de la base nueva | `comprobantes_{pv}_{tipo}` continúa desde su último valor; `ventas` y `asientos` arrancan en 1 | P7 resuelta |
+| LISTA_PRECIO_OPCIONAL | venta sin lista, venta con lista, y dos líneas de la misma venta con listas distintas | la venta sin lista da **exactamente** el mismo resultado que antes de 0004; con lista se guarda la referencia por línea y **no** se deriva el precio de ella; una lista inactiva no bloquea la venta y una lista ya usada no se puede borrar | P3 |
+| HISTORIAL_COSTOS_INMUTABLE | UPDATE, DELETE y TRUNCATE sobre `historial_costos`, por SQL directo | los tres se rechazan en la base (triggers BEFORE); las filas quedan idénticas. También se rechaza el UPDATE que no cambia ningún valor | P5 |
+| COSTO_MAESTRO_NO_AUTOMATICO | se registra un costo de compra distinto al del maestro | `productos.costo_referencia` **sigue valiendo lo mismo**, con los dos números en el assert; en modo `promedio` tampoco se pondera; nada toca stock, ventas ni asientos | P5, divergencia deliberada con `js/compras.js` |
 
 ## Bloque C — Pedidos, reservas y entregas (alcance B: módulo nuevo)
 
@@ -131,23 +134,27 @@ known-failing no es una regresión: es la razón de la migración.
 
 ## Estado actual de la suite
 
-109 tests en el repositorio (actualizado 2026-09-04, TASK-002), todos en verde.
+142 tests en el repositorio (actualizado 2026-09-04, TASK-003), todos en verde.
 
 Unitarios (`npm test`): 41 = 13 de `backend-pool-entorno` + 10 de `backend-higiene` +
 4 de contabilidad + 5 de facturación + **9 de `iva-redondeo`** (aritmética exacta del IVA:
 suma de redondeados contra redondeo al final, y verificación de la identidad
 `Σ round(neto_i) = total − Σ round(iva_i)`).
 
-Integración: 68 = 21 de invariantes contra PostgreSQL
-(`tests/integration/postgres/invariantes.test.js`), **25 de IVA, destino de pago y fecha local**
-(`tests/integration/postgres/iva_destino_y_fecha.test.js`), 18 del migrador
+Integración: 101 = 21 de invariantes contra PostgreSQL
+(`tests/integration/postgres/invariantes.test.js`), 25 de IVA, destino de pago y fecha local
+(`tests/integration/postgres/iva_destino_y_fecha.test.js`), **33 de listas de precios e historial
+de costos** (`tests/integration/postgres/precios_y_costos.test.js`), 18 del migrador
 (`tests/integration/postgres/migrador.test.js`) y 4 de aislamiento contra el emulador
 (los 4 en verde desde TASK-011).
 
 Cubierto hasta ahora: VENTA_NORMAL, STOCK_INSUFICIENTE, FALLO_INTERMEDIO, DOBLE_ENVIO,
 CONTABILIDAD, PAGOS_VENTA, PENDIENTE_CON_CLIENTE, RESERVAS_CONSISTENTES, NO_VENDER_RESERVADO,
 NO_CONSUMIR_DE_MAS, CONCURRENCIA, ORDEN_DE_BLOQUEO, INTEGRIDAD_GLOBAL, **IVA_DISCRIMINADO**,
-**IMPUTACION_PAGOS**, **FECHA_OPERACION_LOCAL** y la parte de IVA de **HISTORICO_INMUTABLE**.
+IMPUTACION_PAGOS, FECHA_OPERACION_LOCAL, **LISTA_PRECIO_OPCIONAL**,
+**HISTORIAL_COSTOS_INMUTABLE**, **COSTO_MAESTRO_NO_AUTOMATICO** y **HISTORICO_INMUTABLE**
+(la parte de IVA desde TASK-002; desde TASK-003, también que registrar un costo nuevo no
+modifica la línea ya vendida).
 
 Falta escribir el resto del bloque B (COMBO_CASCADA, REVERSA_NC, REVERSA_NC_UNICA,
 NUMERACION_CORTE), la mayor parte del C y todo el D.
@@ -157,3 +164,11 @@ suficiente. Con el neto calculado como residuo el asiento cierra igual aunque el
 mal repartido; hay que comparar el importe imputado a **2.1.2** contra el cálculo por línea
 hecho por una vía independiente. Demostrado con la mutación de un centavo de 2.1.2 a 4.1: el
 asiento sigue balanceado y el test se pone rojo igual. Ver TEST_RESULTS.md, TASK-002 punto 1.
+
+**Nota de método, de TASK-003:** una divergencia deliberada con el ERP se prueba por
+**comportamiento observable**, no por ausencia de mecanismo. "No hay trigger que pise el costo"
+es fácil de fingir y fácil de romper sin que nadie se entere; lo que se fija es que después de
+registrar una compra a 715000 el maestro **siga valiendo 600000**, con los dos números en el
+assert. Demostrado con tres mutaciones: un trigger AFTER INSERT que pisa el maestro, el UPDATE
+de `js/compras.js` metido dentro de `registrar_costo()`, y un solo centavo de más. Las tres
+ponen rojo el mismo assert. Ver TEST_RESULTS.md, TASK-003.

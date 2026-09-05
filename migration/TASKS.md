@@ -14,13 +14,46 @@ Formato obligatorio. Un hook parsea `status:`, `owner:` y `files:`, así que no 
 Reglas: una sola tarea IN_PROGRESS por owner; dos tareas nunca comparten archivos en `files:`;
 ninguna tarea pasa a DONE sin `migration/approvals/TASK-NNN.approved`.
 
+## Aprobación completa vs. aprobación con salvedades
+
+Una auditoría que no llegó a verificar todo **no vale lo mismo** que una completa, y la diferencia
+tiene que verse en el **estado de la tarea**, no solo en el texto del archivo. Regla, decidida el
+2026-09-04:
+
+| Resultado del auditor | Archivo que escribe | Estado | ¿Merge? | ¿DONE? |
+|---|---|---|---|---|
+| Verificó todo | `TASK-NNN.approved` | APPROVED → DONE | sí | sí |
+| Verificó parte | `TASK-NNN.approved-parcial.md` | **APPROVED, y ahí se queda** | sí | **no** |
+| Rechaza | `TASK-NNN.rejected-N.md` | REJECTED | no | no |
+
+**Esto es una barrera, no una convención.** El hook bloquea DONE con un `Test-Path` exacto sobre
+`migration/approvals/TASK-NNN.approved`; un archivo llamado `.approved-parcial.md` no lo
+satisface, así que el intento de marcar DONE **falla solo**, sin depender de que alguien se
+acuerde. Es el mismo principio que venimos aplicando: si se puede eludir olvidándolo, no es una
+barrera.
+
+Con salvedades, además: el director **crea en el acto** una tarea de verificación que enumera
+**qué quedó sin reproducir**, con `depends:` de la tarea original, y la tarea original queda en
+APPROVED —mergeada pero visiblemente incompleta— hasta que el auditor escriba el `.approved`
+definitivo. Se permite el merge porque la cadena es lineal y frenarla entera por una verificación
+pendiente cuesta más de lo que protege; lo que no se permite es que la tarea **parezca** cerrada.
+
 Este es el **primer lote de FASE 1**: cubre los pasos 1 a 3 del plan maestro (backend mínimo,
 esquema al día, servicios de dominio en la base). Las tareas de API, adaptador y shadow se
 escriben cuando este lote esté aprobado, para no planificar sobre un esquema que todavía puede
 cambiar.
 
 Los tests los escribe el tester en `tests/`, así que `tests/` no aparece en ningún `files:`.
-Única excepción: TASK-011, cuyo entregable **es** un test y por eso sí lo declara.
+Excepciones: TASK-011, TASK-016 y TASK-017, cuyo entregable **es** un test y por eso sí lo
+declaran.
+
+**Por qué TASK-016 y TASK-017 están separadas de la tarea del servicio que prueban** (decisión
+Nivel 2 del 2026-09-04, argumento completo en DECISIONS.md): sus invariantes se prueban **entre**
+operaciones, no dentro de una. `FACTURAR_VS_MODIFICAR` no se puede escribir hasta que existan
+`facturar_pedido` **y** `modificar_pedido`; `INTEGRIDAD_GLOBAL` no existe hasta que existan todas
+las operaciones. Por eso dependen de TASK-008 y TASK-010 respectivamente. **No las juntes con la
+tarea del servicio**: la obligación de implementar el orden de bloqueo y el guard sigue estando en
+TASK-005 y TASK-007; lo que se movió es dónde se prueba que funcionan bajo concurrencia.
 
 **Orden de ejecución:** TASK-011 va antes que TASK-002. La suite tiene que estar en verde antes
 de tocar reglas de negocio: un rojo crónico entrena a ignorar los rojos, y TASK-002 es la primera
@@ -68,7 +101,7 @@ accept:
 - los 4 tests de `safety.test.js` en verde, y la suite completa sin ningún rojo
 - no se toca ningún otro test ni código de aplicación
 
-### TASK-012 — Validación de flags del migrador (R14)
+### TASK-012 — Validación de flags del migrador (R14) y migraciones repetibles (R28)
 status: PENDING
 owner: implementador
 depends: TASK-011
@@ -76,6 +109,13 @@ files:
 - backend/src/db/migrar.js
 - backend/README.md
 accept:
+- **migraciones repetibles (R28)**: el migrador aplica, siempre **después** de las numeradas, los archivos de `backend/db/functions/*.sql`, y los **reaplica solo cuando cambia su hash**. El hash y la fecha quedan registrados, en `schema_migrations` con una marca que los distinga o en una tabla propia
+- una repetible que falla **no queda registrada** y no deja efectos: misma propiedad transaccional que TASK-001 exigió para las numeradas
+- correr el migrador dos veces seguidas sin cambios no reaplica ninguna repetible
+- cambiar un byte de un archivo de `functions/` hace que se reaplique en la corrida siguiente, y solo ese
+- las repetibles corren bajo el mismo `pg_advisory_lock` que las numeradas: dos migradores en paralelo no las aplican dos veces
+- el directorio `backend/db/functions/` puede estar vacío o no existir sin que el migrador falle
+- las migraciones numeradas ya aplicadas **no se modifican** y `schema_migrations` no pierde su historia
 - un argumento desconocido o mal tipeado **aborta con exit distinto de 0** y lista los flags válidos; nunca cae silenciosamente en el modo que aplica migraciones
 - caso concreto que hoy falla: `node backend/src/db/migrar.js --estad` no debe aplicar nada
 - `--estado` no crea la tabla `schema_migrations`, o el README deja de afirmar que "no escribe esquema": el código y la documentación tienen que coincidir
@@ -84,14 +124,17 @@ accept:
 - se actualiza R14 en RISKS.md como mitigado, con la fecha
 
 ### TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
-status: BLOCKED_TECNICO
-bloqueo: espera UNA edición de Gastón — borrar la línea 88 de `.claude/settings.json`,
-  `"Edit(scripts/seed-emulator.mjs)",`. Ningún agente puede tocar ese archivo. Decidido el
-  2026-09-04: `GCLOUD_PROJECT=demo-delfino` (líneas 8-9) **se deja como está**, la separación es
-  deliberada; con el chequeo de esta tarea un agente que intente sembrar aborta ruidosamente.
-  Apenas esté hecha la edición, se retoma con el implementador desde donde quedó.
+status: PENDING
 owner: implementador
-depends: TASK-011
+depends: TASK-003
+nota: Gastón **ya levantó** el `deny` de `scripts/seed-emulator.mjs` el 2026-09-04, en el commit
+  `14c234d`. Pero ese commit está en la rama `task/TASK-003`, así que la regla sigue vigente en
+  `migration/postgresql` hasta que TASK-003 se mergee. De ahí el `depends: TASK-003`, que no es
+  una dependencia de contenido sino de disponibilidad del permiso: si se arranca antes, el
+  implementador se vuelve a topar con el `deny`.
+  `GCLOUD_PROJECT=demo-delfino` (`.claude/settings.json:8-9`) **se deja como está**: la separación
+  es deliberada y, con el chequeo que agrega esta tarea, un agente que intente sembrar aborta
+  ruidosamente en vez de ensuciar en silencio.
 files:
 - scripts/seed-emulator.mjs
 accept:
@@ -123,7 +166,21 @@ accept:
 - `ventas.fecha_operacion` es `date` en hora local, nunca derivada de `toISOString()`: una venta registrada a las 21:00 hora Argentina queda con la fecha de ese día y no con la del día siguiente (cambio 8 de ARCHITECTURE §2.3, P8 + bug de UTC)
 
 ### TASK-003 — Migración 0004: lista de precios en la venta e historial de costos
-status: PENDING
+status: DONE
+nota para el auditor: el diff de esta rama incluye **dos commits de Gastón** sobre archivos que
+  los agentes tienen prohibido tocar, y **no** son violación de alcance: `14c234d`
+  (`.claude/settings.json`, levanta el `deny` de `seed-emulator.mjs` para desbloquear TASK-013) y
+  `29eacb0` (`CLAUDE.md`, corrige la línea que decía que el IVA se calcula en $0). Lo que sí hay
+  que verificar es lo contrario: que el implementador y el tester **no** los hayan tocado.
+segunda nota, error del director: el commit `1948cdd` dice
+  "MIGRATION_STATUS: el tercer pendiente es el PdV de producción para ARCA" pero **también
+  contiene un cambio a `tests/integration/postgres/migrador.test.js`** (el centinela de 3 a 4).
+  Ese cambio lo estaba escribiendo el tester en el árbol y el director se lo llevó puesto con un
+  `git commit -am`. El cambio es correcto y el tester lo verificó corriéndolo, pero **el commit
+  está mal etiquetado**: su mensaje no menciona el archivo de test. No se reescribe la historia
+  —es peor el remedio— pero queda anotado para que el auditor no lo lea como una modificación
+  encubierta de un test por parte del director. Lección: `git commit -am` con un subagente
+  trabajando en el mismo árbol barre su trabajo en curso.
 owner: implementador
 depends: TASK-002
 files:
@@ -136,6 +193,85 @@ accept:
 - el esquema NO recalcula el costo maestro automáticamente en ninguna operación (P5)
 - **DIVERGENCIA DELIBERADA CON EL ERP, no la "corrijas" hacia el código.** `js/compras.js` hoy **sí** actualiza el costo maestro solo al registrar una compra. P5 decide lo contrario: una compra puede registrar un costo distinto en `historial_costos` sin modificar el maestro, y el cambio del maestro requiere **aceptación explícita**. Acá la decisión le gana al código actual. Si algo parece un bug porque no coincide con `js/compras.js`, no lo es: es esta decisión
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
+
+### TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
+status: PENDING
+owner: implementador
+depends: TASK-012
+files:
+- backend/db/functions/crear_venta.sql
+- backend/db/migrations/0006_crear_venta_repetible.sql
+accept:
+- `backend/db/functions/crear_venta.sql` contiene **la definición vigente**, la de `0004_precios_y_costos.sql:241`, sin cambios de comportamiento. Esta tarea **muda**, no refactoriza: si algo se comporta distinto, es un bug de la tarea
+- la migración numerada acompañante deja constancia del corte y no redefine la función: a partir de acá, `crear_venta()` vive en `functions/`
+- **las definiciones de 0002, 0003 y 0004 NO se borran ni se editan.** Son historia aplicada; borrarlas rompería `schema_migrations` y la posibilidad de reconstruir la base desde cero
+- después del cambio, `pg_get_functiondef('crear_venta')` devuelve la de `functions/`, verificado
+- **los tests de TASK-002 y TASK-003 siguen verdes sin tocarlos**: IVA a 2.1.2 = 648,68, imputación caja/banco→1.1.1, cuentaPorCobrar→1.1.5, pendiente→1.1.2, fecha local estable en varios husos, y la venta sin lista de precios sigue funcionando (P3). Ésa es la prueba de que la mudanza no cambió comportamiento
+- reconstruir la base desde cero con el migrador da el mismo esquema que aplicar las migraciones sobre una base existente
+- **`recrearEsquema()` en `tests/integration/postgres/_helpers.mjs:22` aplica HOY solo `backend/db/migrations/*.sql`.** Si no se actualiza para aplicar también `backend/db/functions/`, después de esta tarea los tests dejarían viva la copia de 0004 y **la suite quedaría verde probando la función equivocada**. Lo detectó el auditor en TASK-003. Ese archivo es del tester: la tarea NO se cierra sin que esté hecho, y el auditor tiene que verificar que la función que corre en los tests es la de `functions/`, con `pg_get_functiondef()`
+- R28 queda marcado como cerrado en RISKS.md, con la fecha
+
+### TASK-016 — Invariantes de concurrencia entre operaciones
+status: PENDING
+owner: tester
+depends: TASK-008
+files:
+- tests/integration/postgres/concurrencia_pedidos.test.js
+accept:
+- ORDEN_DE_BLOQUEO: dos transacciones cruzadas sobre dos productos, sin deadlock, porque ambas bloquean `stock` por `(producto_id, deposito_id)` ascendente
+- FACTURAR_VS_MODIFICAR: facturar y modificar el mismo pedido en paralelo; la modificación sobre un pedido ya facturado se rechaza. El lock solo NO alcanza: hace falta el guard, y el test tiene que distinguir los dos
+- concurrencia de reservas y entregas: dos entregas simultáneas no consumen más de lo reservado
+- **cada propiedad con su mutación (R20)**: quitar el orden de bloqueo tiene que producir deadlock; quitar el guard tiene que dejar pasar la modificación. Un test de concurrencia que no se puede hacer fallar es decorativo
+- las corridas concurrentes son deterministas o se repiten N veces: un test que pasa por timing no prueba nada
+- no modifica `backend/`: si una invariante falla, es bug del servicio y se reporta
+
+### TASK-017 — Integridad global tras operaciones exitosas y fallidas
+status: PENDING
+owner: tester
+depends: TASK-010
+files:
+- tests/integration/postgres/integridad_global.test.js
+accept:
+- INTEGRIDAD_GLOBAL: tras N operaciones exitosas y M fallidas, cero asientos huérfanos, cero ventas sin ítems, cero ventas sin asiento, cero desbalances y cero inconsistencias de reserva
+- las M fallidas fallan por causas distintas —stock insuficiente, pendiente sin cliente, destino de pago inválido, asiento desbalanceado— no todas por la misma
+- la verificación es una consulta que se puede correr sobre cualquier base, no una lista de asserts atada a los datos del test
+- **mutación (R20)**: con una operación parcial inyectada a mano, la verificación tiene que encontrarla
+- no modifica `backend/`
+
+### TASK-014 — Relevamiento de ARCA homologación: checklist accionable
+status: PENDING
+owner: implementador
+depends: TASK-003
+files:
+- migration/ARCA_HOMOLOGACION.md
+accept:
+- **solo lectura**: releva `functions/arcaFacturacion.js`, `functions/arcaWsfe.js`, `functions/index.js`, `js/facturacion.js` y `configuracion/empresa`. NO modifica `functions/` ni ningún código
+- **no invoca nada**: no llama a `arcaAutorizarComprobante`, no se autentica contra Firebase, no toca producción. Si para responder algo hace falta invocar, eso se anota como pregunta para TASK-015, no se ejecuta
+- produce un **checklist accionable** de lo que tiene que hacer Gastón, en orden, y para cada ítem **cómo sabe que está listo** — un checklist sin criterio de verificación no sirve
+- **cada ítem marcado por dónde se verifica**, en dos grupos separados y visibles: `[ARCA]` los que Gastón puede resolver solo en la web de ARCA/AFIP sin depender de nadie, y `[CÓDIGO]` los que requieren mirar el repositorio o Firestore. El objetivo es que Gastón avance los suyos en paralelo mientras el equipo sigue con la cadena del esquema
+- si un ítem necesita las dos cosas, va marcado `[ARCA+CÓDIGO]` y dice explícitamente qué mitad es de cada lado, para que Gastón sepa hasta dónde puede llegar solo
+- cubre como mínimo: condición fiscal del emisor en `configuracion/empresa`; datos mínimos del comprobante que exige WSFEv1; y qué campos del ERP alimentan cada uno
+- **el punto de venta ya está verificado por Gastón el 2026-09-04 y no hay que relevarlo**: existen tres de tipo "RECE para aplicativo y web services" — el **4** (Av. 24 4464), el **5** (Av. 24 4560) y el **6** (Lirio 863). Para homologación **no hace falta crear ninguno**. El checklist lo marca como resuelto y dice cuál se usa en la prueba; elegir cuál es parte del guion de TASK-015
+- **NO decide el punto de venta de producción**: si Delfino usa los mismos que GBP con numeración intercalada, o uno nuevo exclusivo, es decisión **Nivel 3 de Gastón** y está abierta. El relevamiento puede juntar los datos que ayuden a decidirla —cómo numera GBP hoy, qué implica intercalar— pero no la resuelve ni la asume
+- deja explícito qué parámetros toma `arcaAutorizarComprobante`, qué valida antes de llamar a ARCA, y qué devuelve en éxito y en error
+- lista los modos de falla conocidos de WSFEv1 con su código, para poder distinguir "error entendido" de "algo salió mal"
+- NO activa nada: `arcaActivo` sigue en `false`
+
+### TASK-015 — Guion de la invocación en homologación, revisado antes de ejecutarse
+status: PENDING
+owner: implementador
+depends: TASK-014
+files:
+- migration/ARCA_GUION_INVOCACION.md
+accept:
+- **lo ejecuta Gastón, no un agente** (decisión del 2026-09-04). El entregable es el guion, no la corrida
+- dice la llamada exacta: función, región, parámetros, `ambiente: "testing"`, y el payload completo del comprobante de prueba con valores concretos
+- dice **qué respuesta esperar**: cómo se ve un CAE devuelto, cómo se ve cada error conocido, y cómo distinguir un error de ARCA de un error de infraestructura
+- incluye qué mirar después: logs de la función, `logIntegracionArca`, y qué NO debería haber cambiado en Firestore
+- incluye el criterio de aborto: en qué caso Gastón debe parar y no reintentar
+- **lo revisa el auditor antes de que Gastón lo ejecute**, y esa revisión es parte de la tarea
+- es un documento, **no un ejecutable**: no se agrega ningún script a `scripts/` ni a `package.json`. Un archivo que golpea producción y se puede correr sin querer es peor que un instructivo. Si Gastón prefiere un script, lo pide y se agrega como cambio aparte
+- `arcaActivo` no se toca, y el ambiente `produccion` no aparece en el guion ni como ejemplo
 
 ### TASK-004 — Migración 0005: contadores del corte
 status: PENDING
@@ -161,7 +297,8 @@ accept:
 - no genera venta y no descuenta stock físico (P11)
 - rechaza reservar más que el disponible
 - idempotente por `pedidos.idempotency_key`
-- invariantes RESERVAS_CONSISTENTES, DISPONIBLE_DERIVADO, NO_VENDER_RESERVADO y ORDEN_DE_BLOQUEO
+- invariantes RESERVAS_CONSISTENTES, DISPONIBLE_DERIVADO y NO_VENDER_RESERVADO
+- el orden de bloqueo ascendente es **obligación de esta tarea**, pero la invariante ORDEN_DE_BLOQUEO se **prueba en TASK-016**: necesita dos transacciones cruzadas y no pertenece al archivo de un solo servicio (decisión Nivel 2 del 2026-09-04)
 
 ### TASK-006 — Servicio `modificar_pedido`: edición atómica con ajuste de reservas
 status: PENDING
@@ -181,7 +318,11 @@ accept:
 ### TASK-007 — Servicio `facturar_pedido`: convertir pedido en venta sin doble reserva
 status: PENDING
 owner: implementador
-depends: TASK-006
+depends: TASK-006, TASK-018
+nota: depende de TASK-018 porque es la primera tarea que vuelve a tocar `crear_venta()`. Para
+  entonces la función ya tiene una sola copia canónica en `backend/db/functions/`, así que esta
+  tarea **no genera una cuarta copia**: edita el archivo de la función (R28, decisión Nivel 2 del
+  2026-09-04).
 files:
 - backend/db/migrations/0008_facturar_pedido.sql
 accept:
@@ -191,7 +332,8 @@ accept:
 - un pedido se convierte completo en una única venta; el segundo intento se rechaza por la constraint única sobre `pedidos.venta_id` (Q2)
 - si al facturar también se retira, se consume la reserva y se descuenta el físico en la misma transacción
 - bloquea la fila del pedido con `SELECT … FOR UPDATE` y el guard rechaza modificar un pedido ya facturado
-- invariantes NO_DOBLE_RESERVA_AL_FACTURAR, UN_PEDIDO_UNA_VENTA y FACTURAR_VS_MODIFICAR
+- invariantes NO_DOBLE_RESERVA_AL_FACTURAR y UN_PEDIDO_UNA_VENTA
+- el guard contra modificar un pedido facturado es **obligación de esta tarea**, pero la invariante FACTURAR_VS_MODIFICAR se **prueba en TASK-016**: exige facturar y modificar en paralelo, así que no se puede escribir hasta que existan los dos servicios (decisión Nivel 2 del 2026-09-04)
 
 ### TASK-008 — Servicio `crear_entrega`: consumo de reserva y baja del físico
 status: PENDING

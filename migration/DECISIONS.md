@@ -72,17 +72,25 @@ Los tres ítems siguientes se movieron desde MIGRATION_STATUS.md el 2026-09-04, 
 Gastón: dependen de él y este es el lugar donde los va a buscar. Ninguno bloquea TASK-001 a
 TASK-010.
 
-### 2026-09-04 — Estado real de las Cloud Functions desplegadas (R8)
-`arcaAutorizarComprobante` está exportada en `functions/`, pero los deploys se hicieron con
-`--only`, así que qué está efectivamente corriendo en Firebase es DESCONOCIDO. Se verifica en
-Firebase Console; ningún agente toca producción. Impacto: hasta saberlo no se puede afirmar que
-ARCA esté apagado en el proyecto desplegado. No bloquea la PoC.
+### 2026-09-04 — Punto de venta de PRODUCCIÓN para ARCA: ¿compartido con GBP o exclusivo?
+ABIERTA. No bloquea homologación ni la PoC; se resuelve antes de facturar en producción.
 
-### 2026-09-04 — CLAUDE.md afirma que el IVA en ventas se calcula en $0
-Es falso —el IVA está discriminado e imputado a 2.1.2— y contradice la decisión de Nivel 3 del
-2026-09-04, que además corrige la premisa de P6. `CLAUDE.md` solo lo modifica Gastón. Impacto:
-mientras siga ahí, todo agente que lea las instrucciones del proyecto parte de una premisa
-equivocada sobre el dominio que TASK-002 implementa.
+Dato verificado por Gastón el 2026-09-04: existen tres puntos de venta de tipo "RECE para
+aplicativo y web services" — el **4** (Av. 24 4464), el **5** (Av. 24 4560) y el **6**
+(Lirio 863). **Para homologación no hace falta crear ninguno**, así que esa parte del checklist
+ya está resuelta.
+
+Lo que queda abierto es producción: si Delfino emite por los **mismos** puntos de venta que usa
+GBP —con numeración intercalada entre los dos sistemas— o por **uno nuevo exclusivo**.
+
+Es Nivel 3 por partida doble: es criterio fiscal (la numeración de comprobantes por punto de
+venta debe ser correlativa y sin huecos) y toca la relación con GBP, que es un sistema en
+producción que hoy factura. Con numeración intercalada, los dos sistemas comparten un correlativo
+que ninguno de los dos controla entero, y un hueco o un salto no se puede atribuir sin cruzar los
+dos. Con un punto de venta exclusivo, Delfino controla su propia serie de punta a punta.
+
+No la toma ningún agente. TASK-014 puede juntar los datos que ayuden a decidirla —cómo numera GBP
+hoy, qué implica intercalar— pero no la resuelve ni la asume.
 
 ### 2026-09-04 — El adaptador necesita `js/firebase.js`, que solo modifica Gastón
 El punto de interposición natural entre la UI y la persistencia es `js/firebase.js`, único acceso
@@ -140,6 +148,192 @@ alguien calcula el neto por línea y lo suma. Eso es exactamente lo que la imple
 evitar y lo que el test tiene que ser capaz de cazar: la invariante Debe = Haber no alcanza para
 detectarlo, porque una implementación que reparta mal el centavo puede cerrar igual. El test tiene
 que verificar además **el monto imputado a 2.1.2**, línea por línea.
+
+## 2026-09-04 — [GASTÓN] ARCA queda desplegada en homologación, y `arcaActivo` sigue en false
+Cierra el pendiente de R8 con un dato verificado en Firebase Console, no con una suposición:
+`arcaAutorizarComprobante` **no estaba desplegada** — de las 25 funciones que había, ninguna era
+esa. Ahora sí lo está, en `southamerica-east1`, y las desplegadas pasan a 26.
+
+Estado: certificado de homologación por WSASS (alias `DelfinoERP`, CUIT del certificado
+20107859951), autorización para `ws://wsfe` con CUIT representado 33712451039, y
+`AFIP_CERT_HOMO` / `AFIP_KEY_HOMO` / `AFIP_CUIT_HOMO` en Secret Manager con valores reales.
+
+**`arcaActivo` sigue en `false` y no lo toca ningún agente. El ambiente `produccion` no se usa
+nunca.** La primera prueba se hace en `ambiente: "testing"`, contra homologación, y su objetivo
+es llegar a un CAE **o a un error entendido y documentado** — las dos cosas son un resultado
+válido; lo que no es válido es un intento sin diagnóstico.
+
+Consecuencia que conviene tener presente: antes había código fiscal a un flag de distancia; ahora
+hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
+barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
+
+## 2026-09-04 — [NIVEL 2] Aprobación con salvedades: se mergea, no se cierra
+A pedido de Gastón, tras el corte del auditor en TASK-003. Un `.approved` que diga "no llegué a
+reproducir la mutación X" **no es lo mismo** que uno completo y no puede pasar a DONE como si lo
+fuera. La diferencia tiene que verse en el estado de la tarea, no solo en el texto del archivo.
+
+DECISIÓN: el auditor que no llegó a verificar todo escribe
+`migration/approvals/TASK-NNN.approved-parcial.md` en vez de `.approved`. La tarea queda en
+**APPROVED** y **ahí se queda**: se permite el merge, no el DONE. El director crea en el acto una
+tarea de verificación que enumera qué quedó sin reproducir. Cuando esa tarea cierra, el auditor
+escribe el `.approved` definitivo y recién entonces la original pasa a DONE.
+
+**Es barrera, no convención**, y esto es lo que hace que la regla valga: el hook veta DONE con un
+`Test-Path` **exacto** sobre `migration/approvals/TASK-NNN.approved`
+(`.claude/hooks/guard.ps1:139-141`). Un archivo llamado `.approved-parcial.md` no satisface ese
+test, así que el intento de marcar DONE **falla solo**. No depende de que el director se acuerde
+de la diferencia dos semanas después. No hizo falta tocar `.claude/` —que además no lo puede tocar
+ningún agente—: la barrera ya existía y solo había que elegir un nombre de archivo que cayera del
+lado correcto.
+
+Por qué se permite el merge y no se frena todo: la cadena TASK-001 → TASK-010 es lineal, así que
+bloquear el merge por una verificación pendiente detiene el proyecto entero. Lo que hay que evitar
+no es avanzar, es que una tarea **parezca** cerrada sin estarlo. Se elige visibilidad sobre
+bloqueo.
+
+## 2026-09-04 — [NIVEL 2] Las funciones de dominio pasan a migraciones repetibles
+Cierra R28. Decidido antes de TASK-004, a pedido de Gastón, con el margen que da haber
+verificado que **TASK-004 no toca `crear_venta()`**: la función llama a `siguiente_numero('ventas')`
+por nombre y esa firma no cambia. La próxima que sí la toca es TASK-007.
+
+PROBLEMA: `crear_venta()` está copiada entera en 0002, 0003 y 0004. El patrón `CREATE OR REPLACE`
+por migración es correcto en su motivo —no se editan migraciones aplicadas, porque rompe
+`schema_migrations`— pero copia ~90 líneas para cambiar tres, y cada cambio futuro suma una copia.
+
+DECISIÓN: **migraciones repetibles**, el patrón que Flyway llama `R__`. Se agrega
+`backend/db/functions/`, cuyos archivos el migrador **reaplica cuando cambia su hash**, siempre
+después de las migraciones numeradas. `crear_venta()` se muda ahí y pasa a tener **una sola copia
+canónica**. Las migraciones numeradas dejan de redefinirla; si una necesita cambiarla, edita el
+archivo de la función.
+
+Se implementa en dos pasos, y el primero aprovecha que TASK-012 ya es dueña de `migrar.js`:
+- **TASK-012** suma el soporte de repetibles a lo que ya hacía (R14, validación de flags). Mismo
+  archivo, mismo dueño: evita que dos tareas declaren `backend/src/db/migrar.js` en `files:`.
+- **TASK-018** mueve `crear_venta()` a `backend/db/functions/crear_venta.sql`.
+Y **TASK-007 pasa a depender de TASK-018**, para que la conversión de pedido en venta no genere
+la cuarta copia.
+
+### Alternativas evaluadas y por qué no
+- **Dejarlo como está con el comparador de textos del tester.** Es lo que hay hoy. Rechazado por
+  Gastón: no escala. El costo de revisar N copias crece más rápido que N.
+- **Factorizar el cuerpo en funciones chicas que `crear_venta()` llame.** Ayudaría si los cambios
+  fueran locales, pero los de 0004 fueron tres `INSERT` distintos dentro del cuerpo: no se aíslan
+  sin partir la función por donde no tiene junta natural.
+- **Un test que exija una sola definición en todo el repo.** Rompe el patrón sin reemplazarlo: no
+  habría forma legítima de cambiar la función.
+
+### Lo que acota el riesgo mientras tanto, y hay que decirlo
+El comparador de textos **no es el único centinela**. Los tests de TASK-002 corren contra la
+función **viva**, así que una copia futura que rompa el IVA, la imputación de pagos o la fecha
+local sale en rojo sin que nadie compare textos. Lo que no cubre es una divergencia de
+comportamiento que ningún test mire — y ése es exactamente el caso que aparece en producción y no
+en la suite. Por eso se cierra, y no se acepta como residual.
+
+## 2026-09-04 — [NIVEL 2] Las invariantes de concurrencia van en tarea propia, no en la del servicio
+**Si en el futuro alguien ve una tarea de tests separada de su implementación y quiere
+"arreglarla" juntándolas: leé esto antes. La separación es deliberada.**
+
+DECISIÓN: las invariantes que se prueban **entre** operaciones salen de la tarea de cada servicio
+y viven en tareas propias — TASK-016 (concurrencia) y TASK-017 (integridad global). Las
+invariantes que se prueban **dentro** de una operación se quedan donde estaban.
+
+### Por qué, tres razones
+
+**1. Es la regla que ya usamos, no una nueva.** "Dos tareas nunca comparten archivos en `files:`"
+y "cada tarea cabe en 30-90 minutos". `ORDEN_DE_BLOQUEO` necesita dos transacciones cruzadas sobre
+dos productos; `FACTURAR_VS_MODIFICAR` necesita facturar y modificar el mismo pedido en paralelo.
+Ninguna de las dos pertenece al archivo de un solo servicio, porque **no se puede escribir hasta
+que existan los dos lados**. Meterlas en la tarea del primer servicio obliga a esa tarea a
+esperar al segundo, o a escribir un test que todavía no puede correr.
+
+**2. Son otro tipo de test, no un test más largo.** Probar concurrencia exige dos conexiones,
+sincronización entre ellas, y verificar que **no** pasó algo —un deadlock, una doble reserva— en
+vez de que pasó. El armado no se parece al de un test de operación y no se reutiliza; mezclarlos
+hace que el archivo de un servicio cargue infraestructura que solo usan dos de sus tests.
+
+**3. R20 multiplica el trabajo del tester Y DEL AUDITOR, y hay que dimensionarlo.** Ésta es la
+parte que se descubrió midiendo, no razonando. En TASK-003 se cortaron **los dos**: el tester con
+35 tests escritos y sin commitear, y después el auditor sin dejar veredicto. Es la primera tarea
+donde pasa, y la carga era comparable — al auditor se le pidió reproducir tres mutaciones propias
+más verificar tres copias de `crear_venta()`.
+
+Consecuencia que hay que mirar de frente: **el problema no es solo del tester.** La regla de que
+el auditor reproduce por su cuenta en vez de creerle al reporte es la que sostiene R20 —sin ella
+la demostración de falla es una afirmación más— pero le da al auditor una carga del mismo orden
+que la del tester. Partir TASK-016 y TASK-017 alivia al tester y **no hace nada por el auditor**,
+que igual tiene que reproducir todo lo de la tarea que audita. Queda anotado como pregunta abierta
+para el próximo corte: si el auditor necesita un equivalente —auditar por bloques, o un veredicto
+en dos pasadas— o si alcanza con priorizar y permitir la aprobación con salvedades, que es lo que
+se probó primero. La causa no es que 35 tests sean muchos: es que exigir la
+demostración de que cada test **puede fallar** multiplica el trabajo. El tester no solo escribe —
+levanta la base, corre, diagnostica, **planta la mutación, verifica el rojo, la revierte** y
+vuelve a correr. TASK-002 fueron 34 tests con dos mutaciones y entró justo; TASK-003 fueron 35 con
+más mutaciones y no entró.
+
+La conclusión **no** es aflojar R20. Es lo que más valor dio hasta ahora: descubrió que el test de
+aislamiento no discriminaba (R20), que el balance contable no detecta un centavo mal imputado
+(TASK-002), y que el migrador registraba migraciones fallidas si el INSERT salía de la transacción
+(TASK-001). Ninguna de esas tres aparece sin la mutación. **Se sigue pagando.** Lo que cambia es
+que ahora sabemos cuánto cuesta, y el tamaño de las tareas se calcula contando mutaciones, no
+tests.
+
+### Dependencias: se prueba entre operaciones, así que depende de las dos
+Marcado por Gastón: `FACTURAR_VS_MODIFICAR` no se puede probar hasta que `facturar_pedido` **y**
+`modificar_pedido` estén las dos hechas. Por eso TASK-016 depende de TASK-008 —el último servicio
+cuya concurrencia cubre— y no de TASK-005. Y TASK-017, que verifica integridad global tras N
+operaciones exitosas y M fallidas, depende de TASK-010: no existe "el sistema entero" hasta que
+existan todas las operaciones.
+
+### Qué NO cambia
+El requisito de **implementación** se queda en la tarea del servicio: `crear_pedido` sigue
+obligada a bloquear con `SELECT … FOR UPDATE` ordenado por `(producto_id, deposito_id)`, y
+`facturar_pedido` sigue obligada a tener el guard. Lo que se mueve es **dónde se prueba que eso
+funciona bajo concurrencia**, no la obligación de hacerlo.
+
+## 2026-09-04 — [GASTÓN] CLAUDE.md corregido: el IVA no se calcula en $0
+Corregido por Gastón en el commit `29eacb0`. La línea decía "El IVA en ventas está preparado pero
+calculado en $0" y era falsa: `js/ventas.js` lo discrimina desde hace tiempo. La afirmación venía
+del propio archivo de instrucciones del proyecto, así que **todo agente que lo leyera partía de
+una premisa equivocada** sobre el dominio que TASK-002 implementa.
+
+El texto nuevo no se limita a desmentirla: documenta la regla de redondeo —IVA redondeado por
+línea y sumado, neto como residuo, el centavo cae en 4.1 y nunca en la cuenta fiscal— porque es
+justo lo que hace falta saber para no reimplementarla al revés, y ya costó una consulta de
+Nivel 3. Y deja explícito que esto **no** es facturación fiscal: `arcaActivo` sigue en `false`.
+
+Vale como precedente: las tres afirmaciones falsas que FASE 0 encontró en el repositorio no eran
+descuido de nadie, eran documentación que envejeció al lado de código que cambió. La corrección
+sirve si además explica lo suficiente como para que la próxima persona no tenga que ir a leer el
+código para creerle.
+
+## 2026-09-04 — [GASTÓN] La primera invocación de ARCA la ejecuta Gastón, no un agente
+El director marcó que "ambiente `testing`" limita el riesgo del lado de ARCA —no se emite un
+comprobante fiscal válido— pero **no** del lado de Firebase: invocar `arcaAutorizarComprobante`
+significa llamar a una **función real, en el proyecto real, con secretos reales** de Secret
+Manager. Eso choca con dos reglas vigentes: ningún agente toca producción, y ninguna sesión
+autenticada mientras trabajen agentes.
+
+Gastón corrige el encuadre y la corrección es la parte que importa: *"dije «nunca ambiente
+producción» pensando en ARCA y no vi que del lado de Firebase sí es producción"*. Y decide
+ejecutar él la invocación **no como excepción a esas reglas, sino porque es exactamente el caso
+que esas reglas existen para cubrir**. Textual: *"la primera llamada de facturación fiscal del
+sistema la aprieto yo"*.
+
+El trabajo se parte en dos, y la frontera es dónde termina lo que un agente puede hacer sin tocar
+producción:
+
+- **TASK-014, relevamiento.** Solo lectura sobre `functions/` y el repositorio. Termina en un
+  **checklist accionable**: qué verificar o configurar en ARCA, en qué orden, y **cómo se sabe que
+  cada cosa está lista**. Un checklist sin criterio de verificación no sirve.
+- **TASK-015, el guion.** Deja escrito qué llamada exacta se hace, con qué datos, qué respuesta se
+  espera y cómo distinguir un CAE de un error entendido. Lo **revisa el auditor antes** de que
+  Gastón lo ejecute. Ningún agente lo corre.
+
+Un CAE y un error entendido y documentado son **los dos** resultados válidos. Lo que no es válido
+es un intento sin diagnóstico.
+
+`arcaActivo` sigue en `false` y no lo toca ningún agente. El ambiente `produccion` de ARCA no se
+usa nunca.
 
 ## 2026-09-04 — [GASTÓN] Un test verde que no discrimina es peor que no tener test
 LECCIÓN GENERAL, aplica a toda la suite que viene, no solo al caso que la originó.

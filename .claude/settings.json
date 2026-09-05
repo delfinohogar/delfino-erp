@@ -85,7 +85,6 @@
       "Edit(backend/docker-compose.yml)",
       "Edit(backend/.env*)",
       "Write(backend/.env*)",
-      "Edit(scripts/seed-emulator.mjs)",
       "Edit(scripts/safety-prod-denied.mjs)",
       "Edit(scripts/check-sintaxis.mjs)",
       "Write(migration/AUDIT_LOG.jsonl)",

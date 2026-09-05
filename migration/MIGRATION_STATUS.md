@@ -4,7 +4,7 @@ Fase actual: **1 en curso. 3 tareas cerradas, la suite en verde.**
 Rama de trabajo: `migration/postgresql`
 Última tarea cerrada: **TASK-002**, aprobada y mergeada el 2026-09-04
 Tareas bloqueadas: —
-Pendientes de Gastón: 3, en DECISIONS.md § PENDIENTE DE GASTÓN
+Pendientes de Gastón: 2, en DECISIONS.md § PENDIENTE DE GASTÓN
 
 ## Qué se hizo
 
@@ -17,7 +17,8 @@ FASE 0, el 2026-09-04:
 - **Se repararon tres afirmaciones falsas** que el repositorio daba por buenas: las decisiones
   P1–P12 y Q1–Q4 no estaban en DECISIONS.md (se incorporaron, textuales); R6–R11 y R18 nunca
   existieron (los riesgos se renumeraron y corren de R1 a R12 sin huecos); y el IVA en ventas no
-  está "calculado en $0" como dice CLAUDE.md, sino discriminado e imputado a 2.1.2.
+  está "calculado en $0" como decía CLAUDE.md, sino discriminado e imputado a 2.1.2. Esa línea de
+  CLAUDE.md la corrigió Gastón el 2026-09-04 en el commit `29eacb0`.
 - **Gastón resolvió tres decisiones de Nivel 3**: el IVA se calcula (corrige la premisa de P6),
   Tesorería queda fuera de la PoC pero se conserva el destino contable en `venta_pagos`, y solo
   los comprobantes conservan numeración en el corte (cierra P7).
@@ -87,10 +88,21 @@ dependen del esquema anterior.
 
 ## Qué está bloqueado o pendiente de Gastón
 
-Los tres pendientes de Gastón viven ahora en la sección **PENDIENTE DE GASTÓN de DECISIONS.md**,
-que es donde él los busca: estado real de las Cloud Functions desplegadas (R8), la línea falsa de
-CLAUDE.md sobre el IVA en $0, y el acceso a `js/firebase.js` que necesita el adaptador. Ninguno
-bloquea TASK-001 a TASK-010.
+Los pendientes de Gastón viven en la sección **PENDIENTE DE GASTÓN de DECISIONS.md**, que es
+donde él los busca. Quedan dos: el acceso a `js/firebase.js` que necesita el adaptador, y el
+**punto de venta de producción para ARCA** —si
+Delfino comparte los de GBP con numeración intercalada o usa uno exclusivo—, que es Nivel 3 por
+fiscal y por tocar un sistema que hoy factura. Ninguno bloquea TASK-001 a TASK-010, y el de ARCA
+tampoco bloquea homologación: los puntos de venta 4, 5 y 6 ya están habilitados para servicios
+web y no hay que crear ninguno.
+
+**R8 se cerró** el 2026-09-04: Gastón verificó en Firebase Console que `arcaAutorizarComprobante`
+no estaba desplegada —las 25 que había no la incluían— y la desplegó en `southamerica-east1`, con
+certificado de homologación y secretos cargados. **`arcaActivo` sigue en `false`.** Del deploy
+salieron dos riesgos nuevos que no son de la PoC pero tienen fecha: **R26**, Node.js 20 se
+decomisiona el **30 de octubre de 2026** y después no se puede desplegar sin migrar el runtime, y
+**R27**, `firebase-functions` desactualizado con breaking changes. Afectan a las 26 funciones y se
+planifican juntos.
 
 El test `_safety` en rojo, que TASK-001 detectó como preexistente, dejó de ser un pendiente de
 Gastón: lo resolvió el 2026-09-04 y quedó cerrado en TASK-011.
@@ -103,7 +115,7 @@ Netlify no lo lee).
 
 83 módulos en `js/` (10.719 LOC), 75 pantallas (12.403 LOC), 74 páginas HTML. 41 colecciones raíz
 y 6 subcolecciones. 32 módulos escriben en Firestore, con 140 call-sites, y **cero escrituras
-fuera de `js/`**. 48 decisiones, 25 riesgos, 43 invariantes de negocio más 7 propiedades de
+fuera de `js/`**. 50 decisiones, 27 riesgos, 43 invariantes de negocio más 7 propiedades de
 infraestructura, **109 tests** (41 unitarios y 68 de integración), **todos en verde**.
 
 ## Cómo leer esto

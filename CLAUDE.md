@@ -70,6 +70,10 @@ antes de trabajar en cualquier tarea de migración.
 - Contadores: `contadores/{ventas|asientos|comprobantes}`, campo `ultimo`. Se incrementan en
   transacción propia, así que una venta fallida quema el número.
 - Asientos: `movimientos: [{cuenta, debe, haber}]`, validados Debe = Haber antes de escribir.
-- El IVA en ventas está preparado pero calculado en $0.
+- El IVA en ventas se calcula y se discrimina. `discriminarIva()` en `js/contabilidad.js` resta
+  hacia atrás porque el precio ya lo incluye; el asiento imputa el neto a 4.1 Ventas y el IVA a
+  2.1.2 IVA Débito Fiscal. El IVA se redondea por línea y después se suma; el neto sale como
+  residuo (`total − iva`), así que el centavo de redondeo cae en 4.1 y nunca en la cuenta fiscal.
+  Esto NO es facturación fiscal: `arcaActivo` sigue en `false`.
 - Reportes: `ventasUnificadasEnRango` mezcla `/ventas` con `facturasGbp` sincronizadas.
   `reportePosicionIva` queda deliberadamente afuera (evita doble conteo fiscal).

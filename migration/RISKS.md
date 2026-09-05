@@ -8,10 +8,12 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R25 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+R31 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
 auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011, R20 el director, R21-R22 el
-auditor en la confirmación de TASK-011 y R23-R25 el auditor en la aprobación de TASK-002, todos el
-2026-09-04. R21 en adelante se agregan al final por orden de registro, no por severidad.
+auditor en la confirmación de TASK-011, R23-R25 el auditor en la aprobación de TASK-002, y
+R26-R27 el director con datos de Gastón, R28 el director en TASK-003 y R29-R31 el auditor en la
+aprobación de TASK-003, todos el 2026-09-04. R21 en adelante se agregan al final por orden de
+registro, no por severidad.
 
 ---
 
@@ -71,7 +73,7 @@ estructura exacta de las reglas de seguridad.
 Resuelto con `build.js` armando una carpeta `publicar/` curada (lista de permitidos) y
 `publish = "publicar"`. Verificado: las 9 rutas dan 404 y el control positivo da 200.
 
-## R8 — [MEDIA] ARCA WSFEv1 completo y apagado; qué está desplegado es DESCONOCIDO
+## R8 — [MEDIA] ARCA WSFEv1 completo y apagado; desplegado en homologación desde 2026-09-04
 El commit 902ef3c agregó la integración fiscal con ARCA (WSFEv1): determinación de tipo de
 comprobante, cálculo de IVA y solicitud de CAE. Queda inactiva por `arcaActivo = false` y sin
 UI para activarla. Existe código de facturación fiscal real a un flag de distancia. Activar
@@ -86,9 +88,26 @@ haya desplegado en sesiones anteriores.
 Una versión previa de este riesgo afirmaba que el backend (`functions/arcaFacturacion.js`,
 `arcaWsfe.js`) NO estaba desplegado. Esa afirmación no tenía respaldo verificable y se retira.
 
-PENDIENTE DE VERIFICACIÓN: el inventario de Cloud Functions realmente desplegadas se consulta
-en Firebase Console. Lo hace Gastón; ningún agente toca producción. Hasta entonces, el estado
-de `arcaAutorizarComprobante` se asume DESCONOCIDO y se planifica como si pudiera existir.
+**RESUELTO el 2026-09-04 por Gastón.** Verificó la lista completa de Cloud Functions en Firebase
+Console: `arcaAutorizarComprobante` **no estaba desplegada** — las 25 que había no la incluían.
+La duda queda cerrada con un dato, no con una suposición, y la versión retirada más arriba
+resultó ser correcta en el fondo aunque no tuviera respaldo en su momento.
+
+Estado real al 2026-09-04, informado por Gastón:
+- Certificado de homologación obtenido por WSASS, alias `DelfinoERP`, CUIT del certificado
+  20107859951.
+- Autorización creada para el servicio `ws://wsfe`, CUIT representado 33712451039.
+- `AFIP_CERT_HOMO`, `AFIP_KEY_HOMO` y `AFIP_CUIT_HOMO` cargados en Secret Manager con valores
+  reales.
+- `arcaAutorizarComprobante` **ahora sí desplegada**, en `southamerica-east1`. Las funciones
+  desplegadas pasan de 25 a 26.
+- **`arcaActivo` sigue en `false`. No se tocó.**
+
+Lo que cambia y lo que no: ya no hay incertidumbre sobre qué está desplegado, así que el riesgo
+deja de ser "no sabemos". Lo que **no** cambia es que sigue existiendo código de facturación
+fiscal real a un flag de distancia, ahora con credenciales de homologación cargadas y la función
+en línea. Activar ARCA sigue siendo **Nivel 3 explícito**, y `arcaActivo` no lo toca ningún
+agente. El ambiente `produccion` no se usa nunca.
 
 ## R9 — [MEDIA] Líneas de GBP sin artículo, con importe
 De 2.181 líneas en `facturasGbp`, 117 llegan sin `item_id`. De esas, 8 tienen precio real (una
@@ -441,3 +460,138 @@ Registrado por el auditor el 2026-09-04, en la aprobación de TASK-002.
    ninguna divergencia, y el criterio de redondeo es el mismo (medio hacia afuera del cero). Viene
    de 0002, no lo introdujo TASK-002. Se anota para que el shadow no atribuya a un bug lo que sea
    una diferencia de motor aritmético.
+
+## R26 — [MEDIA] Node.js 20 se decomisiona el 30 de octubre de 2026 y afecta a las 26 funciones
+Informado por Gastón el 2026-09-04, salido del deploy de `arcaAutorizarComprobante`.
+
+Google decomisiona el runtime Node.js 20 el **30 de octubre de 2026**. Después de esa fecha
+**no se puede desplegar** ninguna Cloud Function sin haber actualizado el runtime. Alcanza a las
+26 funciones de `functions/`, incluidas `gbpSincronizarFacturas`, las de Mercado Pago y la recién
+desplegada `arcaAutorizarComprobante`.
+
+Por qué MEDIA y no BAJA: no rompe nada mientras no haya que desplegar, pero convierte cualquier
+deploy urgente posterior a esa fecha en "primero migrá el runtime". Si el primer intento de
+desplegar después del 30 de octubre es un arreglo de producción apurado, la migración de runtime
+se hace en el peor momento posible.
+
+Fuera del alcance de la PoC: `functions/` es producción desplegada y ningún agente la toca. Se
+registra para que la fecha no aparezca de sorpresa. La actualización la planifica y ejecuta
+Gastón.
+
+## R27 — [MEDIA] `firebase-functions` desactualizado, con breaking changes al actualizar
+Informado por Gastón el 2026-09-04, en el mismo deploy que R26.
+
+La versión de `firebase-functions` que usan las 26 funciones está desactualizada y el aviso del
+deploy advierte **breaking changes** al subir de versión. Combinado con R26 forma una sola tarea
+real: el día que haya que tocar el runtime, además hay que absorber los cambios incompatibles de
+la librería, en 26 funciones a la vez.
+
+Igual que R26: fuera del alcance de la PoC, `functions/` no la toca ningún agente, y se registra
+para que las dos cosas se planifiquen juntas y con tiempo, no bajo presión.
+
+## R28 — [MEDIA] Tres copias de `crear_venta()` mantenidas a mano, y una cuarta en camino
+Detectado por el tester en TASK-003 y elevado por Gastón el 2026-09-04.
+
+`crear_venta()` está definida con `CREATE OR REPLACE` en `0002_venta_servicio.sql:46`,
+`0003_iva_y_destino_pago.sql:112` y `0004_precios_y_costos.sql:241`. El patrón es **correcto** en
+su motivo —no se editan migraciones ya aplicadas, porque eso rompe `schema_migrations`— pero cada
+cambio copia el cuerpo entero para tocar unas pocas líneas. En 0004 fueron **tres** agregados de
+`lista_precio_id` sobre ~90 líneas copiadas.
+
+Qué protege hoy, y qué no:
+- **Sí protege** la suite de comportamiento: los tests de TASK-002 corren contra la función
+  **viva**, así que una copia futura que rompa el IVA, la imputación o la fecha local sale en
+  rojo. El comparador de textos del tester **no** es el único centinela, y eso acota el riesgo.
+- **No protege** contra una divergencia de comportamiento que ningún test cubra. Ahí el error no
+  aparece en la suite: aparece en producción.
+- **No escala**: cada migración que toque la función suma una copia, y el costo de revisarlas
+  crece con el cuadrado de la cantidad, no con la cantidad.
+
+Margen real: **TASK-004 NO la toca** —`crear_venta()` llama a `siguiente_numero('ventas')` por
+nombre y esa firma no cambia—, así que no hay una cuarta copia inminente. La próxima que sí la va
+a tocar es **TASK-007** (`facturar_pedido`, que convierte el pedido en venta).
+
+**Condición de cierre (obligatoria, no opcional): antes de TASK-007.** Se cierra con
+**migraciones repetibles** — TASK-012 agrega soporte en el migrador para un directorio
+`backend/db/functions/` cuyos archivos se reaplican cuando cambia su hash, y TASK-018 mueve
+`crear_venta()` ahí. A partir de entonces la función tiene **una sola copia canónica** y las
+migraciones numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.
+
+## R29 — [MEDIA] `historial_costos` no distingue "compra registrada" de "aceptación del maestro"
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003. Detectado antes por el
+implementador (IMPLEMENTATION_LOG, duda 1) y evaluado por el tester (TEST_RESULTS, punto 4a).
+
+`0004_precios_y_costos.sql:103-117` da a `historial_costos` los nueve campos que pide P5. Con
+esos campos, la fila que dice "esta factura costó otra cosa" y la fila que el día de mañana diga
+"un usuario autorizado aceptó el costo nuevo y el maestro se movió" se ven **idénticas**. `origen`
+(`manual` | `factura_compra`) describe **de dónde salió el número**, no **si el maestro cambió**:
+son dos ejes distintos. Y `costo_anterior` se lee de `productos.costo_referencia` en cada INSERT,
+así que hoy repite siempre el mismo valor (`[600000, 600000, 600000]` en el test de tres compras
+seguidas); en cuanto exista la aceptación, esa misma columna pasa a significar una cosa distinta
+según la fila, sin nada que lo indique.
+
+**Por qué NO bloqueó TASK-003:** los criterios de aceptación piden exactamente los campos de P5 y
+están todos; la operación que vuelve ambigua la lectura no existe (`backend/src/` no tiene servicio
+de compras y la aceptación explícita quedó deliberadamente sin implementar, ARCHITECTURE §2.3), así
+que hoy ninguna fila puede leerse mal; y elegir el eje es una decisión de modelo contable, no de
+implementación: no la toma un agente solo.
+
+**Por qué es MEDIA y no informativo:** el historial de costos es la fuente de la que van a salir
+los márgenes. Una lectura que confunda "el proveedor me cobró esto" con "esto es lo que el ERP usa
+para costear" no da error: da un margen mal calculado, silencioso y hacia atrás.
+
+**Condición de cierre (obligatoria, no opcional).** La tarea que implemente la **aceptación
+explícita del costo maestro** tiene que agregar el eje en la misma tarea, y su auditor verificarlo:
+- un eje propio (`aplicado_en` / `aplicado_por`, o un `origen='aceptacion_maestro'` con CHECK que
+  exija que el maestro efectivamente cambió) — cuál de los dos es **decisión de Gastón**;
+- su propio test, que distinga las dos clases de fila por comportamiento;
+- y revisar el residuo de nomenclatura que dejó el tester: `metodo_costeo` se copia de
+  `productos.costo_modo` a cada fila, pero en modo `promedio` el `costo_nuevo` guardado es el costo
+  **crudo de la factura**, no un promedio ponderado. Quien escriba la fórmula tiene que leer eso
+  antes, o va a suponer que el número ya viene calculado "según el método".
+Mientras tanto queda plantado el centinela: el test `origen solo admite manual y factura_compra`
+de `tests/integration/postgres/precios_y_costos.test.js` se pone rojo el día que alguien amplíe el
+CHECK, y obliga a volver acá.
+
+## R30 — [BAJA] La inmutabilidad del historial se cae si el rol de la aplicación es dueño o superusuario
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003.
+
+Los tres triggers BEFORE de `0004_precios_y_costos.sql:142-159` rechazan **toda** la vía DML:
+verificado por el auditor con SQL directo — UPDATE con y sin WHERE, UPDATE que no cambia nada,
+DELETE con y sin WHERE, DELETE dentro de una CTE, DELETE desde una función plpgsql SECURITY
+DEFINER, TRUNCATE y TRUNCATE CASCADE, los ocho con SQLSTATE 23001 y la fila intacta. La migración
+ya dice que DROP TABLE no lo cubre ningún trigger y que eso es cuestión de permisos.
+
+Lo que falta decir es que hay **dos vías más** de la misma clase, reproducidas por el auditor sobre
+`delfino_test`: `SET session_replication_role = 'replica'` (requiere superusuario) y
+`ALTER TABLE historial_costos DISABLE TRIGGER …` (requiere ser dueño de la tabla). Con cualquiera
+de las dos, el UPDATE siguiente pasa y reescribe la fila. El rol `delfino` de la base local **es
+superusuario**, así que hoy, en desarrollo, la inmutabilidad es una convención sostenida por que
+nadie lo intente.
+
+No bloquea: `backend/src/` está vacío, no hay ningún llamador y en la PoC no existe todavía un rol
+de aplicación. **Condición de cierre:** la tarea que cree el usuario de base de la aplicación tiene
+que darle un rol **no dueño de las tablas y no superusuario**, con permisos DML acotados, y dejar
+un test que compruebe que desde ese rol `ALTER TABLE … DISABLE TRIGGER` y
+`SET session_replication_role` fallan. Migraciones y despliegue corren con otro rol.
+
+## R31 — [INFORMATIVO] `verificar_sin_recalculo_de_costo()` es una heurística de texto y se puede evadir
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003.
+
+`0004_precios_y_costos.sql:214-227` busca en `pg_proc.prosrc` con
+`prosrc ~* 'update\s+productos'` **y** `prosrc ~* 'costo_referencia'`. Es una lectura del texto
+fuente, no del plan: el auditor plantó una función con
+`update public.productos set costo_referencia = …` en un trigger AFTER INSERT sobre
+`historial_costos`; el maestro pasó de 600000 a 715000 y `verificar_sin_recalculo_de_costo()`
+devolvió **vacío**. Un `update "productos"`, un alias o un `EXECUTE` armado por concatenación
+tienen el mismo efecto.
+
+No es un defecto que importe hoy, y por eso queda informativo: lo que decide la invariante es el
+assert de comportamiento (`assertCompraNoPisaElMaestro`, que compara el número del maestro antes y
+después), y el tester tiene además un test propio que enumera **todos** los triggers no internos
+del esquema público contra una lista cerrada — ése sí caza la mutación evasiva. La función de la
+migración es un control secundario y así la usan los tests.
+
+**Qué no hacer:** usarla como única garantía, ni convertirla en el chequeo de un hook o de CI que
+"demuestre" que nadie reintrodujo el recálculo. Para eso vale la enumeración de triggers y el
+assert de comportamiento.

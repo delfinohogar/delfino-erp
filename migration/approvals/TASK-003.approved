@@ -1,0 +1,93 @@
+VEREDICTO: APROBADO
+Tarea: TASK-003 — Migración 0004: lista de precios en la venta e historial de costos
+Fecha: 2026-09-04
+Rama auditada: task/TASK-003
+Commit auditado: 672d984 (diff 9c3c36a..672d984)
+  · implementador: b8cee2e (backend/db/migrations/0004_precios_y_costos.sql + IMPLEMENTATION_LOG.md)
+  · tester: bc605ea (WIP) + b1877a5 (TEST_MATRIX.md, TEST_RESULTS.md)
+  · fuera del trabajo auditado, sin objeción: 14c234d y 29eacb0 (Gastón), 1948cdd (director;
+    commit mal etiquetado que arrastró el centinela de migrador.test.js — verificado y correcto)
+Auditor: independiente del implementador y del tester. Solo lectura sobre código y tests.
+Base usada: delfino_test (127.0.0.1:5432). delfino_dev y producción no se tocaron.
+
+## Invariantes verificadas — una línea por invariante
+
+- COSTO_MAESTRO_NO_AUTOMATICO (P5) — REPRODUCIDA POR EL AUDITOR, tres mutaciones propias:
+  base sin mutar `registrar_costo(1, 715000, 'factura_compra')` → costo_referencia 600000 antes
+  y 600000 después, con la fila (anterior 600000, nuevo 715000, metodo 'ultimo', compra 77);
+  mutación A (trigger AFTER INSERT que pisa el maestro) → 715000; mutación B (`registrar_costo()`
+  con el `update productos` de js/compras.js adentro) → 715000; mutación C (+0.01) → 600000.01.
+  El assert que decide (`assertCompraNoPisaElMaestro`, exacto `toBe(600000)`) distingue las tres.
+- DIVERGENCIA DELIBERADA CON js/compras.js — el promedio ponderado del ERP para este caso da
+  (5*600000 + 3*715000)/8 = 643125; el maestro no queda ni en 715000 ('ultimo') ni en 643125
+  ('promedio'). La divergencia se prueba por comportamiento observable, no por ausencia de trigger.
+- HISTORIAL_COSTOS_INMUTABLE (P5) — REPRODUCIDA POR SQL DIRECTO, sin pasar por funciones:
+  UPDATE con WHERE, UPDATE no-op (`set motivo = motivo`), UPDATE masivo, DELETE con y sin WHERE,
+  DELETE dentro de una CTE, DELETE desde una función plpgsql SECURITY DEFINER, TRUNCATE y
+  TRUNCATE CASCADE → todos rechazados con SQLSTATE 23001 y mensaje HISTORIAL_COSTOS_INMUTABLE;
+  la fila sigue existiendo idéntica después de cada intento. DELETE del producto padre → 23503.
+- LISTA_PRECIO_OPCIONAL (P3) — venta sin lista y sin fecha explícita: se registra igual, la
+  columna queda NULL y la fecha sale local (2026-09-04). `venta_items.lista_precio_id` es bigint,
+  nullable, sin default, con FK a `listas_precios(id)`. `listas_precios` tiene `nombre` UNIQUE
+  (23505 en la base), `regla_margen numeric`, `regla_redondeo text` y `activa boolean not null
+  default true`.
+- SIN REGRESIÓN DE TASK-002 sobre la crear_venta() de 0004 — REPRODUCIDA POR EL AUDITOR con una
+  venta mixta 21 % + 10,5 %: iva_total 648,68 (no 648,67), 2.1.2 haber 648,68; caja+banco →
+  1.1.1 debe 3000; cuentaPorCobrar → 1.1.5 debe 1500; pendiente → 1.1.2 debe 1500,03; 4.1 haber
+  5351,35; Debe = Haber = 6000,03; `verificar_iva_imputado()` devuelve vacío.
+- CONTABILIDAD (Debe = Haber) — `asientosDesbalanceados()` vacío en todos los casos de la suite.
+- HISTORICO_INMUTABLE (P4) — registrar un costo después de vender no cambia la línea vendida.
+- crear_venta() de 0004 = la de 0003 + tres líneas — verificado por el auditor con un diff textual
+  directo entre los dos archivos: los únicos cambios son `lista_precio_id` en el jsonb de la línea,
+  en la lista de columnas del INSERT y en el VALUES, más una palabra de un comentario. IVA,
+  destino contable, fecha local, redondeo con el neto como residuo y orden de bloqueo, intactos.
+- ALCANCE — el implementador tocó solo `0004_precios_y_costos.sql` e `IMPLEMENTATION_LOG.md`; el
+  tester solo `tests/` y `migration/TEST_*.md`. `git diff` sobre 0001, 0002, 0003, `js/`,
+  `functions/`, `scripts/`, `firestore.rules`, `firebase.json`, `netlify.toml`, `build.js` y
+  `.githooks/` es VACÍO. `.claude/settings.json` y `CLAUDE.md` los cambió Gastón (14c234d,
+  29eacb0), no los agentes.
+- CENTINELA DEL MIGRADOR — `expect(filas.length).toBe(4)` es correcto: hay cuatro migraciones y
+  los 18 tests de `migrador.test.js` pasan. El comentario obliga a revisar la quinta.
+- SIN RESIDUOS DE MUTACIONES — corrida completa de `precios_y_costos.test.js` y después consulta
+  al catálogo: 0 funciones `mut_*`, y los triggers no internos son exactamente los cinco
+  esperados (asiento_balanceado_trg, los tres de historial_costos, pedido_items_editable).
+  `verificar_sin_recalculo_de_costo()` vacío. Base dejada limpia al terminar la auditoría.
+- SUITE — corrida por el auditor: 41 unitarios verdes; 97 de integración Postgres verdes
+  (33 de TASK-003 + 25 de TASK-002 + 21 de invariantes + 18 del migrador).
+
+## Calidad de los tests (no solo su resultado)
+
+Los 33 tests prueban propiedades, no confirman la implementación. Los asserts que deciden están
+factorizados (`assertCompraNoPisaElMaestro`, `assertUpdateRechazado`, `assertDeleteRechazado`,
+`assertTruncateRechazado`) y cada mutación demuestra que ESA misma función se pone roja, con el
+daño explícito en números. El test de P3 no compara contra la implementación sino contra el
+esquema 0001-0003: corre las mismas tres ventas antes y después de 0004 y compara once relaciones
+campo por campo. `reemplazar()` falla ruidosamente si el texto a sustituir no está, así que una
+mutación que no se aplicó no puede dar falso verde. No encontré ningún test que pase con el
+código roto.
+
+## Observaciones registradas en RISKS.md, ninguna bloqueante
+
+- R29 [MEDIA] `historial_costos` no distingue "compra registrada" de "aceptación del maestro"
+  (el punto 6(a) del implementador), con condición de cierre obligatoria.
+- R30 [BAJA] La inmutabilidad depende de que el rol de la aplicación no sea dueño ni superusuario.
+- R31 [INFORMATIVO] `verificar_sin_recalculo_de_costo()` es una heurística de texto, evadible.
+
+## Puntos devueltos al director
+
+- Punto 8 (agujero 6(a)): NO obliga a rechazar. Va como riesgo con condición de cierre, igual que
+  R23 en TASK-002. Razones: los criterios de aceptación de TASK-003 piden exactamente los campos
+  de P5 y están todos; la operación que haría ambigua la lectura (la aceptación explícita) no
+  existe todavía, así que hoy ninguna fila puede leerse mal; y elegir el eje (`aplicado_en` /
+  `aplicado_por` contra `origen='aceptacion_maestro'`) es una decisión de modelo contable que un
+  agente no toma solo. Queda como R29, con cierre obligatorio en la tarea que implemente la
+  aceptación.
+- Punto 9 (R28, tres copias de crear_venta()): el encuadre me parece correcto — el patrón
+  CREATE OR REPLACE por migración es el correcto, el riesgo real es la divergencia silenciosa, y
+  las migraciones repetibles (TASK-012 + TASK-018 antes de TASK-007) lo cierran de raíz. Una cosa
+  que R28 no contempla y conviene sumar al accept de TASK-018: `recrearEsquema()` de
+  `tests/integration/postgres/_helpers.mjs` aplica SOLO `backend/db/migrations/*.sql`. El día que
+  `crear_venta()` viva en `backend/db/functions/`, ese helper va a dejar en la base la definición
+  vieja de 0004 y la suite entera va a seguir verde probando la copia equivocada. El helper tiene
+  que aplicar también las repetibles, y el test de TASK-018 tiene que verificarlo comparando
+  `pg_get_functiondef('crear_venta')` contra el archivo de `functions/`.
