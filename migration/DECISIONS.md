@@ -167,6 +167,26 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [GASTÓN] `--marcar-aplicadas` con repetibles: severidad MEDIA y cierre concreto
+Instrucción anotada apenas se recibió, con el auditor de TASK-012 todavía corriendo: no se puede
+mandar un mensaje a un subagente en vuelo, así que el director la aplica **al volver el veredicto**
+y la escribe acá para no perderla en el intervalo.
+
+El hallazgo del tester: `--marcar-aplicadas` **también baselinea repetibles**, y tras usarlo la
+función puede **no existir en la base** mientras la corrida siguiente informa `Repetibles: sin
+cambios`.
+
+Decisión de Gastón: **no bloquea, pero se registra como MEDIA, no BAJA**, con el mismo argumento
+que llevó R30 de BAJA a MEDIA: *el costo de descubrirlo tarde es desproporcionado*. Textual:
+**"un `crear_venta()` equivocado corriendo en silencio no aparece en un test, aparece en una
+venta"**. La asimetría que lo justifica es la que encontró el tester: con una migración numerada un
+baseline mal hecho revienta solo más adelante; con una repetible no revienta nunca, queda vieja o
+ausente sin ruido.
+
+Y la condición de cierre tiene que ser **concreta: qué tarea lo cierra y qué tiene que hacer.**
+Regla general que Gastón deja sentada: **"un riesgo atado a *más adelante* es un riesgo perdido"**.
+Aplica a todos los riesgos con condición de cierre, no solo a éste.
+
 ## 2026-09-05 — ANÁLISIS pedido por Gastón: aislamiento de emuladores (R36) y `singleProjectMode`
 Análisis, **no** decisión. No se cambió nada. Gastón decide.
 
