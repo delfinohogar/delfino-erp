@@ -45,8 +45,74 @@ justifica una migración.
 
 ---
 
+---
+
+# La otra cara: lo que NO salió como esperábamos
+
+Sección pedida por Gastón el 2026-09-05, con este argumento: **"si el informe solo tiene evidencia
+a favor, un lector razonable va a desconfiar de todo el resto. Y yo tengo que poder decidir el GO
+viendo las dos caras."**
+
+Es una obligación del informe, no un gesto de humildad: **un PoC que solo produce buenas noticias
+no está midiendo, está confirmando.** Lo que va acá no invalida las mejoras de arriba — las hace
+creíbles.
+
+## C1 — El ERP ya discriminaba el IVA. La migración replica, no mejora
+La decisión **P6** partía de una premisa **falsa**, tomada de `CLAUDE.md`: que el IVA en ventas
+estaba "preparado pero calculado en $0". El código real lo discrimina desde hace tiempo —
+`discriminarIva()` resta hacia atrás, el asiento imputa el neto a 4.1 y el IVA a 2.1.2 — y esa
+premisa se corrigió recién el 2026-09-04.
+
+**Qué significa para el PoC:** TASK-002 **no arregló nada**. Reprodujo un comportamiento que ya
+existía, y el criterio de éxito fue justamente ése: dar **el mismo centavo**, no uno mejor. El
+auditor lo verificó con 34.136 comparaciones contra el cuerpo literal de `discriminarIva()` y 400
+asientos completos contra una réplica de `js/ventas.js`, **cero divergencias**.
+
+Es trabajo necesario para migrar, pero **no es un argumento a favor de migrar**. Y la línea falsa
+de `CLAUDE.md` estuvo ahí lo suficiente como para que una decisión se construyera sobre ella: eso
+también es un dato sobre el estado del proyecto.
+
+## C2 — La UI ya impedía la venta con pendiente sin cliente
+**P2** formaliza en el esquema una regla que **ya se cumplía**. Verificado por el director el
+2026-09-05 en `js/venta-pago-modal.js:30`: el medio "Pendiente de pago" **solo aparece en la lista
+si hay un cliente seleccionado**, y el comentario del archivo lo dice explícitamente — *"no tiene
+sentido dejarle una deuda a Consumidor final"*.
+
+**Qué significa:** el `CHECK` de PostgreSQL convierte una convención de la interfaz en una
+**garantía estructural**, lo cual es una mejora real de robustez — pero **no cierra un agujero
+alcanzable hoy**. Nadie podía producir ese estado desde la UI.
+
+La distinción importa para el GO: es distinto "esto arregla algo que está pasando" de "esto impide
+algo que hoy no puede pasar, pero dependería de que nadie toque la UI".
+
+## C3 — El costo: 6 de 9 tareas cerradas no estaban en el plan
+Dato firme, de `METRICAS.md`. El primer lote de FASE 1 planificó diez tareas. De las **nueve
+cerradas** al 2026-09-05, **seis no estaban en el plan**: TASK-011, 012, 013, 018, 019 y 020.
+Además: **11 ciclos** para 9 tareas, **3 cortes** de agentes por límite de turnos, **3 bloqueos**
+que necesitaron intervención de Gastón, y **22 riesgos nuevos**.
+
+**Qué significa para el GO:** el plan original **predice 3 de cada 9 tareas reales**. Cualquier
+estimación de lo que falta —TASK-005 a TASK-010 y la fase de API, adaptador y shadow— tiene que
+contar con eso.
+
+**El matiz que evita proyectar de más**, y también el que evita subestimar: la mitad de esa deuda
+era **preexistente** y se agota; la otra mitad la **generó el propio trabajo** y no se agota. Y las
+tres propias salieron de tareas que estaban haciendo las cosas bien: TASK-018 existe porque
+TASK-002 y TASK-003 usaron el patrón correcto de no editar migraciones aplicadas. **No es deuda por
+descuido, es deuda por construcción**, y ésa es la que hay que presupuestar.
+
+---
+
 ## Cómo se usa este archivo
-Cada entrada nueva lleva un identificador `E-N`, el problema de los cuatro que ataca, la
+Cada entrada **a favor** lleva un identificador `E-N`, el problema de los cuatro que ataca, la
 comparación contra el comportamiento actual con su riesgo `RN` de referencia, la medición con
 números, y **el estado de la evidencia**: medida, fijada como test, o verificada por el auditor.
 Solo las verificadas por el auditor entran al `POC_REPORT.md` sin salvedad.
+
+Cada entrada **en contra** lleva `C-N` y el mismo estándar de prueba. **No se admite una entrada
+`E` sin buscar activamente su contraparte `C`**: si una mejora se mide solo donde conviene, no está
+medida. Al cerrar cada tarea se revisan las dos listas, no solo la primera.
+
+**Señal de alarma para el propio director:** si en algún momento las entradas `E` superan mucho a
+las `C`, lo más probable no es que el PoC vaya espectacular — es que se dejó de buscar la otra
+cara. Al 2026-09-05 van **1 a favor y 3 en contra**, y eso es sano, no preocupante.
