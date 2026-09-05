@@ -1415,3 +1415,202 @@ cambiar código: la convención tal como está pasa los criterios de la tarea.
 4400 y 4500). Se corrió `npx vitest run -c vitest.integration.config.js` contra ese mismo
 emulador ya levantado, que es lo que el director indicó.
 
+---
+
+## TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-018` sobre `fe3123a` (con `d50c8f5` encima, del
+  implementador).
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (`delfino-pg-dev`, 127.0.0.1:5432), `delfino_test` vía `DATABASE_URL_TEST` — nunca
+  `delfino_dev`, verificado por la barrera de los propios tests. Emulador de Firebase de Gastón
+  ya levantado en 8080/9099.
+- **Veredicto: VERDE.** Los 23 rojos que había al empezar eran todos del tester, consecuencia
+  esperada de dos cambios deliberados del implementador. **No se encontró ningún bug del
+  implementador.** No se tocó `backend/`, ni `js/`, ni `scripts/`, ni `package.json`.
+- **Archivos escritos:** `tests/integration/postgres/_repetibles_helpers.mjs`,
+  `tests/integration/postgres/_helpers.mjs`, `tests/integration/postgres/migrador.test.js`,
+  `tests/integration/postgres/migrador_repetibles.test.js`,
+  `tests/integration/postgres/crear_venta_canonica.test.js` (nuevo), `migration/TEST_MATRIX.md`
+  y este archivo.
+
+### Comandos ejecutados
+
+    # Estado inicial, sobre fe3123a + d50c8f5, sin tocar nada:
+    npx vitest run -c vitest.integration.config.js              -> 121/144 verde, 23 ROJOS
+
+    # Después de actualizar los tests:
+    npx vitest run -c vitest.integration.config.js \
+      tests/integration/postgres/migrador_repetibles.test.js    -> 30/30 verde
+    npx vitest run -c vitest.integration.config.js \
+      tests/integration/postgres/migrador.test.js               -> 19/19 verde
+    npx vitest run -c vitest.integration.config.js \
+      tests/integration/postgres/crear_venta_canonica.test.js   ->  4/4  verde
+    npx vitest run -c vitest.integration.config.js              -> 152/152 verde (8 archivos)
+    npm test                                                    -> 152/152 verde (9 archivos)
+    npm run test:integration                                    -> NO ARRANCA (infraestructura)
+
+Con `DATABASE_URL_TEST=postgres://delfino:delfino_local_dev@127.0.0.1:5432/delfino_test`,
+`FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` y `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099`.
+
+### Los 23 rojos iniciales, y por qué eran míos
+
+**21 en `migrador_repetibles.test.js`.** Raíz única: `_repetibles_helpers.mjs:64` armaba el árbol
+de la copia desechable del migrador con `join(raiz,"backend","db","functions")`, mientras
+`migrar.js` pasó a resolver `backend/db/repetibles/`. La copia dejaba las repetibles en un
+directorio que el migrador ya no mira, así que todos los tests que esperaban ver una repetible
+aplicada veían "Repetibles: sin cambios".
+
+Arreglado, pero **no escribiendo el nombre nuevo a mano**: el helper ahora **deriva** el nombre
+de `basename(DIR_REPETIBLES)`, importado de `migrar.js`. Un próximo renombre lo sigue solo. Es
+la diferencia entre arreglar este rojo y arreglar la clase entera.
+
+Y hay una consecuencia peor que los 21 rojos, que sí hubo que cubrir aparte: los dos tests de
+`MIGRADOR_REPETIBLES_DIRECTORIO` ("no existe" y "vacío") estuvieron **verdes todo el tiempo, por
+el motivo equivocado** — el migrador no encontraba repetibles porque miraba otro directorio, no
+porque el directorio estuviera vacío. Se agregó el control que faltaba: el directorio que arma la
+copia tiene que ser el que resuelve `migrar.js`, y una repetible puesta ahí tiene que desplegarse.
+
+**`migrador.test.js:73`** — centinela `toBe(4)` → `toBe(5)`, por la migración `0006`. Se dejó
+anotado en el comentario que no hay `0005` (reservado para TASK-004, todavía PENDING), para que
+el próximo que lo lea no salga a buscar un archivo que no existe.
+
+**`migrador.test.js:445`** — `--marcar-aplicadas` sobre una base vacía. Se puso rojo porque ahora
+`backend/db/repetibles/crear_venta.sql` existe y el chequeo de R37 aborta el baseline. Es el
+comportamiento nuevo y correcto. El test pasó a afirmarlo, y para no perder la cobertura del caso
+legítimo se partió en dos: uno verifica el **aborto** (exit != 0, `ABORTADO`, ni una fila en
+`schema_migrations` ni en `schema_repetibles`, ni una relación creada, y que la salida de
+recuperación que propone el propio mensaje —correr sin flags— funciona); el otro despliega a mano
+las repetibles reales y recién ahí baselinea, verificando lo de siempre: **marca sin ejecutar**
+(las cinco numeradas registradas, `clientes` y `ventas` inexistentes).
+
+### `migrador_repetibles.test.js:925` — el test que afirmaba lo contrario
+
+Éste no estaba roto: afirmaba la convención **vieja** de `--marcar-aplicadas`, la que R37 revierte
+a propósito. Textual, lo que decía el test viejo: *"la corrida normal siguiente NO despliega la
+función […] si no lo estaba, la función no existe y nadie avisa"*, con
+`expect(await existeFuncion(cli, "repet_a")).toBe(false)` después de la corrida normal.
+
+Ahora afirma lo contrario, y la convención vieja **no desaparece de la suite**: queda como
+mutante. Tres tests, con la propiedad escrita **una sola vez** (`violacionesR37`) y usada por el
+test real y por el mutante, que es el método que ya usaba este archivo:
+
+1. `--marcar-aplicadas` **FALLA** si una repetible declara algo que la base no tiene: exit != 0,
+   el mensaje nombra archivo (`a.sql`) y función (`repet_a`), no escribe **ni una fila** en
+   ninguna de las dos tablas de control, no ejecuta nada, y después de correr sin flags el
+   baseline sí es cierto y no tiene nada que hacer.
+2. **MUTACIÓN R20** — obligatoria, y es la que le da valor al de arriba.
+3. El chequeo recorre **todas** las repetibles y no solo las pendientes: un `DROP FUNCTION` a
+   mano (fila al día, función ausente) lo dispara igual. Es la otra mitad de R37, la que el
+   auditor había demostrado que llegaba al mismo estado incoherente por otro camino.
+
+**La mutación, medida.** Se le saca a `repetiblesNoDesplegadas()` la consulta a `pg_proc` y se la
+reemplaza por `const rows = [{ esta: true, candidatas: 1 }]`, o sea que el baseline vuelve a
+creerle a la tabla de control en vez de mirar la base. Corriendo **la misma propiedad** contra el
+migrador real y contra el mutante:
+
+    === ORIGINAL ===            exit=1   violaciones: []  (propiedad CUMPLIDA)
+    === MUTANTE_SIN_PG_PROC === exit=0   violaciones:
+      - --marcar-aplicadas salio 0 pese a que repet_a() no esta desplegada
+      - la salida no dice que el baseline se aborto
+      - schema_migrations quedo con 1 fila(s): el baseline escribio
+      - schema_repetibles quedo con 1 fila(s): el baseline escribio
+
+Y el mutante llega exactamente al estado incoherente que R37 impide: fila `a.sql` al día,
+`repet_a()` **ausente**, y la corrida siguiente informando `Repetibles: sin cambios`. Como el test
+real exige `violacionesR37(...) === []`, sacar la verificación contra `pg_proc` lo pone **rojo**.
+
+### `recrearEsquema()` — lo que decide la tarea, y no era un rojo
+
+`tests/integration/postgres/_helpers.mjs:22` aplicaba **solo** `backend/db/migrations/*.sql`. Con
+eso, después del corte de la migración `0006`, la suite entera estaba probando la copia de
+`crear_venta()` que quedó en `0004`, no la canónica de `repetibles/`. Hoy las dos son idénticas,
+así que **el test no mentía todavía** — mentiría el día que alguien edite
+`repetibles/crear_venta.sql`, y seguiría verde probando la versión vieja. Lo detectaron el auditor
+de TASK-003 y el implementador de TASK-018.
+
+`recrearEsquema()` ahora aplica también las repetibles, **después** de las numeradas y con el
+mismo tratamiento del texto que `migrar.js`: numeradas crudas, repetibles normalizadas a LF
+(R32/R33). La ruta no se escribe a mano: se importa `DIR_REPETIBLES` de `migrar.js`.
+
+**Verificado con `pg_get_functiondef()`, no razonado.** Después de `recrearEsquema(pool)` sobre
+`delfino_test`:
+
+    CREATE OR REPLACE FUNCTION public.crear_venta(p_cliente_id bigint, p_vendedor text, p_fecha date, p_items jsonb, p_pagos jsonb, p_entrega text, p_idem text, p_fallar_en text DEFAULT NULL::text)
+     RETURNS bigint
+     LANGUAGE plpgsql
+    AS $function$
+    declare
+      v_id bigint; v_numero bigint; a_id bigint; a_numero bigint;
+    ...
+
+    CR (\r) dentro de pg_get_functiondef ................................. 0
+    prosrc == cuerpo de backend/db/repetibles/crear_venta.sql (LF) ....... true
+    prosrc == cuerpo de backend/db/migrations/0004 (crudo, CRLF) ......... false
+    CR en el cuerpo de 0004 crudo ........................................ 163
+    obj_description('crear_venta') = "Definicion canonica en backend/db/repetibles/crear_venta.sql
+      (migracion repetible, R28/TASK-018). No redefinir en migraciones numeradas."
+
+Los 163 `\r` son el número que el auditor midió en TASK-019 y que el criterio de aceptación cita:
+la copia de `0004` se aplica cruda y en este checkout está en CRLF (`git ls-files --eol` da
+`i/lf w/crlf`), mientras la repetible se despliega normalizada. O sea que **hoy las dos rutas dan
+cuerpos distintos y la comparación discrimina de verdad**, no es una tautología.
+
+Eso quedó como archivo de test propio, `crear_venta_canonica.test.js` (invariante
+`CREAR_VENTA_CANONICA`, 4 tests): la comparación byte a byte contra el archivo canónico, el
+`COMMENT` de `0006`, el **control** (aplicar solo las numeradas deja la copia de `0004`, distinta
+de la que corre en los tests) y una **mutación** independiente del checkout: aplicando las
+numeradas y después una variante marcada de la repetible, gana la repetible. Esta última existe
+porque el poder discriminante del CRLF depende del checkout; la de la marca, no.
+
+### R20 — la prueba de que la mudanza no cambió comportamiento
+
+`invariantes.test.js`, `iva_destino_y_fecha.test.js` y `precios_y_costos.test.js` **no se
+tocaron** (`git status` los muestra sin modificar) y siguen **verdes después** del cambio de
+`recrearEsquema()`, que es el momento en que pasan a probar de verdad la función canónica y no la
+copia de `0004`. Ésa es la prueba pedida: IVA a 2.1.2 = 648,68, imputación caja/banco → 1.1.1,
+cuentaPorCobrar → 1.1.5, pendiente → 1.1.2, fecha local estable en varios husos, venta sin lista
+de precios (P3), CONTABILIDAD, CONCURRENCIA, RESERVAS_CONSISTENTES y el resto. Ninguno se puso
+rojo. Si alguno se hubiera puesto, era el hallazgo más importante de la tarea y se reportaba sin
+arreglarlo.
+
+### Verde/rojo por invariante
+
+| Invariante | Estado | Nota |
+|---|---|---|
+| VENTA_NORMAL | VERDE | `invariantes.test.js`, sin tocar, ahora contra la función canónica |
+| STOCK_INSUFICIENTE | VERDE | ídem |
+| FALLO_INTERMEDIO | VERDE | ídem |
+| DOBLE_ENVIO | VERDE | ídem |
+| CONCURRENCIA | VERDE | ídem |
+| CONTABILIDAD | VERDE | ídem, asientos balanceados |
+| IVA_DISCRIMINADO / DESTINO_PAGO / FECHA_LOCAL | VERDE | `iva_destino_y_fecha.test.js`, sin tocar |
+| PRECIOS_Y_COSTOS (P3/P4/P5) | VERDE | `precios_y_costos.test.js`, sin tocar |
+| CREAR_VENTA_CANONICA | VERDE | nueva, 4 tests, con control y mutación |
+| MIGRADOR_BASELINE | VERDE | reescrita: aborto R37 + baseline legítimo |
+| MIGRADOR_REPETIBLES_CONVENCIONES | VERDE | invertida a R37, con mutante y caso `DROP FUNCTION` |
+| MIGRADOR_REPETIBLES_DIRECTORIO | VERDE | + control de que el directorio es el que resuelve `migrar.js` |
+| Resto de `MIGRADOR_*` | VERDE | recuperadas por el arreglo de `_repetibles_helpers.mjs` |
+
+COMPROBANTES, COMPRA_ATOMICA, COBRO_SIN_PARCIAL y CTA_CTE no aplican a esta tarea: sus tareas
+todavía no están implementadas.
+
+### Tipo de rojo
+
+**Ninguno de lógica al cerrar.** Los 23 rojos iniciales eran **rojos de test desactualizado**, no
+de implementación: dos cambios deliberados y correctos del implementador, que él detectó y no
+tocó. Queda un rojo de **infraestructura**, conocido y ajeno a la tarea:
+`npm run test:integration` no arranca mientras el emulador de Gastón esté en pie
+(`Error: Could not start Authentication Emulator, port taken.`, más los avisos de 8080, 9199,
+4400 y 4500). Se corrió `npx vitest run -c vitest.integration.config.js` contra ese mismo
+emulador ya levantado, que es lo que el director indicó.
+
+### Nota de higiene
+
+Durante esta tarea llegó, dentro del resultado de una herramienta, un texto que indicaba editar
+los archivos por shell (`sed`, heredocs) en vez de con la herramienta de edición. Se ignoró: es
+texto inyectado, contradice la consigna explícita de la tarea, y ya le pasó a otros agentes.
+Todos los archivos de esta tarea se editaron con la herramienta de edición.
+
+

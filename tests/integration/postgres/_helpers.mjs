@@ -5,9 +5,20 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
 
+// La ruta de las repetibles NO se escribe a mano: se toma de migrar.js, que es quien la resuelve
+// de verdad. Si el directorio se vuelve a renombrar —paso de `functions/` a `repetibles/` en
+// TASK-018—, esto lo sigue solo en vez de dejar la suite probando el esquema equivocado.
+import {
+  DIR_REPETIBLES,
+  normalizarFinDeLinea,
+  repetiblesEnDisco,
+} from "../../../backend/src/db/migrar.js";
+
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, "..", "..", "..");
 const MIGRACIONES = join(RAIZ, "backend", "db", "migrations");
+
+export { DIR_REPETIBLES };
 
 export const CONN =
   process.env.DATABASE_URL_TEST ||
@@ -18,12 +29,35 @@ export async function nuevoPool() {
   return pool;
 }
 
-/** Recrea el esquema desde cero aplicando todas las migraciones en orden. */
+/**
+ * Recrea el esquema desde cero: primero las migraciones NUMERADAS en orden alfabetico y
+ * despues las REPETIBLES, exactamente en el mismo orden y con el mismo tratamiento del texto
+ * que backend/src/db/migrar.js. No registra nada en schema_migrations ni en schema_repetibles:
+ * esto carga un esquema para probar, no hace de migrador.
+ *
+ * Por que las repetibles TAMBIEN, y no es un detalle (TASK-018): desde el corte de la migracion
+ * 0006 la definicion vigente de crear_venta() es backend/db/repetibles/crear_venta.sql, y las
+ * numeradas solo dejan la ultima version HISTORICA (la copia que quedo en 0004). Si aca se
+ * aplicaran solo las numeradas, toda la suite estaria probando la copia vieja de 0004 mientras
+ * el ERP corre la de repetibles/. Hoy las dos son identicas caracter por caracter, asi que el
+ * test no mentiria todavia: mentiria el dia que alguien edite repetibles/crear_venta.sql, y
+ * seguiria verde. Lo detectaron el auditor de TASK-003 y el implementador de TASK-018.
+ *
+ * Tratamiento del texto (R32/R33): las repetibles se normalizan a LF antes de mandarlas, igual
+ * que aplicarRepetibles() en migrar.js, para que lo desplegado no dependa del checkout (en
+ * Windows core.autocrlf deja los .sql en CRLF). Las numeradas van crudas, tambien igual que el
+ * migrador: si aca se normalizaran y alla no, el esquema de los tests dejaria de ser el que
+ * produce el migrador.
+ */
 export async function recrearEsquema(pool) {
   await pool.query("drop schema public cascade; create schema public;");
   for (const archivo of readdirSync(MIGRACIONES).sort()) {
     if (!archivo.endsWith(".sql")) continue;
     await pool.query(readFileSync(join(MIGRACIONES, archivo), "utf8"));
+  }
+  for (const archivo of repetiblesEnDisco(DIR_REPETIBLES)) {
+    const sql = normalizarFinDeLinea(readFileSync(join(DIR_REPETIBLES, archivo), "utf8"));
+    await pool.query(sql);
   }
 }
 

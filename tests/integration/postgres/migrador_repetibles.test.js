@@ -12,7 +12,7 @@
 //   - dos corridas seguidas sin cambios no reaplican nada;
 //   - cambiar un byte reaplica SOLO ese archivo;
 //   - mismo pg_advisory_lock que las numeradas: en paralelo se aplican una sola vez;
-//   - db/functions/ puede no existir o estar vacio;
+//   - db/repetibles/ puede no existir o estar vacio;
 //   - un argumento desconocido aborta con exit != 0, lista los validos y no crea NI UNA tabla;
 //   - --estado crea las dos tablas de control vacias y nada mas (lo que dice el README).
 //
@@ -24,10 +24,25 @@
 // Aislamiento: base temporal propia por test (delfino_test_mig_*), destruida al final;
 // delfino_test se usa solo como base administrativa. El migrador bajo prueba es una COPIA
 // desechable en tests/.tmp-migrador/ (ver _repetibles_helpers.mjs): el tester no escribe en
-// backend/ y en particular no crea backend/db/functions/crear_venta.sql, que es TASK-018.
+// backend/, y las repetibles de estos tests son SQL inventado, no el dominio.
+//
+// Actualizado en TASK-018 por dos cambios deliberados, ninguno un bug del implementador:
+//   1) el directorio de repetibles pasa de backend/db/functions/ a backend/db/repetibles/
+//      (decision de Gaston, 2026-09-05; ver R39). La copia del migrador lo DERIVA de
+//      DIR_REPETIBLES en vez de escribirlo a mano, asi un proximo renombre no deja estos tests
+//      probando en silencio el caso "no hay repetibles";
+//   2) --marcar-aplicadas ahora FALLA si lo que baselinea no esta desplegado (R37). El test de
+//      MIGRADOR_REPETIBLES_CONVENCIONES afirmaba la convencion CONTRARIA —baseline en silencio,
+//      funcion ausente, "Repetibles: sin cambios"—; esa convencion ya no rige y el test pasa a
+//      afirmar lo nuevo, con el mutante que demuestra que discrimina.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { basename } from "node:path";
 
-import { leerRepetible, normalizarFinDeLinea } from "../../../backend/src/db/migrar.js";
+import {
+  DIR_REPETIBLES,
+  leerRepetible,
+  normalizarFinDeLinea,
+} from "../../../backend/src/db/migrar.js";
 import {
   ADMIN_URL,
   baseDeUrl,
@@ -47,6 +62,7 @@ import {
   filasSchemaRepetibles,
   lanzarCopia,
   limpiarDirTrabajo,
+  NOMBRE_DIR_REPETIBLES,
   prosrcDe,
   relacionesPublic,
 } from "./_repetibles_helpers.mjs";
@@ -134,6 +150,24 @@ const MUT_SIN_NORMALIZAR = [
 }`,
 ];
 
+/**
+ * MUTANTE 4 (R37): al chequeo previo de --marcar-aplicadas se le saca la consulta a pg_proc y
+ * pasa a creerle a la tabla de control. Es exactamente la convencion VIEJA, la que este mutante
+ * existe para demostrar que ya no rige: sin mirar la base, el baseline no tiene como saber que
+ * la funcion no esta desplegada y la marca igual.
+ */
+const MUT_R37_SIN_MIRAR_LA_BASE = [
+  `      const { rows } = await cliente.query(
+        \`select coalesce(bool_or(p.pronargs = $2), false) as esta,
+                count(*)::int                             as candidatas
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+          where p.proname = $1 and n.nspname not in ('pg_catalog', 'information_schema')\`,
+        [nombre, argumentos]
+      );`,
+  `      const rows = [{ esta: true, candidatas: 1 }];`,
+];
+
 // --- Andamiaje ---------------------------------------------------------------------------
 
 const basesCreadas = new Set();
@@ -207,6 +241,40 @@ async function violacionesCrlf(cli, { antes, despues, salida }) {
   }
   return problemas;
 }
+/**
+ * R37 (TASK-018): --marcar-aplicadas MIRA la base antes de escribir y FALLA si una repetible
+ * declara algo que no esta desplegado. Falla: no avisa. Y no escribe NADA, ni numeradas ni
+ * repetibles, para que el aborto no deje un baseline hecho a medias.
+ */
+async function violacionesR37(cli, corrida) {
+  const problemas = [];
+  if (corrida.status === 0) {
+    problemas.push("--marcar-aplicadas salio 0 pese a que repet_a() no esta desplegada");
+  }
+  if (!/ABORTADO/i.test(corrida.salida)) {
+    problemas.push("la salida no dice que el baseline se aborto");
+  }
+  for (const tabla of ["schema_migrations", "schema_repetibles"]) {
+    if (!(await existeRelacion(cli, tabla))) continue;
+    const { rows } = await cli.query(`select count(*)::int as n from ${tabla}`);
+    if (rows[0].n > 0) problemas.push(`${tabla} quedo con ${rows[0].n} fila(s): el baseline escribio`);
+  }
+  return problemas;
+}
+
+/**
+ * El estado incoherente que R37 vino a impedir: fila al dia en schema_repetibles, funcion
+ * ausente en la base, y la corrida siguiente informando "Repetibles: sin cambios".
+ */
+async function llegoAlEstadoIncoherente(cli, segunda) {
+  const registradas = (await filasSchemaRepetibles(cli)).map((f) => f.nombre);
+  return (
+    registradas.includes("a.sql") &&
+    !(await existeFuncion(cli, "repet_a")) &&
+    segunda.salida.includes("Repetibles: sin cambios")
+  );
+}
+
 const lineasAplicada = (salida) =>
   salida.split(/\r?\n/).filter((l) => /^\s*repetible aplicada\s+\S+\.sql\s*$/.test(l));
 const lineasReaplicada = (salida) =>
@@ -676,7 +744,7 @@ $fn$;
 
 // =========================================================================================
 describe("MIGRADOR_REPETIBLES_DIRECTORIO", () => {
-  it("db/functions/ inexistente no es un error", async () => {
+  it("db/repetibles/ inexistente no es un error", async () => {
     const c = copia({ migraciones: MIG_BASE, repetibles: null });
     const { nombre, url } = await baseLimpia("rep_dir1");
     const cli = await clienteDe(url);
@@ -695,7 +763,7 @@ describe("MIGRADOR_REPETIBLES_DIRECTORIO", () => {
     }
   });
 
-  it("db/functions/ vacio tampoco es un error", async () => {
+  it("db/repetibles/ vacio tampoco es un error", async () => {
     const c = copia({ migraciones: MIG_BASE, repetibles: [] });
     const { nombre, url } = await baseLimpia("rep_dir2");
     const cli = await clienteDe(url);
@@ -704,6 +772,27 @@ describe("MIGRADOR_REPETIBLES_DIRECTORIO", () => {
       expect(r.status, r.salida).toBe(0);
       expect(r.salida).toContain("Repetibles: sin cambios");
       expect(await filasSchemaRepetibles(cli)).toEqual([]);
+    } finally {
+      await cerrar(cli, nombre);
+    }
+  });
+
+  // CONTROL de los dos de arriba, y no es paranoia: los dos dan verde tambien si la copia deja
+  // las repetibles en un directorio que el migrador NO mira. Eso paso de verdad en TASK-018
+  // —el renombre de functions/ a repetibles/ dejo 21 tests rojos y estos dos verdes por el
+  // motivo equivocado—. Aca se exige que el directorio que la copia escribe sea el mismo que
+  // migrar.js resuelve, y que una repetible puesta ahi se despliegue.
+  it("el directorio que usa la copia es el que resuelve migrar.js, y una repetible puesta ahi se aplica", async () => {
+    expect(basename(DIR_REPETIBLES)).toBe(NOMBRE_DIR_REPETIBLES);
+    const c = copia({ migraciones: MIG_BASE, repetibles: [["a.sql", FUNCION("repet_a", 1)]] });
+    expect(basename(c.dirRepetibles)).toBe(basename(DIR_REPETIBLES));
+    const { nombre, url } = await baseLimpia("rep_dir3");
+    const cli = await clienteDe(url);
+    try {
+      const r = correrCopia(c, [], entorno({ testUrl: url }));
+      expect(r.status, r.salida).toBe(0);
+      expect(r.salida).toMatch(/repetible aplicada\s+a\.sql/);
+      expect(await existeFuncion(cli, "repet_a")).toBe(true);
     } finally {
       await cerrar(cli, nombre);
     }
@@ -915,31 +1004,95 @@ describe("MIGRADOR_FLAGS", () => {
 
 // =========================================================================================
 describe("MIGRADOR_REPETIBLES_CONVENCIONES", () => {
-  it("--marcar-aplicadas baselinea tambien las repetibles: registra nombre y hash sin ejecutar", async () => {
+  // ESTE TEST AFIRMABA LO CONTRARIO hasta TASK-018, y no porque estuviera mal escrito: afirmaba
+  // la convencion vigente hasta ese momento —--marcar-aplicadas baselineaba las repetibles en
+  // silencio, aunque la funcion no estuviera desplegada, y la corrida siguiente informaba
+  // "Repetibles: sin cambios"—. El agujero lo encontro el tester en TASK-012 y quedo como R37.
+  // Gaston lo cerro el 2026-09-05 con la salida dura, textual: "un crear_venta() equivocado
+  // corriendo en silencio no aparece en un test, aparece en una venta". Documentarlo quedo
+  // descartado: el flag FALLA. Asi que el test invierte su afirmacion. La convencion vieja no
+  // desaparece de la suite: queda como MUTANTE, abajo, que es donde se puede ver que el chequeo
+  // discrimina de verdad.
+  it("--marcar-aplicadas FALLA si una repetible declara algo que la base no tiene, y no marca NADA (R37)", async () => {
     const c = copia({ migraciones: MIG_BASE, repetibles: [["a.sql", FUNCION("repet_a", 1)]] });
     const { nombre, url } = await baseLimpia("conv1");
     const env = entorno({ testUrl: url });
     const cli = await clienteDe(url);
     try {
       const r = correrCopia(c, ["--marcar-aplicadas"], env);
-      expect(r.status, r.salida).toBe(0);
-      expect(r.salida).toMatch(/BASELINE/i);
-      expect(r.salida).toMatch(/repetible marcada SIN correr\s+a\.sql/);
+      expect(await violacionesR37(cli, r)).toEqual([]);
 
-      // Registrada con el hash del archivo, pero NO ejecutada.
-      const filas = await filasSchemaRepetibles(cli);
-      expect(filas.map((f) => f.nombre)).toEqual(["a.sql"]);
-      expect(filas[0].hash).toBe(leerRepetible(c.dirRepetibles, "a.sql").hash);
+      // El mensaje nombra el archivo y la funcion: un error que no dice cual no sirve de nada.
+      expect(r.salida).toContain("a.sql");
+      expect(r.salida).toContain("repet_a");
+      expect(r.salida).toMatch(/No se marco NADA/i);
+      // Y no ejecuto nada, ni numeradas ni repetibles.
       expect(await existeFuncion(cli, "repet_a")).toBe(false);
       expect(await existeRelacion(cli, "repet_base")).toBe(false);
 
-      // Consecuencia de la convencion, documentada aca a proposito: la corrida normal
-      // siguiente NO despliega la funcion. El operador que baselinea afirma que la base ya
-      // esta en el estado de los archivos; si no lo estaba, la funcion no existe y nadie avisa.
+      // La salida que propone el propio error, y que ahora es la unica: correr sin flags.
+      const normal = correrCopia(c, [], env);
+      expect(normal.status, normal.salida).toBe(0);
+      expect(await existeFuncion(cli, "repet_a")).toBe(true);
+      // Y recien ahi el baseline es cierto y no tiene nada que hacer.
+      const despues = correrCopia(c, ["--marcar-aplicadas"], env);
+      expect(despues.status, despues.salida).toBe(0);
+      expect(despues.salida).toContain("Repetibles: sin cambios");
+      const filas = await filasSchemaRepetibles(cli);
+      expect(filas.map((f) => f.nombre)).toEqual(["a.sql"]);
+      expect(filas[0].hash).toBe(leerRepetible(c.dirRepetibles, "a.sql").hash);
+    } finally {
+      await cerrar(cli, nombre);
+    }
+  });
+
+  it("MUTACION R20: sin la consulta a pg_proc, --marcar-aplicadas baselinea una funcion ausente y nadie avisa", async () => {
+    const c = copia({
+      migraciones: MIG_BASE,
+      repetibles: [["a.sql", FUNCION("repet_a", 1)]],
+      mutaciones: [MUT_R37_SIN_MIRAR_LA_BASE],
+    });
+    const { nombre, url } = await baseLimpia("conv1_mut");
+    const env = entorno({ testUrl: url });
+    const cli = await clienteDe(url);
+    try {
+      const r = correrCopia(c, ["--marcar-aplicadas"], env);
+      // El mutante NO cumple la propiedad: sale 0 y escribe. Si esta lista viniera vacia, el
+      // test de arriba estaria verde por casualidad y no probaria nada.
+      const violaciones = await violacionesR37(cli, r);
+      expect(violaciones.length, "el mutante cumplio la propiedad: el test no discrimina").toBeGreaterThan(0);
+      expect(r.status, r.salida).toBe(0);
+      expect(r.salida).toMatch(/repetible marcada SIN correr\s+a\.sql/);
+
+      // Y llega exactamente al estado incoherente que R37 impide: fila al dia, funcion ausente,
+      // migrador diciendo "sin cambios". Esta era la convencion vieja, tal cual.
+      const filas = await filasSchemaRepetibles(cli);
+      expect(filas.map((f) => f.nombre)).toEqual(["a.sql"]);
+      expect(filas[0].hash).toBe(leerRepetible(c.dirRepetibles, "a.sql").hash);
       const segunda = correrCopia(c, [], env);
       expect(segunda.status, segunda.salida).toBe(0);
-      expect(segunda.salida).toContain("Repetibles: sin cambios");
-      expect(await existeFuncion(cli, "repet_a")).toBe(false);
+      expect(await llegoAlEstadoIncoherente(cli, segunda)).toBe(true);
+    } finally {
+      await cerrar(cli, nombre);
+    }
+  });
+
+  it("el chequeo de R37 recorre TODAS las repetibles, no solo las pendientes: un DROP FUNCTION a mano tambien lo dispara", async () => {
+    const c = copia({ migraciones: MIG_BASE, repetibles: [["a.sql", FUNCION("repet_a", 1)]] });
+    const { nombre, url } = await baseLimpia("conv1_drop");
+    const env = entorno({ testUrl: url });
+    const cli = await clienteDe(url);
+    try {
+      expect(correrCopia(c, [], env).status).toBe(0);
+      expect(await existeFuncion(cli, "repet_a")).toBe(true);
+
+      // Camino distinto, mismo estado incoherente: la fila queda al dia (o sea, la repetible NO
+      // esta pendiente) y la funcion desaparece. El chequeo tiene que verlo igual.
+      await cli.query("drop function repet_a()");
+      const r = correrCopia(c, ["--marcar-aplicadas"], env);
+      expect(r.status, r.salida).not.toBe(0);
+      expect(r.salida).toMatch(/ABORTADO/i);
+      expect(r.salida).toContain("repet_a");
     } finally {
       await cerrar(cli, nombre);
     }
