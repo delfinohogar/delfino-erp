@@ -153,6 +153,35 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-04 — [GASTÓN] La primera invocación de ARCA la ejecuta Gastón, no un agente
+El director marcó que "ambiente `testing`" limita el riesgo del lado de ARCA —no se emite un
+comprobante fiscal válido— pero **no** del lado de Firebase: invocar `arcaAutorizarComprobante`
+significa llamar a una **función real, en el proyecto real, con secretos reales** de Secret
+Manager. Eso choca con dos reglas vigentes: ningún agente toca producción, y ninguna sesión
+autenticada mientras trabajen agentes.
+
+Gastón corrige el encuadre y la corrección es la parte que importa: *"dije «nunca ambiente
+producción» pensando en ARCA y no vi que del lado de Firebase sí es producción"*. Y decide
+ejecutar él la invocación **no como excepción a esas reglas, sino porque es exactamente el caso
+que esas reglas existen para cubrir**. Textual: *"la primera llamada de facturación fiscal del
+sistema la aprieto yo"*.
+
+El trabajo se parte en dos, y la frontera es dónde termina lo que un agente puede hacer sin tocar
+producción:
+
+- **TASK-014, relevamiento.** Solo lectura sobre `functions/` y el repositorio. Termina en un
+  **checklist accionable**: qué verificar o configurar en ARCA, en qué orden, y **cómo se sabe que
+  cada cosa está lista**. Un checklist sin criterio de verificación no sirve.
+- **TASK-015, el guion.** Deja escrito qué llamada exacta se hace, con qué datos, qué respuesta se
+  espera y cómo distinguir un CAE de un error entendido. Lo **revisa el auditor antes** de que
+  Gastón lo ejecute. Ningún agente lo corre.
+
+Un CAE y un error entendido y documentado son **los dos** resultados válidos. Lo que no es válido
+es un intento sin diagnóstico.
+
+`arcaActivo` sigue en `false` y no lo toca ningún agente. El ambiente `produccion` de ARCA no se
+usa nunca.
+
 ## 2026-09-04 — [GASTÓN] Un test verde que no discrimina es peor que no tener test
 LECCIÓN GENERAL, aplica a toda la suite que viene, no solo al caso que la originó.
 

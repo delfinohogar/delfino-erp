@@ -140,6 +140,37 @@ accept:
 - **DIVERGENCIA DELIBERADA CON EL ERP, no la "corrijas" hacia el código.** `js/compras.js` hoy **sí** actualiza el costo maestro solo al registrar una compra. P5 decide lo contrario: una compra puede registrar un costo distinto en `historial_costos` sin modificar el maestro, y el cambio del maestro requiere **aceptación explícita**. Acá la decisión le gana al código actual. Si algo parece un bug porque no coincide con `js/compras.js`, no lo es: es esta decisión
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
+### TASK-014 — Relevamiento de ARCA homologación: checklist accionable
+status: PENDING
+owner: implementador
+depends: TASK-003
+files:
+- migration/ARCA_HOMOLOGACION.md
+accept:
+- **solo lectura**: releva `functions/arcaFacturacion.js`, `functions/arcaWsfe.js`, `functions/index.js`, `js/facturacion.js` y `configuracion/empresa`. NO modifica `functions/` ni ningún código
+- **no invoca nada**: no llama a `arcaAutorizarComprobante`, no se autentica contra Firebase, no toca producción. Si para responder algo hace falta invocar, eso se anota como pregunta para TASK-015, no se ejecuta
+- produce un **checklist accionable** de lo que tiene que hacer Gastón, en orden, y para cada ítem **cómo sabe que está listo** — un checklist sin criterio de verificación no sirve
+- cubre como mínimo: punto de venta de homologación habilitado para servicios web; condición fiscal del emisor en `configuracion/empresa`; datos mínimos del comprobante que exige WSFEv1; y qué campos del ERP alimentan cada uno
+- deja explícito qué parámetros toma `arcaAutorizarComprobante`, qué valida antes de llamar a ARCA, y qué devuelve en éxito y en error
+- lista los modos de falla conocidos de WSFEv1 con su código, para poder distinguir "error entendido" de "algo salió mal"
+- NO activa nada: `arcaActivo` sigue en `false`
+
+### TASK-015 — Guion de la invocación en homologación, revisado antes de ejecutarse
+status: PENDING
+owner: implementador
+depends: TASK-014
+files:
+- migration/ARCA_GUION_INVOCACION.md
+accept:
+- **lo ejecuta Gastón, no un agente** (decisión del 2026-09-04). El entregable es el guion, no la corrida
+- dice la llamada exacta: función, región, parámetros, `ambiente: "testing"`, y el payload completo del comprobante de prueba con valores concretos
+- dice **qué respuesta esperar**: cómo se ve un CAE devuelto, cómo se ve cada error conocido, y cómo distinguir un error de ARCA de un error de infraestructura
+- incluye qué mirar después: logs de la función, `logIntegracionArca`, y qué NO debería haber cambiado en Firestore
+- incluye el criterio de aborto: en qué caso Gastón debe parar y no reintentar
+- **lo revisa el auditor antes de que Gastón lo ejecute**, y esa revisión es parte de la tarea
+- es un documento, **no un ejecutable**: no se agrega ningún script a `scripts/` ni a `package.json`. Un archivo que golpea producción y se puede correr sin querer es peor que un instructivo. Si Gastón prefiere un script, lo pide y se agrega como cambio aparte
+- `arcaActivo` no se toca, y el ambiente `produccion` no aparece en el guion ni como ejemplo
+
 ### TASK-004 — Migración 0005: contadores del corte
 status: PENDING
 owner: implementador
