@@ -167,6 +167,56 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-04 — [NIVEL 2] Las invariantes de concurrencia van en tarea propia, no en la del servicio
+**Si en el futuro alguien ve una tarea de tests separada de su implementación y quiere
+"arreglarla" juntándolas: leé esto antes. La separación es deliberada.**
+
+DECISIÓN: las invariantes que se prueban **entre** operaciones salen de la tarea de cada servicio
+y viven en tareas propias — TASK-016 (concurrencia) y TASK-017 (integridad global). Las
+invariantes que se prueban **dentro** de una operación se quedan donde estaban.
+
+### Por qué, tres razones
+
+**1. Es la regla que ya usamos, no una nueva.** "Dos tareas nunca comparten archivos en `files:`"
+y "cada tarea cabe en 30-90 minutos". `ORDEN_DE_BLOQUEO` necesita dos transacciones cruzadas sobre
+dos productos; `FACTURAR_VS_MODIFICAR` necesita facturar y modificar el mismo pedido en paralelo.
+Ninguna de las dos pertenece al archivo de un solo servicio, porque **no se puede escribir hasta
+que existan los dos lados**. Meterlas en la tarea del primer servicio obliga a esa tarea a
+esperar al segundo, o a escribir un test que todavía no puede correr.
+
+**2. Son otro tipo de test, no un test más largo.** Probar concurrencia exige dos conexiones,
+sincronización entre ellas, y verificar que **no** pasó algo —un deadlock, una doble reserva— en
+vez de que pasó. El armado no se parece al de un test de operación y no se reutiliza; mezclarlos
+hace que el archivo de un servicio cargue infraestructura que solo usan dos de sus tests.
+
+**3. R20 multiplica el trabajo del tester, y hay que dimensionarlo.** Ésta es la parte que se
+descubrió midiendo, no razonando. El tester de TASK-003 **se cortó por límite de turnos** con 35
+tests escritos y sin commitear. La causa no es que 35 tests sean muchos: es que exigir la
+demostración de que cada test **puede fallar** multiplica el trabajo. El tester no solo escribe —
+levanta la base, corre, diagnostica, **planta la mutación, verifica el rojo, la revierte** y
+vuelve a correr. TASK-002 fueron 34 tests con dos mutaciones y entró justo; TASK-003 fueron 35 con
+más mutaciones y no entró.
+
+La conclusión **no** es aflojar R20. Es lo que más valor dio hasta ahora: descubrió que el test de
+aislamiento no discriminaba (R20), que el balance contable no detecta un centavo mal imputado
+(TASK-002), y que el migrador registraba migraciones fallidas si el INSERT salía de la transacción
+(TASK-001). Ninguna de esas tres aparece sin la mutación. **Se sigue pagando.** Lo que cambia es
+que ahora sabemos cuánto cuesta, y el tamaño de las tareas se calcula contando mutaciones, no
+tests.
+
+### Dependencias: se prueba entre operaciones, así que depende de las dos
+Marcado por Gastón: `FACTURAR_VS_MODIFICAR` no se puede probar hasta que `facturar_pedido` **y**
+`modificar_pedido` estén las dos hechas. Por eso TASK-016 depende de TASK-008 —el último servicio
+cuya concurrencia cubre— y no de TASK-005. Y TASK-017, que verifica integridad global tras N
+operaciones exitosas y M fallidas, depende de TASK-010: no existe "el sistema entero" hasta que
+existan todas las operaciones.
+
+### Qué NO cambia
+El requisito de **implementación** se queda en la tarea del servicio: `crear_pedido` sigue
+obligada a bloquear con `SELECT … FOR UPDATE` ordenado por `(producto_id, deposito_id)`, y
+`facturar_pedido` sigue obligada a tener el guard. Lo que se mueve es **dónde se prueba que eso
+funciona bajo concurrencia**, no la obligación de hacerlo.
+
 ## 2026-09-04 — [GASTÓN] CLAUDE.md corregido: el IVA no se calcula en $0
 Corregido por Gastón en el commit `29eacb0`. La línea decía "El IVA en ventas está preparado pero
 calculado en $0" y era falsa: `js/ventas.js` lo discrimina desde hace tiempo. La afirmación venía

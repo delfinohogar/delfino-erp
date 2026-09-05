@@ -20,7 +20,16 @@ escriben cuando este lote esté aprobado, para no planificar sobre un esquema qu
 cambiar.
 
 Los tests los escribe el tester en `tests/`, así que `tests/` no aparece en ningún `files:`.
-Única excepción: TASK-011, cuyo entregable **es** un test y por eso sí lo declara.
+Excepciones: TASK-011, TASK-016 y TASK-017, cuyo entregable **es** un test y por eso sí lo
+declaran.
+
+**Por qué TASK-016 y TASK-017 están separadas de la tarea del servicio que prueban** (decisión
+Nivel 2 del 2026-09-04, argumento completo en DECISIONS.md): sus invariantes se prueban **entre**
+operaciones, no dentro de una. `FACTURAR_VS_MODIFICAR` no se puede escribir hasta que existan
+`facturar_pedido` **y** `modificar_pedido`; `INTEGRIDAD_GLOBAL` no existe hasta que existan todas
+las operaciones. Por eso dependen de TASK-008 y TASK-010 respectivamente. **No las juntes con la
+tarea del servicio**: la obligación de implementar el orden de bloqueo y el guard sigue estando en
+TASK-005 y TASK-007; lo que se movió es dónde se prueba que funcionan bajo concurrencia.
 
 **Orden de ejecución:** TASK-011 va antes que TASK-002. La suite tiene que estar en verde antes
 de tocar reglas de negocio: un rojo crónico entrena a ignorar los rojos, y TASK-002 es la primera
@@ -145,6 +154,33 @@ accept:
 - **DIVERGENCIA DELIBERADA CON EL ERP, no la "corrijas" hacia el código.** `js/compras.js` hoy **sí** actualiza el costo maestro solo al registrar una compra. P5 decide lo contrario: una compra puede registrar un costo distinto en `historial_costos` sin modificar el maestro, y el cambio del maestro requiere **aceptación explícita**. Acá la decisión le gana al código actual. Si algo parece un bug porque no coincide con `js/compras.js`, no lo es: es esta decisión
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
+### TASK-016 — Invariantes de concurrencia entre operaciones
+status: PENDING
+owner: tester
+depends: TASK-008
+files:
+- tests/integration/postgres/concurrencia_pedidos.test.js
+accept:
+- ORDEN_DE_BLOQUEO: dos transacciones cruzadas sobre dos productos, sin deadlock, porque ambas bloquean `stock` por `(producto_id, deposito_id)` ascendente
+- FACTURAR_VS_MODIFICAR: facturar y modificar el mismo pedido en paralelo; la modificación sobre un pedido ya facturado se rechaza. El lock solo NO alcanza: hace falta el guard, y el test tiene que distinguir los dos
+- concurrencia de reservas y entregas: dos entregas simultáneas no consumen más de lo reservado
+- **cada propiedad con su mutación (R20)**: quitar el orden de bloqueo tiene que producir deadlock; quitar el guard tiene que dejar pasar la modificación. Un test de concurrencia que no se puede hacer fallar es decorativo
+- las corridas concurrentes son deterministas o se repiten N veces: un test que pasa por timing no prueba nada
+- no modifica `backend/`: si una invariante falla, es bug del servicio y se reporta
+
+### TASK-017 — Integridad global tras operaciones exitosas y fallidas
+status: PENDING
+owner: tester
+depends: TASK-010
+files:
+- tests/integration/postgres/integridad_global.test.js
+accept:
+- INTEGRIDAD_GLOBAL: tras N operaciones exitosas y M fallidas, cero asientos huérfanos, cero ventas sin ítems, cero ventas sin asiento, cero desbalances y cero inconsistencias de reserva
+- las M fallidas fallan por causas distintas —stock insuficiente, pendiente sin cliente, destino de pago inválido, asiento desbalanceado— no todas por la misma
+- la verificación es una consulta que se puede correr sobre cualquier base, no una lista de asserts atada a los datos del test
+- **mutación (R20)**: con una operación parcial inyectada a mano, la verificación tiene que encontrarla
+- no modifica `backend/`
+
 ### TASK-014 — Relevamiento de ARCA homologación: checklist accionable
 status: PENDING
 owner: implementador
@@ -204,7 +240,8 @@ accept:
 - no genera venta y no descuenta stock físico (P11)
 - rechaza reservar más que el disponible
 - idempotente por `pedidos.idempotency_key`
-- invariantes RESERVAS_CONSISTENTES, DISPONIBLE_DERIVADO, NO_VENDER_RESERVADO y ORDEN_DE_BLOQUEO
+- invariantes RESERVAS_CONSISTENTES, DISPONIBLE_DERIVADO y NO_VENDER_RESERVADO
+- el orden de bloqueo ascendente es **obligación de esta tarea**, pero la invariante ORDEN_DE_BLOQUEO se **prueba en TASK-016**: necesita dos transacciones cruzadas y no pertenece al archivo de un solo servicio (decisión Nivel 2 del 2026-09-04)
 
 ### TASK-006 — Servicio `modificar_pedido`: edición atómica con ajuste de reservas
 status: PENDING
@@ -234,7 +271,8 @@ accept:
 - un pedido se convierte completo en una única venta; el segundo intento se rechaza por la constraint única sobre `pedidos.venta_id` (Q2)
 - si al facturar también se retira, se consume la reserva y se descuenta el físico en la misma transacción
 - bloquea la fila del pedido con `SELECT … FOR UPDATE` y el guard rechaza modificar un pedido ya facturado
-- invariantes NO_DOBLE_RESERVA_AL_FACTURAR, UN_PEDIDO_UNA_VENTA y FACTURAR_VS_MODIFICAR
+- invariantes NO_DOBLE_RESERVA_AL_FACTURAR y UN_PEDIDO_UNA_VENTA
+- el guard contra modificar un pedido facturado es **obligación de esta tarea**, pero la invariante FACTURAR_VS_MODIFICAR se **prueba en TASK-016**: exige facturar y modificar en paralelo, así que no se puede escribir hasta que existan los dos servicios (decisión Nivel 2 del 2026-09-04)
 
 ### TASK-008 — Servicio `crear_entrega`: consumo de reserva y baja del físico
 status: PENDING
