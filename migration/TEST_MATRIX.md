@@ -102,6 +102,14 @@ uso del tester y no se citan en veredictos contables.
 | MIGRADOR_VARIABLES_ENTORNO | sin `DATABASE_URL` ni `DATABASE_URL_TEST`; y fuera de tests con solo `DATABASE_URL_TEST` | falla con mensaje claro y exit 1; fuera de tests **nunca** cae en la base de tests | TASK-001 accept |
 | MIGRADOR_BASELINE | `--marcar-aplicadas` | marca sin ejecutar; nunca se dispara solo en una corrida normal | TASK-001 |
 | BACKEND_HIGIENE | importar `pool.js` y `migrar.js` | no importan firebase, no abren puertos, no escuchan HTTP y no tienen efectos al importarse | TASK-001 accept |
+| MIGRADOR_REPETIBLES_ATOMICIDAD | una repetible de `db/functions/` falla en su segunda sentencia | NO queda registrada en `schema_repetibles`, no deja efectos, las posteriores no se aplican y el reintento la vuelve a intentar (sale != 0 otra vez, no "sin cambios") | TASK-012 accept |
+| MIGRADOR_REPETIBLES_HASH_CRLF | la misma repetible pasa de LF a CRLF y de CRLF a LF | el hash no cambia, no hay reaplicación, `aplicada_en` intacto y `prosrc`/`pg_get_functiondef` no contienen `\r` (R32/R33) | TASK-012 accept |
+| MIGRADOR_REPETIBLES_REAPLICACION | dos corridas sin cambios; después cambia un byte de una sola repetible | la segunda corrida no reaplica nada; el cambio reaplica **solo** ese archivo y las demás conservan hash y `aplicada_en` | TASK-012 accept |
+| MIGRADOR_REPETIBLES_ORDEN | una repetible consulta una tabla que crea la última numerada | se aplica sin error: las repetibles corren siempre después de todas las numeradas, y entre sí en orden alfabético, solo `.sql` | TASK-012 accept |
+| MIGRADOR_REPETIBLES_DIRECTORIO | `db/functions/` no existe, y `db/functions/` vacío | el migrador sale 0 en los dos casos, informa "Repetibles: sin cambios" y crea `schema_repetibles` vacía | TASK-012 accept |
+| MIGRADOR_REPETIBLES_CONCURRENCIA | cuatro migradores en paralelo con repetibles pendientes | todos salen 0; `schema_repetibles` queda con una fila por archivo y en total se aplica cada una **una sola vez** (mismo `pg_advisory_lock` que las numeradas) | TASK-012 accept |
+| MIGRADOR_FLAGS | `--estad`, `--marcar-aplicada`, `--estado=1`, `-e`, `--ayuda`, un posicional suelto, `--Estado`, argumento vacío, y `--estado --marcar-aplicadas` juntos | exit 1, lista los flags válidos, dice que no aplicó nada y **no crea ni una relación** en la base; `--estado` solo crea las dos tablas de control vacías, que es lo que declara `backend/README.md` (R14) | TASK-012 accept |
+| MIGRADOR_REPETIBLES_CONVENCIONES | `--marcar-aplicadas` con repetibles pendientes; una repetible borrada del disco | el baseline registra nombre y hash sin ejecutar el SQL; la borrada deja fila huérfana que `--estado` reporta y el migrador no falla ni borra la función | TASK-012, convenciones a confirmar |
 
 ---
 
@@ -181,7 +189,12 @@ Unitarios anteriores: 41 = 13 de `backend-pool-entorno` + 10 de `backend-higiene
 suma de redondeados contra redondeo al final, y verificación de la identidad
 `Σ round(neto_i) = total − Σ round(iva_i)`).
 
-Integración: 117 = 101 anteriores + **16 de TASK-013** (`tests/integration/seed-emulator.test.js`;
+Integración: 144 = 117 anteriores + **27 de TASK-012**
+(`tests/integration/postgres/migrador_repetibles.test.js`: migraciones repetibles R28 y
+validación de flags R14, con tres mutantes del migrador que verifican la propiedad transaccional
+y la del hash/CRLF).
+
+Integración anterior: 117 = 101 anteriores + **16 de TASK-013** (`tests/integration/seed-emulator.test.js`;
 eran 17 hasta que SEED_REPORTE_FIEL se reapuntó y pasó a los unitarios, donde el espejo se fabrica
 de forma determinista sobre el emulador falso).
 

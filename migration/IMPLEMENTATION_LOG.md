@@ -234,3 +234,46 @@ bloquearlo cambiaba comportamiento mas alla del defecto.
 Corrido: `npm run check` OK 162 archivos; `npm test` 150/150 verde; integracion (con
 `npx vitest run -c vitest.integration.config.js`, porque el emulador ya estaba levantado y
 `emulators:exec` choca los puertos) 117/118, el unico rojo es SEED_REPORTE_FIEL.
+
+## TASK-012 — validacion de flags del migrador (R14) y migraciones repetibles (R28)
+2026-09-05, implementador. Solo `backend/src/db/migrar.js` y `backend/README.md`, mas R14 aca.
+
+Hice tres cosas. (1) `interpretarArgumentos()` valida contra `FLAGS_VALIDOS` **antes de crear el
+pool**: argumento desconocido = exit 1 + lista de flags, sin abrir conexion; `--estado` y
+`--marcar-aplicadas` juntos tambien abortan. (2) Repetibles: `backend/db/functions/*.sql` se
+aplican siempre despues de las numeradas, dentro del mismo `conLock`, cada archivo en su propia
+transaccion junto con el upsert de su hash. (3) README reescrito para que coincida con el codigo.
+
+Decisiones menores, las tres con motivo: **tabla propia `schema_repetibles`** y no una marca en
+`schema_migrations`, porque `migrador.test.js:74` y `:117` asertan `length === 4` sobre esa tabla
+y una repetible registrada ahi los rompe apenas TASK-018 agregue `crear_venta.sql`; ademas las
+repetibles necesitan la columna `hash`. **Hash sobre el contenido normalizado a LF, y se despliega
+LF**, no el byte crudo: con el arbol en CRLF (R32/R33) hashear crudo haria que un `git checkout`
+reaplicara todas las funciones, y desplegar CRLF dejaria `prosrc` dependiendo del checkout, que es
+justo lo que R33 le deja servido a TASK-018. Verificado: pasar las repetibles de LF a CRLF no
+dispara reaplicacion y `prosrc` queda sin `\r`. **`--marcar-aplicadas` tambien baselinea las
+repetibles** (registra nombre+hash sin correr): si no, despues de TASK-018 la segunda corrida del
+test de baseline intentaria ejecutar `crear_venta.sql` contra una base sin tablas.
+
+**La contradiccion de `--estado` la resolvi del lado del README, no del codigo**, y no es
+preferencia: `migrador.test.js:485` consulta `schema_migrations` despues de `--estado` sobre base
+limpia y espera 0 filas. Si el flag dejara de crear la tabla, esa consulta tira "relation does not
+exist" y el test se pone rojo — y los tests son del tester, no los toco. Queda documentado en
+"Que escribe cada modo": crea las dos tablas de control vacias y no ejecuta ninguna migracion.
+
+Verificado a mano sobre una copia de `backend/` fuera del repo (no cree
+`backend/db/functions/crear_venta.sql`, que es de TASK-018, ni ningun archivo en el repo): base
+limpia aplica 4 numeradas + repetibles y la segunda corrida no reaplica nada; cambiar un byte de
+`aaa_uno.sql` reaplica **solo esa** y `bbb_dos.sql` conserva su `aplicada_en`; una repetible que
+falla no queda registrada, no deja ni la funcion ni la tabla parcial, y el reintento corregido la
+aplica; `functions/` inexistente y vacio no fallan; `--estad` sale 1 y deja la base con 0 tablas;
+4 migradores en paralelo dan exactamente 4 numeradas y 3 repetibles, sin duplicados.
+
+Dudas para el auditor: (a) las repetibles borradas del disco quedan como fila huerfana en
+`schema_repetibles` y solo se reportan en `--estado`; elegi no borrar funciones de la base
+automaticamente y dejar el `DROP FUNCTION` a una numerada, pero es una convencion que conviene
+confirmar; (b) no toque R28 —lo cierra TASK-018 cuando mude la funcion—, solo deje R14 mitigado.
+
+Corrido: `npm run check` OK 162 archivos; `npm test` 152/152 verde; integracion con
+`npx vitest run -c vitest.integration.config.js` (el emulador ya estaba levantado y
+`emulators:exec` choca los puertos) **117/117 verde**, y `migrador.test.js` solo 18/18.

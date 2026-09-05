@@ -147,7 +147,28 @@ no interpreta el formato `key=value` y la conexión falla. Ningún test cubre la
 No es defensa contra un atacante; sirve contra el error de configuración, que es para lo que
 está.
 
-## R14 — [BAJA] Un flag mal tipeado del migrador cae en el modo que aplica
+## R14 — [MITIGADO 2026-09-05] Un flag mal tipeado del migrador cae en el modo que aplica
+
+**ESTADO: MITIGADO — 2026-09-05, TASK-012, verificado contra Postgres local.**
+`migrar.js` valida los argumentos en `interpretarArgumentos()` **antes de crear el pool**: un
+argumento que no este en `FLAGS_VALIDOS` aborta con exit 1, lista los flags validos y no abre
+conexion. Verificado en base limpia con todo pendiente: `node backend/src/db/migrar.js --estad`
+sale 1 y deja la base con **0 tablas** —ni siquiera `schema_migrations`—. Probado igual con
+`--marcar-aplicada`, `--estado=1`, `-e`, `--ayuda` y un argumento posicional suelto. `--estado` y
+`--marcar-aplicadas` juntos tambien abortan. `--marcar-aplicadas` sigue exigiendo el string
+exacto y no tiene abreviatura.
+
+La contradiccion del README se resolvio **del lado de la documentacion**, no del codigo:
+`--estado` sigue creando las tablas de control con `create table if not exists` y las deja
+vacias, y `backend/README.md` ahora lo dice textualmente en "Que escribe cada modo". Se eligio
+asi porque `tests/integration/postgres/migrador.test.js:485` consulta `schema_migrations`
+despues de `--estado` sobre una base limpia y espera 0 filas: si el flag dejara de crear la
+tabla, esa consulta fallaria y el test —que es del tester, no del implementador— se pondria
+rojo. Crear una tabla de control vacia no es aplicar esquema de la aplicacion, que es lo que el
+riesgo pedia evitar; los 18 tests del migrador de TASK-001 siguen en verde sin tocarlos.
+
+Texto original del riesgo:
+
 `backend/src/db/migrar.js:131-132` decide el modo con `argv.includes()` y no valida los
 argumentos desconocidos. `node backend/src/db/migrar.js --estad` no informa: aplica las
 migraciones de verdad. En la dirección peligrosa el riesgo es nulo (`--marcar-aplicada`, mal
@@ -913,3 +934,96 @@ reves: aislarse cambiando de puerto **no alcanza**.
 Regla practica para agentes, hasta que alguien la mejore: un emulador descartable se levanta con un
 `--project` **distinto** del de Gaston (por ejemplo `auditor-descartable`), y no se usan
 `--export-on-exit` ni comandos que hablen con el hub mientras haya otro emulador en pie.
+
+## R37 — [MEDIA] `schema_repetibles` declara el estado de la base, no lo observa
+Registrado por el auditor de TASK-012 el 2026-09-05. Lo detectó el tester para el caso de
+`--marcar-aplicadas`; el auditor lo reprodujo y encontró que es una clase, no un caso.
+
+El migrador decide qué repetibles aplicar comparando el hash del archivo contra la fila de
+`schema_repetibles`. **Nunca mira si el objeto existe de verdad en la base.** Dos caminos llegan
+al mismo estado incoherente —fila al día, función ausente o vieja, migrador informando
+`Repetibles: sin cambios`—, los dos medidos por el auditor sobre bases temporales propias:
+
+1. **`--marcar-aplicadas`**, que también baselinea repetibles: tras el baseline, `repet_a()`
+   **no existe** y la corrida siguiente sale 0 con `Repetibles: sin cambios.` y `avisa=false`.
+2. **Un `DROP FUNCTION` a mano** sobre una repetible ya aplicada: la corrida siguiente sale 0 con
+   `Repetibles: sin cambios.`, la función sigue sin existir, y `--estado` la reporta como
+   `repetible al dia`.
+
+Por qué NO bloqueó TASK-012:
+- ningún criterio de aceptación lo exige, y el que sí existe —`--marcar-aplicadas` con string
+  exacto y sin abreviatura— está cumplido y verificado;
+- `--marcar-aplicadas` es una acción explícita y deliberada; la validación de flags de R14, ya
+  mitigada y verificada, hace imposible caer en ese modo por un typo;
+- el comportamiento está documentado en `backend/README.md` ("esto deja la base mintiendo sobre su
+  estado. Usarlo a conciencia.");
+- es la semántica del patrón `R__` de Flyway: arreglarla bien es comparar la base contra el
+  archivo, o sea un cambio de diseño, no un parche de esta tarea;
+- hoy **no hay ni una repetible en el repo** (`backend/db/functions/` ni existe), así que el daño
+  concreto no puede materializarse en este commit.
+
+Por qué igual importa: con una migración numerada un baseline mal hecho revienta enseguida —la
+tabla no está y todo falla—. Con una repetible **no revienta nada**: la base se queda con
+`crear_venta()` vieja, o sin ella, y el migrador jura estar al día. A partir de TASK-018 eso es
+una divergencia contable silenciosa, que es la clase de error que este proyecto no se puede
+permitir.
+
+**Condición de cierre (obligatoria): antes de que TASK-018 se mergee.** Alcanza con **una** de
+las dos, y la primera es preferible:
+- que `--marcar-aplicadas` **avise** cuando lo que baselinea no está en la base —para funciones,
+  un `to_regprocedure`/`pg_proc` sobre lo que el archivo declara— y que la corrida normal o
+  `--estado` puedan reportar "registrada pero ausente en la base"; o
+- que `backend/README.md` lo diga **con todas las letras y para el caso de las repetibles**, no
+  en la frase genérica de hoy: que baselinear una repetible que no está desplegada deja la función
+  ausente o vieja **sin que nada lo avise nunca**, y que después de un `--marcar-aplicadas` hay
+  que verificar `pg_get_functiondef()` a mano.
+
+**ENDURECIDO POR GASTÓN el 2026-09-05, antes de leer este texto y sobre la misma sustancia.** La
+condición de cierre de arriba ofrece dos salidas alternativas; Gastón deja **una sola, y más
+estricta**:
+
+- `--marcar-aplicadas` **FALLA** cuando lo que baselinea no existe en la base. **No avisa: falla.**
+- **La opción de documentarlo no alcanza** y queda descartada. Un párrafo en el README no evita
+  que la base quede mintiendo; solo deja constancia de que sabíamos que podía pasar.
+
+Motivo, textual: *"un `crear_venta()` equivocado corriendo en silencio no aparece en un test,
+aparece en una venta"*. Y sobre por qué un aviso no basta: el flag **ya** es explícito, sin
+abreviatura y documentado como peligroso; quien lo usa está decidido a usarlo, y un aviso más en
+esa salida se lee tarde o no se lee. La misma lógica que llevó R30 de BAJA a MEDIA: el costo de
+descubrirlo tarde es desproporcionado.
+
+Se cierra en **TASK-018**, y está en su `accept:`. La segunda vía que encontró el auditor —el
+`DROP FUNCTION` a mano— queda cubierta por el mismo chequeo, porque el problema es el mismo:
+`schema_repetibles` **declara** en vez de **observar**.
+
+[MENOR] cosmético de la misma familia, sugerido por el tester y compartido por el auditor: la
+línea de `--estado` para una repetible huérfana (`registrada pero NO esta en disco`) podría decir
+qué hacer —"si ya no debe existir, el `DROP FUNCTION` va en una migración numerada"—. La
+convención en sí es correcta y ya está en el README: el migrador **no** borra objetos de la base
+porque desapareció un archivo, y hace bien.
+
+## R38 — [BAJA] Una repetible con sentencias de control de transacción rompe la garantía en silencio
+Registrado por el auditor de TASK-012 el 2026-09-05, midiéndolo.
+
+`aplicarRepetibles()` envuelve cada archivo en `begin` … `commit` junto con su `UPSERT`. Si el
+`.sql` trae adentro su propio `COMMIT`, la transacción del migrador se cierra en el medio y la
+garantía se evapora. Medido con un archivo que hace `CREATE OR REPLACE FUNCTION` + `commit;` +
+`select 1/0;`:
+
+    exit=1   schema_repetibles=[]   funcion_quedo=true
+
+El peor de los dos mundos: la función **quedó desplegada** y **no quedó registrada**. La corrida
+siguiente la reaplica (el hash no coincide), así que el sistema se recompone solo, pero entre una
+corrida y otra la base tiene un objeto que el migrador no sabe que puso.
+
+`backend/README.md` ya declara el requisito ("tiene que poder correr dentro de una transacción.
+Nada de `CREATE INDEX CONCURRENTLY` ni `VACUUM`") y el migrador no lo verifica. **No es una
+regresión de TASK-012**: las migraciones numeradas tienen exactamente la misma propiedad desde
+TASK-001 y así fueron aprobadas. Se registra porque a partir de TASK-018 el archivo alcanzado es
+el de dominio, `crear_venta.sql`.
+
+**Condición de cierre: en TASK-018, y es barata.** Verificar —a ojo alcanza, es un archivo con un
+solo `CREATE OR REPLACE FUNCTION`— que la repetible no contenga `begin`, `commit` ni `rollback`
+fuera del cuerpo de la función. Si en algún momento hay más de un archivo en
+`backend/db/functions/`, conviene que el migrador rechace de entrada una repetible que traiga esas
+palabras como sentencia de nivel superior.

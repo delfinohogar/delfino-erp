@@ -1,0 +1,232 @@
+# TASK-012 — APROBADO
+
+- **Fecha:** 2026-09-05
+- **Commit auditado:** `26097b1` (rama `task/TASK-012`). Trabajo real en `818a7ec`
+  (implementador: `backend/src/db/migrar.js`, `backend/README.md`, log, R14) y `ebf969a`
+  (tester: `tests/integration/postgres/migrador_repetibles.test.js`,
+  `_repetibles_helpers.mjs`, `TEST_MATRIX.md`, `TEST_RESULTS.md`).
+- **Diff auditado:** `git diff 2af4a9f..26097b1`.
+- **Veredicto: APROBADO.** Sin bloqueantes. Dos riesgos nuevos registrados en RISKS.md
+  (**R37**, **R38**), los dos con condición de cierre **antes de que TASK-018 se mergee**.
+- **Método:** además de leer los tests, el auditor reprodujo las propiedades centrales con un
+  arnés propio, independiente del del tester (copia desechable del migrador en
+  `tests/.tmp-aud012/`, bases `delfino_aud012_*` creadas y destruidas; `delfino_dev` y
+  producción intactos; el directorio temporal y las bases se borraron al terminar).
+
+---
+
+## Invariantes verificadas
+
+### MIGRADOR_REPETIBLES_ATOMICIDAD — la propiedad transaccional. VERIFICADA, y discrimina.
+
+Reproducida por el auditor, no leída. Repetible `b_rompe.sql` = un `CREATE OR REPLACE FUNCTION`
+válido seguido de `select 1/0;`. Salida literal del arnés propio:
+
+    [1 REAL] exit=1 schema_repetibles=["a_ok.sql"] repet_parcial_existe=false repet_post_existe=false
+    [1 REAL reintento] exit=1 dice_sin_cambios=false
+
+Es decir: la repetible que falla **no queda registrada**, **no deja efectos**, la posterior no se
+aplica, y el reintento la vuelve a intentar en vez de darla por buena.
+
+Las dos mutaciones que reporta el tester se reprodujeron **por separado**, con mutaciones
+escritas por el auditor sobre su propia copia:
+
+    [2 MUTANTE upsert-fuera]     exit1=1 schema_repetibles=["b_rompe.sql"] exit2=0
+                                 reintento_dice_sin_cambios=true funcion_desplegada=false
+    [3 MUTANTE sin-transaccion]  exit=1 schema_repetibles=[] repet_parcial_existe=true
+
+El mutante 1 registra la repetible fallida y en la corrida siguiente **sale 0 diciendo
+"Repetibles: sin cambios" con la función sin desplegar** — exactamente el escenario que dejaría
+`crear_venta()` vieja en silencio a partir de TASK-018. El mutante 2 deja el efecto parcial. El
+código sin mutar impide los dos. Los mensajes literales que reportó el tester
+(`"b_rompe.sql quedo REGISTRADA en schema_repetibles pese a fallar"` y
+`"repet_parcial() quedo CREADA: la repetible que fallo dejo efectos"`) se corresponden con lo
+observado. **Los tests tienen dientes.**
+
+Probé además el escenario que TASK-018 va a vivir de verdad —una repetible **ya aplicada** que se
+edita mal—, que ningún test cubría explícitamente:
+
+    [13 edicion rota sobre aplicada] exit=1 hash_conservado=true aplicada_en_conservado=true
+                                     valor_antes=1 valor_despues=1
+    [13 corregida] exit=0 valor=42
+
+La versión vieja de la función sobrevive intacta y la fila conserva su hash viejo. Es la conducta
+correcta: un `crear_venta.sql` mal editado **no** deja la base sin función.
+
+### MIGRADOR_REPETIBLES_HASH_CRLF — normalización a LF en los dos lados. VERIFICADA, ambas direcciones.
+
+    [4 LF->CRLF] exit1=0 exit2=0 archivo_tiene_CR=true hash_igual=true aplicada_en_igual=true
+                 prosrc_tiene_CR=false functiondef_tiene_CR=false
+    [5 CRLF->LF] exit1=0 exit2=0 prosrc_tras_1ra_tiene_CR=false hash_igual=true
+                 aplicada_en_igual=true
+    [6 contenido cambiado, archivo en CRLF] exit=0 hash_cambio=true valor="chau"
+                 prosrc_tiene_CR=false reaplico=true
+    [7 MUTANTE sin-normalizar] hash_igual=false reaplico=true prosrc_tiene_CR=true
+
+Las dos direcciones no reaplican; lo desplegado en `prosrc` y en `pg_get_functiondef()` **no
+tiene `\r`** ni siquiera cuando el archivo de origen estaba en CRLF (R33 cerrado del lado del
+migrador); y el hash **sigue discriminando contenido** (cambiar una letra reaplica, aunque el
+archivo cambie de LF a CRLF al mismo tiempo). El mutante que devuelve el byte crudo produce los
+tres daños. TASK-018 puede apoyarse en esto.
+
+### MIGRADOR_FLAGS (R14) — VERIFICADA. Diez argumentos, ninguna tabla creada.
+
+`--estad`, `--marcar-aplicada`, `--estado=1`, `-e`, `--ayuda`, `migrar` (posicional suelto),
+`""`, `--Estado`, `--estado --marcar-aplicadas` y `--estado --turbo`: los diez dan **exit=1**,
+listan los dos flags válidos, no imprimen stack pelado, y después de cada uno
+`pg_class` del esquema `public` está **vacío** (`relaciones=[]`) — ni `schema_migrations`. La
+validación corta antes de crear el pool. Control: sin flags, la misma copia aplica y deja
+`["repet_base","schema_migrations","schema_repetibles"]`.
+
+### MIGRADOR_REPETIBLES_REAPLICACION — VERIFICADA.
+
+    [9 idempotencia] 1ra="Repetibles: 3 aplicada(s)." 2da_exit=0 2da="Repetibles: sin cambios."
+                     estado_intacto=true
+    [9 selectiva] exit=0 reaplicadas=["  repetible reaplicada  b.sql"] a_intacta=true
+                  c_intacta=true valores={"a":1,"b":9,"c":3}
+
+Un byte cambiado reaplica **solo ese archivo**; `a.sql` y `c.sql` conservan hash y `aplicada_en`.
+
+### MIGRADOR_REPETIBLES_CONCURRENCIA — VERIFICADA.
+
+    [10 concurrencia] exits=[0,0,0,0] filas=["a.sql","b.sql","c.sql"] duplicados=0
+                      n_aplicada=3 n_reaplicada=0
+                      pg_proc=[{repet_a,1},{repet_b,2 -> n:1},{repet_c, n:1}]
+
+Cuatro migradores en paralelo: estado final de `schema_repetibles` con una fila por archivo, cero
+duplicados, cada repetible aplicada **una sola vez** entre las cuatro corridas, cada función una
+sola vez en `pg_proc`. El `pg_advisory_lock(5150419)` es el mismo de las numeradas y se toma sobre
+**el mismo cliente** (`crearPool({max:1})` → `conLock(cliente,…)` → `aplicarPendientes(cliente)` →
+`aplicarRepetibles(cliente)`): si se tomara sobre otra conexión no protegería nada. Verificado en
+el código y empíricamente.
+
+### MIGRADOR_REPETIBLES_DIRECTORIO — VERIFICADA.
+
+`db/functions/` inexistente: exit 0, `Repetibles: sin cambios`, `schema_repetibles` creada y
+vacía; `--estado` tampoco explota. Directorio vacío, ídem.
+
+### Orden, contrato, aislamiento, seguridad
+
+- **Orden:** las repetibles corren siempre **después** de todas las numeradas y solo si las
+  numeradas no fallaron (`aplicarPendientes` lanza y corta la corrida). Entre sí, orden
+  alfabético y solo `.sql`.
+- **Contrato:** `js/*.js` no se tocó. `git diff --stat` sobre `js`, `functions`, `backend/db`,
+  `firebase.json`, `firestore.rules`, `netlify.toml`, `build.js`, `package.json`,
+  `package-lock.json`, `.claude`, `.github`, `.githooks`, `scripts`, `CLAUDE.md`, `publicar`,
+  `dist` y `backend/src/db/pool.js` está **vacío**. Ninguna UI depende de lo que cambió.
+- **Alcance respetado:** implementador solo `migrar.js`, `README.md`, `IMPLEMENTATION_LOG.md` y
+  R14; tester solo `tests/` y `migration/TEST_*.md`. Las cuatro migraciones numeradas
+  (`0001`–`0004`) **no se modificaron**. **Nadie creó `backend/db/functions/crear_venta.sql`**:
+  el directorio `backend/db/functions/` **ni siquiera existe** en el árbol, que es lo correcto —
+  eso es TASK-013/TASK-018.
+- **Aislamiento:** nada apunta a producción. Auditoría hecha contra bases temporales propias
+  sobre `delfino_test`; `delfino_dev` no se tocó y quedaron solo `delfino_dev` y `delfino_test`
+  en `pg_database` al terminar. Ningún directorio temporal quedó en el repo (`git status` limpio
+  salvo lo de esta auditoría).
+- **Seguridad:** no hay SQL por concatenación en el código nuevo — el `UPSERT` de
+  `schema_repetibles` y el `pg_advisory_lock` van parametrizados (`$1`, `$2`). El único texto que
+  se ejecuta crudo es el contenido de los `.sql` versionados, que es el punto del migrador. Sin
+  secretos.
+- **Contabilidad / stock / idempotencia de dominio:** no aplica. TASK-012 es infraestructura de
+  despliegue y no toca ninguna regla de negocio.
+
+### No regresión
+
+Corridas por el auditor, con Postgres local y el emulador ya en pie:
+
+    npx vitest run -c vitest.integration.config.js migrador_repetibles.test.js migrador.test.js
+                                        -> 45/45 verde (27 nuevos + 18 de TASK-001)
+    npx vitest run -c vitest.integration.config.js   -> 144/144 verde  (corrida 1)
+    npx vitest run -c vitest.integration.config.js   -> 144/144 verde  (corrida 2)
+    npm test                                        -> 152/152 verde
+    npm run check                                   -> OK, 162 archivos
+
+Los 18 de TASK-001 pasan **sin haber sido tocados**, incluidos `migrador.test.js:74`, `:117` y
+`:485`. La decisión del implementador de usar tabla propia `schema_repetibles` en vez de una marca
+en `schema_migrations` es la correcta y no es cosmética: `:74` y `:117` asertan sobre el conteo de
+`schema_migrations` y se romperían apenas TASK-018 agregue `crear_venta.sql`. Resolver la
+contradicción de `--estado` del lado del README y no del código también es correcto por el mismo
+motivo (`:485` consulta `schema_migrations` después de `--estado`), y el README ahora lo dice
+textualmente en "Qué escribe cada modo": verificado que `--estado` crea **solo** las dos tablas de
+control, vacías, y nada más.
+
+### Los tests del tester, leídos y no solo mirados en verde
+
+`migrador_repetibles.test.js` escribe las propiedades **una sola vez**, como funciones que
+devuelven la lista de violaciones (`violacionesAtomicidad`, `violacionesReintento`,
+`violacionesCrlf`), y las usan tanto el test real como el mutante: el rojo del mutante es
+literalmente el mismo chequeo que el verde del original. `mutar()` exige que el fragmento
+aparezca **exactamente una vez** y revienta con `[MUTACION INVALIDA]` si el código cambia, así que
+un mutante no puede degradar a "copia idéntica siempre verde". El test de CRLF verifica primero
+que el archivo **de verdad tiene CR** (`bytesRepetible().includes(0x0d)`) antes de afirmar que el
+hash no cambió, de modo que la propiedad no es vacía. Es la forma correcta de escribir esto; no
+encontré ningún test que pase por la razón equivocada.
+
+---
+
+## Las dos convenciones que se dejaron a decisión del auditor
+
+### Punto 8 — `--marcar-aplicadas` baselinea repetibles: **RIESGO CON CONDICIÓN DE CIERRE, no bloqueante**
+
+Reproducido:
+
+    [12 baseline] exit=0 funcion_tras_baseline=false 2da_corrida="Repetibles: sin cambios."
+                  funcion_despues=false avisa=false
+
+Confirmado: tras el baseline la función **no existe** en la base y la corrida siguiente dice
+`Repetibles: sin cambios` sin avisar nada. El tester lo describió con exactitud.
+
+**No bloquea, por cinco razones concretas:**
+
+1. Ningún criterio de aceptación de TASK-012 lo exige, y el que sí existe —"`--marcar-aplicadas`
+   sigue exigiendo el string exacto y sin abreviatura"— está cumplido y verificado.
+2. Es una acción **explícita y deliberada** del operador, no un camino accidental. Justamente el
+   trabajo de R14, verificado arriba, hace imposible caer en ese modo por un typo:
+   `--marcar-aplicada` sale 1 y deja la base con cero tablas.
+3. El comportamiento es **coherente** con el criterio del flag y está documentado en el README
+   ("Alcanza también a las repetibles… Si el esquema real no coincide con los `.sql`, esto deja la
+   base mintiendo sobre su estado. Usarlo a conciencia.").
+4. Además, es **la misma clase de agujero** que el que descubrí en el punto 14 de mi arnés: si
+   alguien hace `DROP FUNCTION` a mano, el migrador también dice `Repetibles: sin cambios` y
+   `--estado` reporta `al dia` con la función ausente. O sea: `schema_repetibles` **declara**
+   estado, no lo **observa**. Es la semántica del patrón `R__` de Flyway y arreglarla bien es un
+   cambio de diseño (comparar la base contra el archivo), no un parche que quepa en esta tarea.
+5. TASK-018 todavía no existe: hoy no hay ni una repetible en el repo, así que el daño concreto
+   —`crear_venta()` vieja o ausente en silencio— **no puede materializarse en este commit**.
+
+**Pero sí queda con condición de cierre obligatoria, porque la consecuencia es contable y
+silenciosa.** Queda registrado como **R37 [MEDIA]** con cierre **antes de que TASK-018 se
+mergee**, no "cuando se pueda". Ver RISKS.md.
+
+### Punto 9 — repetible borrada del disco deja fila huérfana: **COINCIDO con el tester**
+
+Verificado: la fila queda, `--estado` la reporta como `repetible registrada pero NO esta en
+disco`, la corrida normal sale 0 y **no borra la función**. Es la conducta correcta. Borrar
+objetos de la base porque desapareció un archivo sería destructivo e implícito, justo lo que este
+proyecto evita en todos lados, y en una migración de contabilidad es exactamente el tipo de
+"ayuda" que arruina una base. El `DROP FUNCTION` en una migración numerada es la convención
+correcta y ya está escrita en `backend/README.md`. La sugerencia del tester —que la línea de
+`--estado` diga qué hacer— es cosmética; queda anotada como **[MENOR]** en R37 y no condiciona
+nada.
+
+---
+
+## [MENOR] anotados (registrados en RISKS.md, no bloquean)
+
+1. **[MENOR] R37 — `schema_repetibles` declara estado, no lo observa.** `--marcar-aplicadas`
+   sobre repetibles, y un `DROP FUNCTION` manual, dejan al migrador informando
+   `Repetibles: sin cambios` con la función ausente o vieja. Con `crear_venta()` eso es silencioso
+   y contable. Condición de cierre **antes de TASK-018**. Detalle y opciones en RISKS.md.
+2. **[MENOR] R38 — una repetible con sentencias de control de transacción rompe la garantía en
+   silencio.** Medido: un archivo con `COMMIT;` en el medio deja `exit=1`,
+   `schema_repetibles` vacía y **la función igual creada en la base** — el peor de los dos mundos,
+   desplegada y sin registrar. El requisito "tiene que poder correr dentro de una transacción" ya
+   está en el README y el migrador no lo verifica. Es idéntico para las numeradas desde TASK-001,
+   así que **no es una regresión de TASK-012**; se registra porque a partir de TASK-018 el archivo
+   afectado es el de dominio. Cierre barato: chequear que `crear_venta.sql` no traiga
+   `begin/commit/rollback`. Detalle en RISKS.md.
+3. **[MENOR] cosmético.** La línea de `--estado` para una repetible huérfana no dice qué hacer
+   ("si ya no debe existir, el `DROP FUNCTION` va en una migración numerada"). El README sí lo
+   dice. Sugerencia del tester, la comparto; anotada dentro de R37.
+
+Ninguno de los tres es bloqueante y ninguno rompe una invariante de la matriz.

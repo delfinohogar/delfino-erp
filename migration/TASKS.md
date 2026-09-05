@@ -130,7 +130,7 @@ accept:
 - no se toca ningún otro test ni código de aplicación
 
 ### TASK-012 — Validación de flags del migrador (R14) y migraciones repetibles (R28)
-status: PENDING
+status: DONE
 owner: implementador
 depends: TASK-011
 files:
@@ -238,6 +238,7 @@ accept:
 - reconstruir la base desde cero con el migrador da el mismo esquema que aplicar las migraciones sobre una base existente
 - **CRLF: hay que normalizar LOS DOS LADOS, no uno (R33).** Medido por el auditor en TASK-019 sobre `delfino_test`: `pg_get_functiondef('crear_venta')` conserva **163 CRLF** adentro, porque `recrearEsquema()` carga las migraciones crudas. Comparar base contra archivo da `true` **hoy por coincidencia**, con los dos lados en CRLF. Normalizando los dos: `true`. **Normalizando solo el archivo —que es la receta de una línea de TASK-019— da `false`.** O sea que copiar ese arreglo a medias **rompe activamente** la comparación en vez de arreglarla. Esta tarea tiene que normalizar el archivo **y** lo desplegado, normalizar también `recrearEsquema()`, y demostrarlo con la matriz LF/CRLF más una mutación de contenido que confirme que sigue discriminando
 - **`recrearEsquema()` en `tests/integration/postgres/_helpers.mjs:22` aplica HOY solo `backend/db/migrations/*.sql`.** Si no se actualiza para aplicar también `backend/db/functions/`, después de esta tarea los tests dejarían viva la copia de 0004 y **la suite quedaría verde probando la función equivocada**. Lo detectó el auditor en TASK-003. Ese archivo es del tester: la tarea NO se cierra sin que esté hecho, y el auditor tiene que verificar que la función que corre en los tests es la de `functions/`, con `pg_get_functiondef()`
+- **`--marcar-aplicadas` FALLA si lo que baselinea no existe en la base — no avisa, falla.** Cierra **R37**, y la clase entera, no solo el caso: el auditor demostró que un `DROP FUNCTION` a mano llega al mismo estado —fila al día, función ausente, migrador diciendo `Repetibles: sin cambios` y `--estado` diciendo `al dia`—. La raíz es que **`schema_repetibles` declara el estado de la base en vez de observarlo**; el chequeo tiene que mirar la base (`to_regprocedure` / `pg_proc`) y no la tabla. **Documentarlo NO alcanza**: esa salida quedó descartada por Gastón. Es el agujero que encontró el tester en TASK-012: ese flag también baselinea repetibles, y hoy, tras usarlo, la función puede **no existir** mientras la corrida siguiente informa `Repetibles: sin cambios`. La asimetría es lo grave: con una migración numerada un baseline mal hecho revienta solo más adelante; **con una repetible deja `crear_venta()` vieja o ausente en silencio**. Severidad MEDIA por decisión de Gastón (2026-09-05), con el mismo criterio que R30: *"un `crear_venta()` equivocado corriendo en silencio no aparece en un test, aparece en una venta"*. Un aviso no alcanza: el flag ya es explícito y peligroso, y un aviso en esa salida se lee tarde
 - R28 queda marcado como cerrado en RISKS.md, con la fecha
 
 ### TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
