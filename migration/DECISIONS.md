@@ -167,6 +167,32 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-04 — [GASTÓN] Los archivos se editan con Edit, nunca por shell. Para todos los roles
+Gastón rechazó un comando del implementador que editaba `scripts/seed-emulator.mjs` con
+`python -c`. Lo eleva de corrección puntual a **regla permanente**, y con razón: ya lo había
+marcado horas antes para `TASKS.md` y el patrón reapareció en otro rol y otro archivo.
+
+REGLA: nada de `python -c`, `sed -i`, `cp`, redirecciones ni heredocs para modificar archivos del
+repositorio. Archivo existente → `Edit`. Archivo nuevo → `Write`. Sin excepciones y **sin excepción
+para el director**, que fue el primero en romperla.
+
+Los tres motivos, todos observados en este proyecto:
+
+1. **Le saca al guard su única señal.** Una escritura por shell sobre una ruta protegida no se
+   distingue de una maliciosa: el hook ve un comando, no una edición. Es el mismo principio por el
+   que se prohibió pasar `-c core.hooksPath=.githooks` en los commits: una barrera que se elude
+   cambiando de herramienta no es una barrera.
+2. **Le saca a Gastón el diff**, es decir, la posibilidad de ver qué cambia antes de aprobarlo.
+3. **Vacía los permisos de contenido.** Éste es el argumento nuevo y el más filoso. El `deny` de
+   `scripts/seed-emulator.mjs` se levantó **para que el implementador pudiera usar `Edit`**. Si
+   igual lo edita por shell, el permiso no cambió nada: el archivo se modifica por un canal que el
+   sistema de permisos no mira. El levantamiento del `deny` habría sido teatro.
+
+Deuda propia reconocida: el director siguió usando `sed -i` y `python -` sobre `migration/*.md`
+—RISKS, MIGRATION_STATUS, DECISIONS— después de haber aceptado la regla para `TASKS.md`. Corregido
+desde el 2026-09-04. La regla no se cumple porque esté escrita; se cumple porque se aplica también
+a quien la escribe.
+
 ## 2026-09-04 — [NIVEL 2] Aprobación con salvedades: se mergea, no se cierra
 A pedido de Gastón, tras el corte del auditor en TASK-003. Un `.approved` que diga "no llegué a
 reproducir la mutación X" **no es lo mismo** que uno completo y no puede pasar a DONE como si lo

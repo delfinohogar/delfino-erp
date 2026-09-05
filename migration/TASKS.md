@@ -14,6 +14,27 @@ Formato obligatorio. Un hook parsea `status:`, `owner:` y `files:`, así que no 
 Reglas: una sola tarea IN_PROGRESS por owner; dos tareas nunca comparten archivos en `files:`;
 ninguna tarea pasa a DONE sin `migration/approvals/TASK-NNN.approved`.
 
+## Regla permanente: los archivos se editan con Edit, nunca por shell
+
+Vale para **todos** los roles, incluido el director. Nada de `python -c`, `sed -i`, `cp`,
+redirecciones ni heredocs para modificar archivos del repositorio. Si el archivo existe, se edita
+con **Edit**; si es nuevo, con **Write**.
+
+Tres motivos, y los tres son consecuencia de cosas que ya pasaron acá:
+
+1. **Le saca al guard su única señal.** Una escritura por shell sobre una ruta protegida no se
+   distingue de una maliciosa: el hook ve un comando de shell, no una edición de archivo. Un guard
+   que se elude cambiando de herramienta no es una barrera.
+2. **Le saca a Gastón el diff.** Editar por shell le quita la posibilidad de ver qué cambia antes
+   de aprobarlo. La revisión deja de ser revisión.
+3. **Vacía los permisos de contenido.** El 2026-09-04 se levantó el `deny` de
+   `scripts/seed-emulator.mjs` **precisamente** para que el implementador pudiera usar `Edit`. Si
+   igual lo edita por shell, el permiso no cambió nada: el archivo se modifica por un canal que el
+   sistema de permisos no mira.
+
+Aplica también a los archivos de `migration/`, que son del director. Estuvo mal hecho hasta el
+2026-09-04 y se corrige desde acá.
+
 ## Aprobación completa vs. aprobación con salvedades
 
 Una auditoría que no llegó a verificar todo **no vale lo mismo** que una completa, y la diferencia
