@@ -84,14 +84,17 @@ accept:
 - se actualiza R14 en RISKS.md como mitigado, con la fecha
 
 ### TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
-status: BLOCKED_TECNICO
-bloqueo: espera UNA edición de Gastón — borrar la línea 88 de `.claude/settings.json`,
-  `"Edit(scripts/seed-emulator.mjs)",`. Ningún agente puede tocar ese archivo. Decidido el
-  2026-09-04: `GCLOUD_PROJECT=demo-delfino` (líneas 8-9) **se deja como está**, la separación es
-  deliberada; con el chequeo de esta tarea un agente que intente sembrar aborta ruidosamente.
-  Apenas esté hecha la edición, se retoma con el implementador desde donde quedó.
+status: PENDING
 owner: implementador
-depends: TASK-011
+depends: TASK-003
+nota: Gastón **ya levantó** el `deny` de `scripts/seed-emulator.mjs` el 2026-09-04, en el commit
+  `14c234d`. Pero ese commit está en la rama `task/TASK-003`, así que la regla sigue vigente en
+  `migration/postgresql` hasta que TASK-003 se mergee. De ahí el `depends: TASK-003`, que no es
+  una dependencia de contenido sino de disponibilidad del permiso: si se arranca antes, el
+  implementador se vuelve a topar con el `deny`.
+  `GCLOUD_PROJECT=demo-delfino` (`.claude/settings.json:8-9`) **se deja como está**: la separación
+  es deliberada y, con el chequeo que agrega esta tarea, un agente que intente sembrar aborta
+  ruidosamente en vez de ensuciar en silencio.
 files:
 - scripts/seed-emulator.mjs
 accept:
