@@ -167,6 +167,45 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [GASTÓN] Se saca `singleProjectMode` de `firebase.json`
+Decidido con el análisis de R36 sobre la mesa. Gastón edita el archivo, que está en `deny` para
+todos los agentes; el director le pasó el contenido completo con el único cambio.
+
+**Qué se quita:** la línea `"singleProjectMode": true` de `emulators`. Nada más.
+
+**Por qué.** La opción enruta toda petición de Firestore al único proyecto configurado, sea cual
+sea el `projectId` pedido, y reescribe el campo `name`. Auth no. Consecuencia: **toda verificación
+de la forma "este dato está en el namespace X y no en el Y" es inválida mientras esté activa** — y
+ésa es exactamente la forma que va a tener el shadow. Ya costó una evidencia falsa, la del "perfil
+duplicado" de R16, que hubo que retirar.
+
+**Qué se rompe: nada de la suite actual.** Verificado leyendo los dos únicos lugares que modelan el
+espejo, y los dos son **defensivos, no dependientes**: `tests/unit/seed-emulator-reporte-fiel.test.js`
+fabrica el espejo con un emulador falso, y `tests/integration/seed-emulator.test.js:109-113` se
+defiende vaciando su namespace antes de sembrar —sin espejo, ese vaciado pasa a ser un no-op—.
+
+**Efecto lateral favorable:** sin la opción, dos `projectId` distintos dentro del **mismo** emulador
+quedan aislados, así que buena parte de lo que hoy exige levantar un segundo emulador —el problema
+de R36— deja de necesitarlo.
+
+Gastón, textual: *"Lo puse yo sin evaluarlo."* Queda anotado porque es la clase de configuración
+que se copia de un ejemplo y después sostiene conclusiones enteras.
+
+Al aplicarlo hay que **reiniciar el emulador**. Los datos siguen bajo `delfino-hogar-erp`, que es lo
+que usan el ERP y los tests. Si algún test se pusiera rojo después del reinicio, no es un problema
+del cambio: sería la prueba de que dependía del espejo sin que lo hubiéramos detectado.
+
+## 2026-09-05 — [GASTÓN] R36: la técnica del emulador aparte sirve, con `--project` distinto
+Corrección de premisa, hecha por Gastón: *"Me equivoqué al decir «las dos veces por suerte» — fue
+una sola."* En TASK-011 el tester levantó el segundo Firestore con `--project prod-simulada`, o sea
+con la palanca de aislamiento ya aplicada. El único caso sin aislar fue el del auditor en TASK-003,
+que reusó el `projectId` de Gastón.
+
+Conclusión: **no se abandona la técnica, se le pone la regla**. Todo emulador auxiliar se levanta
+con un `--project` propio, y si el `projectId` tuviera que coincidir, con `TEMP` propio, que es la
+única palanca que aísla en ese caso. Puertos distintos son necesarios para no chocar pero **no
+alcanzan**: el descubrimiento del hub es por `projectId`, no por puerto.
+
 ## 2026-09-05 — [GASTÓN] `--marcar-aplicadas` con repetibles: severidad MEDIA y cierre concreto
 Instrucción anotada apenas se recibió, con el auditor de TASK-012 todavía corriendo: no se puede
 mandar un mensaje a un subagente en vuelo, así que el director la aplica **al volver el veredicto**
