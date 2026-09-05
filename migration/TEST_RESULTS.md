@@ -1220,3 +1220,198 @@ prueba. Lo que se pierde con el reapuntado —que el comportamiento de `singlePr
 tener un test que lo vigile— no se pierde de verdad: está en R35, que es donde se decide, y el
 test nuevo cubre justamente el daño que ese comportamiento causaba (que el operador leyera un
 conteo ajeno como propio arriba de un borrado).
+
+---
+
+## TASK-012 — Validación de flags del migrador (R14) y migraciones repetibles (R28)
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-012` sobre `818a7ec`
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (`delfino-pg-dev`, 127.0.0.1:5432, `delfino_test` como base administrativa), emulador de
+  Firebase de Gastón ya levantado en 8080/9099.
+- **Veredicto: VERDE.** Los criterios de aceptación de TASK-012 se verifican y pasan. Ningún
+  rojo de lógica. El único rojo de infraestructura es el conocido y ajeno a la tarea
+  (`npm run test:integration` no arranca con el emulador ya en pie).
+- **Archivos escritos:** `tests/integration/postgres/migrador_repetibles.test.js` (27 tests) y
+  `tests/integration/postgres/_repetibles_helpers.mjs`. No se tocó `backend/` ni ningún otro
+  directorio de aplicación.
+
+### Comandos ejecutados
+
+    npx vitest run -c vitest.integration.config.js \
+      tests/integration/postgres/migrador_repetibles.test.js       -> 27/27 verde
+    npx vitest run -c vitest.integration.config.js \
+      tests/integration/postgres/migrador.test.js                  -> 18/18 verde (TASK-001)
+    npx vitest run -c vitest.integration.config.js                  -> 144/144 verde (7 archivos)
+    npm test                                                        -> 152/152 verde (9 archivos)
+    npm run test:integration                                        -> NO ARRANCA (ver abajo)
+
+Con `DATABASE_URL_TEST=postgres://delfino:delfino_local_dev@127.0.0.1:5432/delfino_test`,
+`FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` y `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099`.
+
+### Cómo se prueba el CLI sin escribir en `backend/`
+
+El migrador resuelve `db/migrations/` y `db/functions/` como rutas fijas relativas a
+`backend/src/db/migrar.js`, y no acepta overrides. Para ejercitar el CLI de verdad —exit code,
+salida, dos procesos en paralelo— cada test arma una **copia desechable** del migrador en
+`tests/.tmp-migrador/` (`_repetibles_helpers.mjs → crearCopiaBackend`) con sus dos directorios
+bajo control, y la borra al terminar. No se creó `backend/db/functions/crear_venta.sql`: eso es
+TASK-018. Cada test usa además su propia base temporal `delfino_test_mig_*`, que destruye.
+Comprobado al cerrar: `tests/.tmp-migrador/` no existe y no quedó ninguna base temporal
+(`pg_database` tiene solo `delfino_dev` y `delfino_test`).
+
+La copia normaliza `migrar.js` y `pool.js` a LF. No es una modificación: el árbol de trabajo está
+en CRLF por `core.autocrlf` pero el índice de git tiene LF (`git ls-files --eol` da `i/lf
+w/crlf`), así que la copia es byte a byte lo commiteado.
+
+### Verde por invariante
+
+| Invariante | Tests | Resultado |
+|---|---|---|
+| MIGRADOR_REPETIBLES_ATOMICIDAD | 4 (2 reales + 2 mutantes) | VERDE |
+| MIGRADOR_REPETIBLES_HASH_CRLF | 4 (3 reales + 1 mutante) | VERDE |
+| MIGRADOR_REPETIBLES_REAPLICACION | 3 | VERDE |
+| MIGRADOR_REPETIBLES_ORDEN | 2 | VERDE |
+| MIGRADOR_REPETIBLES_DIRECTORIO | 2 | VERDE |
+| MIGRADOR_REPETIBLES_CONCURRENCIA | 2 | VERDE |
+| MIGRADOR_FLAGS | 6 | VERDE |
+| MIGRADOR_REPETIBLES_CONVENCIONES | 3 | VERDE |
+| MIGRADOR_* de TASK-001 (18 tests) | sin tocar | VERDE |
+
+Sin rojos. No hay nada que reportar como "esperado X, pasó Y".
+
+### 1. La propiedad transaccional, verificada por mutación (R20)
+
+Las propiedades se escriben **una sola vez**, como funciones que devuelven la lista de
+violaciones (`violacionesAtomicidad`, `violacionesReintento`, `violacionesCrlf`), y las usan
+**el test real y el mutante**. Así el rojo del mutante es exactamente el mismo chequeo que el
+verde del original, y no uno parecido escrito a mano. `mutar()` exige que el fragmento a
+reemplazar aparezca **exactamente una vez** en `migrar.js`: si el implementador cambia el código,
+el test revienta con `[MUTACION INVALIDA]` en vez de mentir con un mutante idéntico al original.
+
+Mutante 1 — el UPSERT sale de la transacción y se hace antes, en autocommit. Mutante 2 — no hay
+transacción propia: cada sentencia va suelta y el upsert después. Salida **literal** de correr
+los mutantes contra la aserción del test real (`toEqual([])`):
+
+    FAIL  MIGRADOR_REPETIBLES_ATOMICIDAD > MUTACION R20: con el upsert FUERA de la transaccion
+    AssertionError: expected [ Array(1) ] to deeply equal []
+    + Array [
+    +   "b_rompe.sql quedo REGISTRADA en schema_repetibles pese a fallar",
+    + ]
+
+    FAIL  MIGRADOR_REPETIBLES_ATOMICIDAD > MUTACION R20: sin transaccion propia
+    AssertionError: expected [ Array(1) ] to deeply equal []
+    + Array [
+    +   "repet_parcial() quedo CREADA: la repetible que fallo dejo efectos",
+    + ]
+
+Con el mutante 1, además, el **reintento la da por buena**: la segunda corrida sale 0 e imprime
+`Repetibles: sin cambios` con la función sin desplegar. Ese es el escenario que TASK-018 no puede
+permitirse —`crear_venta()` vieja en la base y el migrador jurando que está al día— y es
+exactamente lo que el código sin mutar impide: en el original la segunda corrida vuelve a fallar
+con `b_rompe.sql` y, corregido el archivo, la aplica.
+
+### 2. El hash y CRLF, verificados por mutación (R32/R33)
+
+Las dos direcciones están probadas: **LF→CRLF** y **CRLF→LF**, cada una con su test, más un
+tercero que confirma que el hash **sigue discriminando contenido** (cambiar una letra sí reaplica,
+incluso si el archivo cambia de LF a CRLF al mismo tiempo). En los tres, `prosrc` y
+`pg_get_functiondef()` no contienen `\r`. El test que compara hashes verifica primero que el
+archivo en disco **de verdad tiene CR** (`bytesRepetible().includes(0x0d)`), para que la
+propiedad no sea vacía.
+
+Mutante 3 — `normalizarFinDeLinea` devuelve el byte crudo. Salida **literal**:
+
+    FAIL  MIGRADOR_REPETIBLES_HASH_CRLF > MUTACION R32/R33: sin normalizar, pasar de LF a CRLF
+    AssertionError: expected [ …(4) ] to deeply equal []
+    + Array [
+    +   "el hash cambio sin que cambiara una letra del SQL: reaplicacion espuria",
+    +   "aplicada_en se reescribio: la repetible se reaplico",
+    +   "el migrador informo una reaplicacion",
+    +   "lo desplegado en prosrc tiene \\r: la base depende del checkout",
+    + ]
+
+Los cuatro daños a la vez: reaplicación espuria por hash, por fecha y por log, y `\r` desplegado
+en la base. Es el escenario de R33 medido por el auditor en TASK-019.
+
+### 3. Reaplicación selectiva
+
+Con tres repetibles al día, cambiar **un byte** de `b.sql` produce `Repetibles: 1 aplicada(s).`
+y una única línea `  repetible reaplicada  b.sql`. Las filas de `a.sql` y `c.sql` quedan
+idénticas —hash y `aplicada_en`, comparadas con `toEqual` sobre el objeto entero—, y las tres
+funciones devuelven `{a: 1, b: 9, c: 3}`: solo cambió la que se editó.
+
+### 4. Validación de flags (R14)
+
+Nueve argumentos inválidos, cada uno contra la **misma** base temporal: `--estad`,
+`--marcar-aplicada`, `--estado=1`, `-e`, `--ayuda`, `migrar` (posicional suelto), `--Estado`,
+argumento vacío `""`, y `--estado --marcar-aplicadas` juntos. En todos: exit **1**, la salida
+lista los dos flags válidos, dice "no se aplico ninguna migracion", no imprime el banner de
+baseline ni "Sin migraciones pendientes" ni ningún `TypeError`. Y la comprobación fuerte: después
+de cada uno, `pg_class` del esquema `public` está **vacío** — no se crea ni una tabla, ni siquiera
+`schema_migrations`, porque la validación corta antes de crear el pool. También se probó
+`--estado --turbo`: un flag válido acompañado de uno inválido aborta igual.
+
+### 5, 6, 7 — directorio, concurrencia, no regresión
+
+- `db/functions/` **inexistente** y **vacío**: exit 0 en los dos, `Repetibles: sin cambios`,
+  `schema_repetibles` creada y vacía. También se probó `--estado` sin el directorio.
+- **Concurrencia**: cuatro migradores en paralelo con tres repetibles pendientes. Los cuatro
+  salen 0 y el **estado final** de `schema_repetibles` es una fila por archivo, sin duplicados
+  (`group by … having count(*) > 1` da vacío); entre las cuatro corridas hay exactamente 3 líneas
+  `repetible aplicada` y **cero** `repetible reaplicada`; cada función existe una sola vez en
+  `pg_proc`. Además, con el advisory lock tomado por otra sesión el migrador espera y no crea ni
+  `schema_repetibles` ni la función, y al liberarlo termina en 0.
+- **No regresión**: los 18 tests del migrador de TASK-001 siguen verdes sin tocarlos, incluidos
+  `migrador.test.js:74` y `:117`. La suite completa también: 144 de integración y 152 unitarios.
+
+### Las dos decisiones de diseño del implementador, revisadas
+
+- **Tabla propia `schema_repetibles` en vez de una marca en `schema_migrations`: correcto.**
+  `migrador.test.js:74` asserta `filas.length === 4` sobre `schema_migrations` y `:117` compara
+  contra `MIGRACIONES_REALES.length`, que se calcula leyendo **solo** `db/migrations/`. Una fila
+  de repetible ahí rompería los dos apenas TASK-018 agregue `crear_venta.sql`. Verificado además
+  que `schema_migrations` no gana ni pierde filas por las repetibles.
+- **Arreglar el README y no el código para `--estado`: correcto.** `migrador.test.js:485`
+  consulta `select count(*) from schema_migrations` **después** de `--estado` sobre base limpia y
+  espera 0. Si el flag dejara de crear la tabla, esa consulta tiraría `relation does not exist` y
+  el test daría rojo por infraestructura del propio test. El README ahora dice la verdad: en
+  "Qué escribe cada modo" declara que `--estado` no ejecuta migraciones y que lo único que escribe
+  son las dos tablas de control, vacías. Hay un test que lo verifica literalmente
+  (`relacionesPublic(cli)` da exactamente `["schema_migrations", "schema_repetibles"]`, las dos
+  vacías, y la función de la repetible no existe).
+
+### Las dos convenciones que el implementador dejó a confirmar
+
+Las dos están cubiertas por tests que documentan el comportamiento actual
+(`MIGRADOR_REPETIBLES_CONVENCIONES`), sin prejuzgar la decisión.
+
+**(a) Repetible borrada del disco → fila huérfana + `DROP FUNCTION` en una numerada: bien.**
+Verificado: la fila queda, `--estado` la reporta como `repetible registrada pero NO esta en
+disco`, la corrida normal sale 0 y no borra la función. Es la conducta correcta para un migrador:
+borrar objetos de la base por ausencia de un archivo sería destructivo e implícito, justo lo que
+el proyecto evita en todos lados. El agujero es menor y de higiene: la fila huérfana no caduca
+nunca y nadie fuerza a que exista el `DROP FUNCTION`. Sugerencia barata, no bloqueante: que la
+línea de `--estado` diga qué hacer ("si ya no debe existir, el DROP va en una migración numerada").
+
+**(b) `--marcar-aplicadas` baselinea también las repetibles: bien, con una advertencia.**
+Es coherente: si el operador declara que la base ya está en el estado de los archivos, también lo
+está el de las funciones. Pero el agujero es **más grande que en las numeradas** y conviene que
+quede escrito. Verificado en el test: tras el baseline, `repet_a()` **no existe** en la base y la
+corrida normal siguiente informa `Repetibles: sin cambios` y no la despliega. Con las numeradas el
+error se nota enseguida —la tabla no está y todo revienta—; con una repetible, la base se queda
+sin la función (o con una versión vieja) y el migrador jura estar al día, en silencio. A partir de
+TASK-018 eso significa `crear_venta()` desactualizada sin ningún aviso. Recomendación, decisión
+del director: que `--marcar-aplicadas` **avise** cuando la repetible que baselinea no está en la
+base (`to_regprocedure` sobre el nombre), o que el README lo diga con todas las letras. No pedí
+cambiar código: la convención tal como está pasa los criterios de la tarea.
+
+### Tipo de rojo
+
+**Ninguno de lógica.** Un rojo de **infraestructura**, conocido y ajeno a TASK-012:
+`npm run test:integration` no arranca mientras el emulador de Gastón esté en pie
+(`Error: Could not start Authentication Emulator, port taken.`, más los avisos de 8080, 9199,
+4400 y 4500). Se corrió `npx vitest run -c vitest.integration.config.js` contra ese mismo
+emulador ya levantado, que es lo que el director indicó.
+
