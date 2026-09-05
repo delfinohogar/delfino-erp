@@ -233,7 +233,7 @@ accept:
 - R28 queda marcado como cerrado en RISKS.md, con la fecha
 
 ### TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
-status: PENDING
+status: IN_PROGRESS
 owner: tester
 depends: TASK-003
 files:
