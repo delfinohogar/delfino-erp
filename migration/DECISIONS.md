@@ -72,12 +72,6 @@ Los tres ítems siguientes se movieron desde MIGRATION_STATUS.md el 2026-09-04, 
 Gastón: dependen de él y este es el lugar donde los va a buscar. Ninguno bloquea TASK-001 a
 TASK-010.
 
-### 2026-09-04 — Estado real de las Cloud Functions desplegadas (R8)
-`arcaAutorizarComprobante` está exportada en `functions/`, pero los deploys se hicieron con
-`--only`, así que qué está efectivamente corriendo en Firebase es DESCONOCIDO. Se verifica en
-Firebase Console; ningún agente toca producción. Impacto: hasta saberlo no se puede afirmar que
-ARCA esté apagado en el proyecto desplegado. No bloquea la PoC.
-
 ### 2026-09-04 — CLAUDE.md afirma que el IVA en ventas se calcula en $0
 Es falso —el IVA está discriminado e imputado a 2.1.2— y contradice la decisión de Nivel 3 del
 2026-09-04, que además corrige la premisa de P6. `CLAUDE.md` solo lo modifica Gastón. Impacto:
@@ -140,6 +134,24 @@ alguien calcula el neto por línea y lo suma. Eso es exactamente lo que la imple
 evitar y lo que el test tiene que ser capaz de cazar: la invariante Debe = Haber no alcanza para
 detectarlo, porque una implementación que reparta mal el centavo puede cerrar igual. El test tiene
 que verificar además **el monto imputado a 2.1.2**, línea por línea.
+
+## 2026-09-04 — [GASTÓN] ARCA queda desplegada en homologación, y `arcaActivo` sigue en false
+Cierra el pendiente de R8 con un dato verificado en Firebase Console, no con una suposición:
+`arcaAutorizarComprobante` **no estaba desplegada** — de las 25 funciones que había, ninguna era
+esa. Ahora sí lo está, en `southamerica-east1`, y las desplegadas pasan a 26.
+
+Estado: certificado de homologación por WSASS (alias `DelfinoERP`, CUIT del certificado
+20107859951), autorización para `ws://wsfe` con CUIT representado 33712451039, y
+`AFIP_CERT_HOMO` / `AFIP_KEY_HOMO` / `AFIP_CUIT_HOMO` en Secret Manager con valores reales.
+
+**`arcaActivo` sigue en `false` y no lo toca ningún agente. El ambiente `produccion` no se usa
+nunca.** La primera prueba se hace en `ambiente: "testing"`, contra homologación, y su objetivo
+es llegar a un CAE **o a un error entendido y documentado** — las dos cosas son un resultado
+válido; lo que no es válido es un intento sin diagnóstico.
+
+Consecuencia que conviene tener presente: antes había código fiscal a un flag de distancia; ahora
+hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
+barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
 ## 2026-09-04 — [GASTÓN] Un test verde que no discrimina es peor que no tener test
 LECCIÓN GENERAL, aplica a toda la suite que viene, no solo al caso que la originó.

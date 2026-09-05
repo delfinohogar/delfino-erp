@@ -8,10 +8,11 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R25 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+R27 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
 auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011, R20 el director, R21-R22 el
-auditor en la confirmación de TASK-011 y R23-R25 el auditor en la aprobación de TASK-002, todos el
-2026-09-04. R21 en adelante se agregan al final por orden de registro, no por severidad.
+auditor en la confirmación de TASK-011, R23-R25 el auditor en la aprobación de TASK-002, y
+R26-R27 el director con datos de Gastón, todos el 2026-09-04. R21 en adelante se agregan al final
+por orden de registro, no por severidad.
 
 ---
 
@@ -71,7 +72,7 @@ estructura exacta de las reglas de seguridad.
 Resuelto con `build.js` armando una carpeta `publicar/` curada (lista de permitidos) y
 `publish = "publicar"`. Verificado: las 9 rutas dan 404 y el control positivo da 200.
 
-## R8 — [MEDIA] ARCA WSFEv1 completo y apagado; qué está desplegado es DESCONOCIDO
+## R8 — [MEDIA] ARCA WSFEv1 completo y apagado; desplegado en homologación desde 2026-09-04
 El commit 902ef3c agregó la integración fiscal con ARCA (WSFEv1): determinación de tipo de
 comprobante, cálculo de IVA y solicitud de CAE. Queda inactiva por `arcaActivo = false` y sin
 UI para activarla. Existe código de facturación fiscal real a un flag de distancia. Activar
@@ -86,9 +87,26 @@ haya desplegado en sesiones anteriores.
 Una versión previa de este riesgo afirmaba que el backend (`functions/arcaFacturacion.js`,
 `arcaWsfe.js`) NO estaba desplegado. Esa afirmación no tenía respaldo verificable y se retira.
 
-PENDIENTE DE VERIFICACIÓN: el inventario de Cloud Functions realmente desplegadas se consulta
-en Firebase Console. Lo hace Gastón; ningún agente toca producción. Hasta entonces, el estado
-de `arcaAutorizarComprobante` se asume DESCONOCIDO y se planifica como si pudiera existir.
+**RESUELTO el 2026-09-04 por Gastón.** Verificó la lista completa de Cloud Functions en Firebase
+Console: `arcaAutorizarComprobante` **no estaba desplegada** — las 25 que había no la incluían.
+La duda queda cerrada con un dato, no con una suposición, y la versión retirada más arriba
+resultó ser correcta en el fondo aunque no tuviera respaldo en su momento.
+
+Estado real al 2026-09-04, informado por Gastón:
+- Certificado de homologación obtenido por WSASS, alias `DelfinoERP`, CUIT del certificado
+  20107859951.
+- Autorización creada para el servicio `ws://wsfe`, CUIT representado 33712451039.
+- `AFIP_CERT_HOMO`, `AFIP_KEY_HOMO` y `AFIP_CUIT_HOMO` cargados en Secret Manager con valores
+  reales.
+- `arcaAutorizarComprobante` **ahora sí desplegada**, en `southamerica-east1`. Las funciones
+  desplegadas pasan de 25 a 26.
+- **`arcaActivo` sigue en `false`. No se tocó.**
+
+Lo que cambia y lo que no: ya no hay incertidumbre sobre qué está desplegado, así que el riesgo
+deja de ser "no sabemos". Lo que **no** cambia es que sigue existiendo código de facturación
+fiscal real a un flag de distancia, ahora con credenciales de homologación cargadas y la función
+en línea. Activar ARCA sigue siendo **Nivel 3 explícito**, y `arcaActivo` no lo toca ningún
+agente. El ambiente `produccion` no se usa nunca.
 
 ## R9 — [MEDIA] Líneas de GBP sin artículo, con importe
 De 2.181 líneas en `facturasGbp`, 117 llegan sin `item_id`. De esas, 8 tienen precio real (una
@@ -441,3 +459,31 @@ Registrado por el auditor el 2026-09-04, en la aprobación de TASK-002.
    ninguna divergencia, y el criterio de redondeo es el mismo (medio hacia afuera del cero). Viene
    de 0002, no lo introdujo TASK-002. Se anota para que el shadow no atribuya a un bug lo que sea
    una diferencia de motor aritmético.
+
+## R26 — [MEDIA] Node.js 20 se decomisiona el 30 de octubre de 2026 y afecta a las 26 funciones
+Informado por Gastón el 2026-09-04, salido del deploy de `arcaAutorizarComprobante`.
+
+Google decomisiona el runtime Node.js 20 el **30 de octubre de 2026**. Después de esa fecha
+**no se puede desplegar** ninguna Cloud Function sin haber actualizado el runtime. Alcanza a las
+26 funciones de `functions/`, incluidas `gbpSincronizarFacturas`, las de Mercado Pago y la recién
+desplegada `arcaAutorizarComprobante`.
+
+Por qué MEDIA y no BAJA: no rompe nada mientras no haya que desplegar, pero convierte cualquier
+deploy urgente posterior a esa fecha en "primero migrá el runtime". Si el primer intento de
+desplegar después del 30 de octubre es un arreglo de producción apurado, la migración de runtime
+se hace en el peor momento posible.
+
+Fuera del alcance de la PoC: `functions/` es producción desplegada y ningún agente la toca. Se
+registra para que la fecha no aparezca de sorpresa. La actualización la planifica y ejecuta
+Gastón.
+
+## R27 — [MEDIA] `firebase-functions` desactualizado, con breaking changes al actualizar
+Informado por Gastón el 2026-09-04, en el mismo deploy que R26.
+
+La versión de `firebase-functions` que usan las 26 funciones está desactualizada y el aviso del
+deploy advierte **breaking changes** al subir de versión. Combinado con R26 forma una sola tarea
+real: el día que haya que tocar el runtime, además hay que absorber los cambios incompatibles de
+la librería, en 26 funciones a la vez.
+
+Igual que R26: fuera del alcance de la PoC, `functions/` no la toca ningún agente, y se registra
+para que las dos cosas se planifiquen juntas y con tiempo, no bajo presión.
