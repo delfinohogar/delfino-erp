@@ -167,6 +167,45 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [GASTÓN] Las tareas de test transversales NO se encadenan a las de operación
+**PENDIENTE DE ESCRIBIR EN TASKS.md**: se redacta cuando cierre TASK-018 y **antes de arrancar
+TASK-004**. Se anota acá para no perderlo en el intervalo.
+
+Corrección de Gastón a la partición que escribió el director el 2026-09-04. Ahí TASK-016 quedó con
+`depends: TASK-008` y TASK-017 con `depends: TASK-010`, colgadas de **la última** tarea de
+operación que rozan. Eso las mete en la cadena lineal y las hace esperar de más.
+
+**El principio correcto:** una tarea de test transversal depende de **las tareas cuyo cruce
+prueba**, no de la última de la cadena. Si `crear_pedido` y `modificar_pedido` están aprobados, la
+tarea que los cruza **puede correr en paralelo** con la siguiente de operación.
+
+Textual: *"la cadena lineal es correcta para las migraciones numeradas, no para los tests
+transversales"*. La linealidad de TASK-001 → TASK-010 se aceptó porque cada migración numerada
+**necesita el esquema de la anterior**. Los tests transversales no: necesitan que existan las
+operaciones que cruzan, y nada más. Encadenarlos al final fue inercia del director, no una
+restricción real.
+
+Consecuencia concreta a escribir: `FACTURAR_VS_MODIFICAR` necesita TASK-006 y TASK-007, así que
+puede correr **en paralelo con TASK-008**; `ORDEN_DE_BLOQUEO` necesita TASK-005. Probablemente
+convenga partir TASK-016 en más de una tarea, cada una con sus dependencias reales, en vez de una
+sola colgada del final.
+
+Queda pendiente resolver cómo se paraleliza sin volver a pisar el árbol de trabajo — Gastón pidió
+un solo hilo por vez después del incidente del `commit -am`. La salida técnica sería un
+`git worktree` separado, y **eso también hay que decidirlo al escribir la partición.**
+
+## 2026-09-05 — [GASTÓN] Descripción larga: campo nuevo, no renombrar `descripcion`
+INCLINACIÓN, **no decisión**: se toma cuando se planifique la tarea de Tiendanube, que es futura y
+está fuera de la PoC.
+
+Gastón se inclina por **agregar un campo nuevo** en vez de renombrar `descripcion`. Su motivo:
+tocar `descripcion` afecta listado, búsqueda y varias pantallas —el director verificó que
+`js/productos.js:213` ordena el listado por ese campo y la línea 57 lo usa como material de
+búsqueda— **por una mejora que no lo justifica**.
+
+Queda escrito para que quien planifique esa tarea no vuelva a evaluar la opción desde cero, y para
+que se note que el costo del renombre fue medido y no supuesto.
+
 ## 2026-09-05 — [IDEA FUTURA · GASTÓN] Traer descripciones y medidas de Tiendanube al ERP
 **No es una decisión ni una tarea.** Es relevamiento, para que quien la planifique no arranque de
 cero. **Fuera del alcance de la PoC** y posterior a dejar GBP.
