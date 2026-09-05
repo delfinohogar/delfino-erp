@@ -420,6 +420,7 @@ accept:
 - existe un contador por punto de venta y tipo de comprobante, con la forma `comprobantes_{pv}_{tipo}`, y `siguiente_numero()` lo soporta
 - los contadores `ventas` y `asientos` arrancan en 0, de modo que la primera operación obtiene el número 1 (P7)
 - existe una función o procedimiento para fijar el valor inicial de un contador de comprobantes al hacer el corte, y deja constancia de quién y cuándo
+- **`p_corregir` solo se admite si el contador NO se usó todavía, y esa condición está en el código, no en la documentación.** Si ya se emitió un comprobante con esa serie, **el flag no alcanza**: falla igual. Decidido por Gastón el 2026-09-05. La puerta se conserva porque sin ella la alternativa sería **tocar la tabla a mano en producción**, que es peor: sin constancia, sin validación y sin rastro
 - invariante NUMERACION_CORTE de TEST_MATRIX.md
 
 ### TASK-005 — Servicio `crear_pedido`: pedido confirmado que reserva sin vender
