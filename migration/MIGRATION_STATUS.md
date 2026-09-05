@@ -1,8 +1,8 @@
 # Estado de la migración
 
-Fase actual: **1 en curso. 4 tareas cerradas, la suite en verde.**
+Fase actual: **1 en curso. 6 tareas cerradas, la suite en verde.**
 Rama de trabajo: `migration/postgresql`
-Última tarea cerrada: **TASK-003**, aprobada y mergeada el 2026-09-04
+Última tarea cerrada: **TASK-013 y TASK-019**, aprobadas y mergeadas el 2026-09-05
 Tareas bloqueadas: —
 Pendientes de Gastón: 2, en DECISIONS.md § PENDIENTE DE GASTÓN
 
@@ -91,10 +91,26 @@ De la tarea salieron tres decisiones de método que valen más que la migración
 - **R28**: `crear_venta()` estaba copiada en tres migraciones. Se cierra con migraciones
   repetibles (TASK-012 + TASK-018) antes de TASK-007.
 
+**TASK-013 y TASK-019 cerradas** el 2026-09-05, de madrugada y sin intervención de Gastón.
+**269 tests en verde.** TASK-019 cerró R32 —los tests que comparan texto ya no dependen de los
+finales de línea— y TASK-013 cerró R16: el seed lee el `projectId` de `js/firebase-config.js` como
+fuente única y aborta si no coincide con el proyecto forzado.
+
+Dos cosas que valen más que las tareas:
+
+- **R35: `singleProjectMode` hace ilusorio el aislamiento entre namespaces de Firestore.** El
+  emulador espeja a cualquier namespace virgen lo que entró por `--import`, y reescribe el campo
+  `name` con el `projectId` pedido. Auth no espeja. **Consecuencia: se retiró la evidencia del
+  "perfil duplicado" que se había citado en R16** — no había duplicado, era el espejo. El bug de
+  R16 sigue siendo real y verificado por otras vías; lo que cayó fue una de sus pruebas. Segundo
+  caso, después de R8, de una afirmación cómoda que no resiste.
+- **Cualquier verificación que se apoye en "este dato está en el namespace X y no en el Y" no es
+  válida** mientras `singleProjectMode` esté activo. Afecta al shadow. Sacarlo o no es decisión de
+  Gastón, con R35 sobre la mesa.
+
 ## Qué sigue
 
-**TASK-013** ya no está bloqueada: el permiso que Gastón levantó en `14c234d` llegó con este
-merge. **TASK-012** cierra R14: un flag mal tipeado del migrador aplica migraciones en vez de avisar.
+**TASK-012** cierra R14: un flag mal tipeado del migrador aplica migraciones en vez de avisar.
 **TASK-013** cierra R16: el seed usa `demo-delfino` por defecto mientras el emulador corre en
 `delfino-hogar-erp`, así que siembra en un namespace que el ERP no mira — ya rompió un login
 local. Son independientes entre sí y ninguna bloquea el esquema.

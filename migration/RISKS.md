@@ -251,9 +251,23 @@ Inventario del daño acumulado, medido por REST contra los emuladores el 2026-09
                         Firestore: 10 colecciones, 35 docs — el mismo set exacto, incluido
                         usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9
 
-El perfil `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` está duplicado en los dos namespaces; el usuario
-de Auth existe una sola vez, en `delfino-hogar-erp`. La limpieza de `demo-delfino` que autorizó
-Gastón el 2026-09-04 queda pendiente: iba en el mismo script bloqueado.
+~~El perfil `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` está duplicado en los dos namespaces~~ —
+**AFIRMACIÓN RETIRADA el 2026-09-05, ver R35.** No había ningún duplicado: `singleProjectMode`
+hacía que el emulador espejara a `demo-delfino` los documentos importados de `delfino-hogar-erp`.
+El auditor lo confirmó con tres pruebas independientes: el export importado tiene 35 apariciones
+de `delfino-hogar-erp` y **cero** de `demo-delfino`; el perfil "duplicado" tenía el **mismo uid**,
+cuando un sembrado real habría creado otro; y 35 documentos con **cero** usuarios de Auth es un
+estado que el seed no puede producir.
+
+Lo que sí es cierto y no se toca: el usuario de Auth existe una sola vez, en `delfino-hogar-erp`
+—Auth **no** espeja—, y **el bug de R16 es real**, verificado por otras vías y confirmado por
+Gastón, que recuperó el login. Lo que se retira es **una evidencia**, no la conclusión.
+
+Es el segundo caso en este proyecto —después de R8— en que una afirmación cómoda no resiste al
+verificarla. Se retira en vez de dejarla, porque una evidencia falsa dentro de un riesgo real es
+peor que ninguna: se cita después sin volver a mirarla.
+
+La limpieza de `demo-delfino` que autorizó Gastón el 2026-09-04 está **hecha** (TASK-013).
 
 (Fin del registro original. Los dos bloqueos de arriba están resueltos: Gastón levantó el `deny`
 y TASK-013 se implementó el 2026-09-04; la limpieza está hecha. Ver el encabezado del riesgo.)
