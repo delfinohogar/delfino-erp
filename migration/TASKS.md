@@ -235,9 +235,15 @@ accept:
 ### TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
 status: PENDING
 owner: tester
-depends: TASK-013
+depends: TASK-003
 files:
 - tests/integration/postgres/precios_y_costos.test.js
+nota: el `depends` decía TASK-013 y era un error del director — el archivo que arregla es de
+  TASK-003 y no toca nada de TASK-013. Corregido el 2026-09-05, porque con el valor viejo la tarea
+  no podía correr antes que TASK-013, que es justo el orden pedido.
+  Lineaje de ramas: `task/TASK-019` sale de `task/TASK-013` para que el tester de TASK-013 tenga
+  la suite en verde, y **se mergea de vuelta a `task/TASK-013`**, no a `migration/postgresql`. Las
+  dos llegan juntas a la rama base, cada una con su commit y su aprobación por separado.
 accept:
 - los 2 tests en rojo vuelven a verde **normalizando los finales de línea antes de comparar**, no cambiando lo que comparan ni relajando el assert
 - **NO se agrega `.gitattributes`**: cambia el checkout de todo el repositorio y es una decisión global con radio mucho mayor que el problema. Si se quiere igual, es decisión aparte de Gastón
