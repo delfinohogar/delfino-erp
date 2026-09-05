@@ -566,7 +566,7 @@ la librería, en 26 funciones a la vez.
 Igual que R26: fuera del alcance de la PoC, `functions/` no la toca ningún agente, y se registra
 para que las dos cosas se planifiquen juntas y con tiempo, no bajo presión.
 
-## R28 — [MEDIA] Tres copias de `crear_venta()` mantenidas a mano, y una cuarta en camino
+## R28 — [RESUELTO 2026-09-05] Tres copias de `crear_venta()` mantenidas a mano, y una cuarta en camino
 Detectado por el tester en TASK-003 y elevado por Gastón el 2026-09-04.
 
 `crear_venta()` está definida con `CREATE OR REPLACE` en `0002_venta_servicio.sql:46`,
@@ -589,10 +589,42 @@ nombre y esa firma no cambia—, así que no hay una cuarta copia inminente. La 
 a tocar es **TASK-007** (`facturar_pedido`, que convierte el pedido en venta).
 
 **Condición de cierre (obligatoria, no opcional): antes de TASK-007.** Se cierra con
-**migraciones repetibles** — TASK-012 agrega soporte en el migrador para un directorio
-`backend/db/functions/` cuyos archivos se reaplican cuando cambia su hash, y TASK-018 mueve
-`crear_venta()` ahí. A partir de entonces la función tiene **una sola copia canónica** y las
-migraciones numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.
+**migraciones repetibles** — TASK-012 agrega soporte en el migrador para un directorio de
+repetibles cuyos archivos se reaplican cuando cambia su hash, y TASK-018 mueve `crear_venta()`
+ahí. A partir de entonces la función tiene **una sola copia canónica** y las migraciones
+numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.
+
+**CERRADO el 2026-09-05, en TASK-018.** `backend/db/repetibles/crear_venta.sql` existe y es la
+definición vigente. La migración `0006_crear_venta_repetible.sql` deja constancia del corte con un
+`comment on function` y **no redefine** la función; `0002`, `0003` y `0004` quedan intactas como
+historia aplicada.
+
+El directorio es `backend/db/repetibles/` y **no** `backend/db/functions/`: el nombre viejo era
+ambiguo entre funciones de PostgreSQL y las Cloud Functions de `functions/`, y esa ambigüedad
+bloqueó la tarea dos veces (ver R39). Gastón decidió sacar el directorio del alcance de la barrera
+en vez de agujerearla. No revertir el nombre.
+
+Medido sobre el árbol real y una base desechable, con las migraciones numeradas aplicadas primero
+y la repetible después:
+
+- la transcripción es **byte a byte idéntica** a `0004_precios_y_costos.sql:241-408`: `diff`
+  vacío, 168 líneas, mismo SHA-256 `0aaf8736…` normalizando a LF. La tarea **mudó, no
+  refactorizó**;
+- **proveniencia**: una variante marcada aplicada desde `repetibles/` pisa la copia que dejó 0004,
+  y reaplicar el archivo real borra la marca. O sea que lo que corre en la base sale del archivo
+  nuevo y no de la migración numerada;
+- **V2** — el cuerpo desplegado coincide con el archivo **normalizando los dos lados** (R33):
+  `true`, con el archivo en LF y también convertido a CRLF. Mutar un solo carácter da `false`, así
+  que la comparación sigue discriminando;
+- **V3** — `pg_get_functiondef('crear_venta')` **antes y después** de la mudanza es idéntico
+  normalizando los dos lados, y el `prosrc` también. El único cambio es de **bytes** y es
+  deliberado: 163 CRLF antes —la numerada se aplica cruda— y 0 después, porque las repetibles se
+  despliegan normalizadas a LF. No cambia una letra del SQL.
+
+Queda para el tester, y es condición previa a TASK-007: `recrearEsquema()` en
+`tests/integration/postgres/_helpers.mjs` tiene que aplicar también `backend/db/repetibles/`.
+Mientras no lo haga, la suite corre contra la copia que dejó 0004 —hoy idéntica, así que no miente
+todavía— pero dejaría de detectar una divergencia futura.
 
 ## R29 — [MEDIA] `historial_costos` no distingue "compra registrada" de "aceptación del maestro"
 Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003. Detectado antes por el
@@ -935,7 +967,7 @@ Regla practica para agentes, hasta que alguien la mejore: un emulador descartabl
 `--project` **distinto** del de Gaston (por ejemplo `auditor-descartable`), y no se usan
 `--export-on-exit` ni comandos que hablen con el hub mientras haya otro emulador en pie.
 
-## R37 — [MEDIA] `schema_repetibles` declara el estado de la base, no lo observa
+## R37 — [RESUELTO 2026-09-05] `schema_repetibles` declara el estado de la base, no lo observa
 Registrado por el auditor de TASK-012 el 2026-09-05. Lo detectó el tester para el caso de
 `--marcar-aplicadas`; el auditor lo reprodujo y encontró que es una clase, no un caso.
 
@@ -959,8 +991,12 @@ Por qué NO bloqueó TASK-012:
   estado. Usarlo a conciencia.");
 - es la semántica del patrón `R__` de Flyway: arreglarla bien es comparar la base contra el
   archivo, o sea un cambio de diseño, no un parche de esta tarea;
-- hoy **no hay ni una repetible en el repo** (`backend/db/functions/` ni existe), así que el daño
-  concreto no puede materializarse en este commit.
+- ~~hoy **no hay ni una repetible en el repo** (`backend/db/functions/` ni existe), así que el daño
+  concreto no puede materializarse en este commit~~ — **desactualizado desde TASK-018**: ya existe
+  `backend/db/repetibles/crear_venta.sql`, así que el daño **sí** puede materializarse. Por eso
+  R37 se cerró en esa misma tarea, con `--marcar-aplicadas` fallando en vez de avisar. El
+  implementador de TASK-018 detectó que esta línea quedaba vieja y **no la editó por no ser suyo**
+  el riesgo; la corrige el director el 2026-09-05.
 
 Por qué igual importa: con una migración numerada un baseline mal hecho revienta enseguida —la
 tabla no está y todo falla—. Con una repetible **no revienta nada**: la base se queda con
@@ -996,6 +1032,32 @@ Se cierra en **TASK-018**, y está en su `accept:`. La segunda vía que encontr�
 `DROP FUNCTION` a mano— queda cubierta por el mismo chequeo, porque el problema es el mismo:
 `schema_repetibles` **declara** en vez de **observar**.
 
+**CERRADO el 2026-09-05, en TASK-018** (`backend/src/db/migrar.js`, `backend/README.md`). Se tomó
+la salida que dejó Gastón, la única: **falla, no avisa**.
+
+- `verificarRepetiblesDesplegadas()` corre en `principal()` **antes** de escribir una sola fila. Si
+  alguna repetible declara una función que la base no tiene, lanza: exit ≠ 0, y `schema_migrations`
+  y `schema_repetibles` quedan **exactamente como estaban** —ni numeradas ni repetibles marcadas—.
+- **Mira `pg_proc`, no `schema_repetibles`.** Consultar la tabla de control heredaría el agujero:
+  la raíz del riesgo es justamente que esa tabla *declara* en vez de *observar*.
+- **Recorre todas las repetibles en disco, no solo las pendientes.** Por eso el segundo camino que
+  encontró el auditor —`DROP FUNCTION` a mano, que deja la fila al día y por lo tanto *no*
+  pendiente— queda cubierto por el mismo control, sin un chequeo aparte.
+- Se comparan **nombre y aridad**, no los tipos: interpretar `double precision`, arrays o typmods
+  sería fuente de falsos positivos y no hace falta para detectar las dos formas de ausencia.
+  Limitación conocida y aceptada: parámetros `OUT` cuentan distinto que `pg_proc.pronargs`;
+  ninguna función del dominio los usa y el resultado sería un error legible, no un silencio.
+- La opción de documentarlo **quedó descartada** y no se tomó. El README se actualizó igual, pero
+  como descripción del comportamiento nuevo, no como sustituto del chequeo.
+
+Documentación: `backend/README.md`, sección "`--marcar-aplicadas` FALLA si una repetible no está
+desplegada (R37)". La semántica vieja —"registra su nombre y su hash sin correr el SQL", sin más—
+ya no figura para las repetibles.
+
+Nota sobre el orden de cierre: R37 se cierra en el mismo commit en que **R28 quedó sin cerrar** por
+un bloqueo de permisos, no por el contenido. Los dos estaban en el `accept:` de TASK-018 y el
+mecanismo de R37 vive en `migrar.js`, que sí se pudo escribir. Ver IMPLEMENTATION_LOG.
+
 [MENOR] cosmético de la misma familia, sugerido por el tester y compartido por el auditor: la
 línea de `--estado` para una repetible huérfana (`registrada pero NO esta en disco`) podría decir
 qué hacer —"si ya no debe existir, el `DROP FUNCTION` va en una migración numerada"—. La
@@ -1027,3 +1089,108 @@ solo `CREATE OR REPLACE FUNCTION`— que la repetible no contenga `begin`, `comm
 fuera del cuerpo de la función. Si en algún momento hay más de un archivo en
 `backend/db/functions/`, conviene que el migrador rechace de entrada una repetible que traiga esas
 palabras como sentencia de nivel superior.
+
+## R39 — [MEDIA] Los patrones de `permissions` matchean en cualquier nivel del árbol, y `./` no ancla
+Hallazgo sobre las **herramientas**, no sobre el ERP. Registrado por el director el 2026-09-05 a
+pedido de Gastón, con evidencia de dos bloqueos reales.
+
+`.claude/settings.json` deniega `Edit(functions/**)` y `Write(functions/**)` para proteger la
+carpeta de Cloud Functions de la raíz. Ese patrón **también matchea `backend/db/functions/**`**, a
+cualquier profundidad. Gastón intentó anclarlo con `./functions/**` y **no funcionó**.
+
+Control empírico del implementador, que es lo que cierra el diagnóstico: `Write` sobre
+`backend/db/probe_task018.tmp` —mismo árbol, sin el componente `functions`— **sí funciona**; sobre
+`backend/db/functions/crear_venta.sql`, no. El componente del path es lo que dispara, sin importar
+dónde esté.
+
+**Por qué importa más allá del caso:** `.claude/settings.json` tiene **127 reglas**. Todas se
+evalúan con la misma semántica, así que puede haber otras con el mismo problema, en las dos
+direcciones:
+- en `deny`, una regla más amplia de lo pensado **bloquea trabajo legítimo** — ya pasó dos veces,
+  y las dos costaron un ciclo de implementador;
+- en `allow`, una regla más amplia de lo pensado **habilita más de lo previsto**, que es la
+  dirección peligrosa. Ejemplo del tipo a revisar: cualquier `allow` que nombre un directorio
+  esperando que sea el de la raíz.
+
+**Qué hacer, y no se hace ahora:** revisar las 127 reglas con esta semántica en la cabeza, en
+particular las de `allow` que nombren rutas. Es trabajo sobre `.claude/`, así que **lo hace
+Gastón**; ningún agente puede tocar ese archivo. Se registra para que la revisión exista como
+tarea suya y no como una intuición perdida.
+
+Mitigación aplicada al caso concreto: no se agujereó el `deny` —sigue protegiendo cualquier
+carpeta `functions/` a cualquier profundidad— sino que **se renombró lo nuestro** a
+`backend/db/repetibles/`. Ver DECISIONS.md, 2026-09-05.
+
+## R40 — [ALTA] Los remitos generan asiento de compra con IVA crédito fiscal, y no lo dan
+Riesgo **contable y fiscal del sistema en producción**, no de la migración. Informado por Gastón el
+2026-09-05 desde un caso real de todos los días, y **verificado contra el código por el director**.
+
+`productos/compras-nueva.js:57` ofrece `<option>Remito</option>` como tipo de comprobante, así que
+un remito se puede cargar como compra y el stock entra. Pero `js/compras.js → crearCompra()` llama
+a `generarAsiento` **sin mirar `tipoComprobante` en ningún momento**: el asiento se arma siempre
+igual, con `CUENTA.IVA_CREDITO_FISCAL` al debe (`js/compras.js:163`). No hay ni un condicional por
+tipo antes de esa llamada.
+
+Consecuencias, en orden de gravedad:
+1. **Un remito no da crédito fiscal**, pero el ERP lo computa igual. Si se cargaron remitos como
+   compras, **la posición de IVA está sobrestimada** por comprobantes que no habilitan el cómputo.
+2. **Doble conteo si después llega la factura**: se carga de nuevo, entra el stock **dos veces** y
+   se genera el asiento **dos veces**. Hoy nada vincula un remito con su factura posterior.
+
+**Esto NO lo arregla un agente ni la PoC.** Es del ERP en producción y toca criterio fiscal.
+Gastón lo va a revisar **con su contador**, que es lo correcto: la parte de "qué se hace con lo ya
+registrado" es una decisión contable, no técnica.
+
+Para la migración importa por dos motivos: el circuito Remito → Factura está anotado como idea
+futura en DECISIONS.md y va a tener que contemplarlo; y **cualquier reconciliación del shadow que
+compare posición de IVA va a arrastrar esta diferencia** — se clasifica como tipo B, inconsistencia
+preexistente de Firestore, igual que R1.
+
+## R41 — [MEDIA] `CREATE OR REPLACE` no cambia la firma: una repetible que cambie parámetros crea una sobrecarga, no un reemplazo
+Detectado por el auditor en TASK-018, 2026-09-05. Es un riesgo **de TASK-007**, no de TASK-018:
+la mudanza de `crear_venta()` está verificada y no cambia comportamiento (ver
+`migration/approvals/TASK-018.approved`).
+
+`backend/db/repetibles/crear_venta.sql` empieza con `create or replace function crear_venta(...)`
+y nada más. PostgreSQL **no** permite que `CREATE OR REPLACE` cambie la lista de parámetros de
+entrada: si cambia, lo que hace es crear una función **nueva sobrecargada** y dejar la vieja
+viva. TASK-007 (`facturar_pedido`) es la primera tarea que vuelve a tocar la función y es
+plausible que quiera un parámetro más.
+
+Qué pasaría exactamente, y por qué no se nota solo:
+- quedan **dos** `crear_venta` en `pg_proc`. Cualquier llamador con la aridad vieja sigue
+  ejecutando el **cuerpo viejo**, sin error y sin aviso;
+- el chequeo de R37 (`repetiblesNoDesplegadas`) pregunta `bool_or(p.pronargs = N)` para la
+  aridad **declarada en el archivo**: encuentra la nueva y da la repetible por desplegada. No ve
+  la vieja, que es justamente la que sigue corriendo;
+- el `comment on function crear_venta(bigint, text, date, jsonb, jsonb, text, text, text)` de
+  `0006_crear_venta_repetible.sql` queda anclado a la firma de 8 argumentos: la constancia del
+  corte se pierde y `obj_description('crear_venta'::regproc, ...)` pasa a ser ambiguo;
+- lo único que se pone rojo, y por accidente, es `crear_venta_canonica.test.js`, porque
+  `'crear_venta'::regproc` no resuelve con dos candidatas y porque el test exige **exactamente
+  una** fila en `pg_proc`. Que la red la ataje no quiere decir que esté tendida a propósito.
+
+Mitigación, cuando haga falta (no antes): que el archivo repetible arranque con un
+`drop function if exists crear_venta(<firma vieja completa>);` explícito y versionado, o que el
+cambio de firma vaya en una migración numerada de corte —como hizo `0006`— con el `DROP` a la
+vista. `backend/README.md → Migraciones repetibles` pide hoy que la repetible sea "idempotente
+por sí misma" pero no cubre este caso; conviene agregarlo ahí.
+
+## R42 — [BAJA] Nada automatizado impide que una migración numerada vuelva a declarar `crear_venta()`
+Detectado por el auditor en TASK-018, 2026-09-05.
+
+R28 se cerró bien: hoy la definición vigente es `backend/db/repetibles/crear_venta.sql`, hay una
+sola copia canónica y está verificado byte a byte. Pero la regla "ninguna migración numerada
+vuelve a declarar `crear_venta()`" vive **solo en comentarios**: en `0006_crear_venta_repetible.sql`,
+en el encabezado del archivo canónico y en `backend/README.md`. Un comentario no frena a nadie.
+
+Por qué importa: si una numerada futura la redefine, se aplica **después** que la repetible en
+esa corrida (el migrador hace numeradas → repetibles, pero la repetible no se reaplica porque su
+hash no cambió), así que **gana la copia numerada** y el repo entero dice que gana la otra. Es la
+regresión exacta que R28 vino a cerrar, y volvería en silencio.
+
+Costo de cerrarlo: un test de una línea que recorra `backend/db/migrations/*.sql` y falle si
+alguno declara `create ... function crear_venta(`, salvo `0002`, `0003` y `0004`, que son
+historia aplicada y no se tocan. `funcionesDeclaradas()` de `migrar.js` ya hace el parsing y
+está exportada. Se propone hacerlo en TASK-007, que es la primera tentación real de sumar la
+cuarta copia.

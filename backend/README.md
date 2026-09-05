@@ -10,7 +10,7 @@ un cliente `pg` y el migrador que las aplica.
 - **No hay HTTP.** No hay servidor, no hay rutas, no escucha ningun puerto. Nada de lo que hay
   en `src/` abre un socket de entrada.
 - **No hay logica de negocio en Node.** Los servicios de dominio de la PoC viven en la base
-  (`crear_venta()` y las que la acompanian, en `db/migrations/` y `db/functions/`), no en
+  (`crear_venta()` y las que la acompanian, en `db/migrations/` y `db/repetibles/`), no en
   JavaScript.
 - **No toca Firebase.** Ningun archivo de `backend/` importa el SDK de Firebase ni habla con
   Firestore. `functions/` es produccion desplegada y es otra cosa.
@@ -64,7 +64,8 @@ La PoC corre siempre contra el Postgres local. El escape es explicito: `DELFINO_
 
     node backend/src/db/migrar.js                     # aplica las pendientes
     node backend/src/db/migrar.js --estado            # informa; no ejecuta ninguna migracion
-    node backend/src/db/migrar.js --marcar-aplicadas  # baseline explicito, ver abajo
+    node backend/src/db/migrar.js --marcar-aplicadas  # baseline explicito, ver abajo.
+                                                      # FALLA si una repetible no esta en la base (R37)
 
 Esos son **todos** los flags, y hay que escribirlos exactos. Cualquier otro argumento —un typo
 como `--estad`, una abreviatura como `--marcar-aplicada`, un flag inventado— **aborta con exit 1
@@ -77,7 +78,7 @@ Hay **dos clases de migracion**, y el migrador aplica siempre las numeradas prim
 | clase | directorio | cuando se aplica | donde se registra |
 |---|---|---|---|
 | numeradas | `db/migrations/*.sql` | una sola vez, para siempre | `schema_migrations` |
-| repetibles | `db/functions/*.sql` | cada vez que cambia su hash | `schema_repetibles` |
+| repetibles | `db/repetibles/*.sql` | cada vez que cambia su hash | `schema_repetibles` |
 
 Que hace:
 
@@ -90,7 +91,7 @@ Que hace:
    existen;
 4. lee `backend/db/migrations/*.sql` **en orden alfabetico** — por eso el prefijo `0001_`,
    `0002_`, … — y aplica las que no esten registradas;
-5. **despues** lee `backend/db/functions/*.sql`, tambien en orden alfabetico, y aplica las que
+5. **despues** lee `backend/db/repetibles/*.sql`, tambien en orden alfabetico, y aplica las que
    no esten registradas o cuyo hash haya cambiado;
 6. **cada migracion corre en su propia transaccion, y su registro va en esa misma
    transaccion** — el `insert` en `schema_migrations`, el `upsert` en `schema_repetibles`—: si
@@ -115,12 +116,21 @@ el codigo si creaba `schema_migrations`, y esa contradiccion era parte de R14. S
 consultar el estado sin escribir absolutamente nada, la consulta directa a las dos tablas es el
 camino; el flag no lo hace.
 
-### Migraciones repetibles (`db/functions/`)
+### Migraciones repetibles (`db/repetibles/`)
 
 Son las definiciones que se reemplazan enteras: `CREATE OR REPLACE FUNCTION` y companina. En vez
 de copiar el cuerpo de la funcion en cada migracion numerada que la toca —que fue lo que dejo
 tres copias de `crear_venta()` mantenidas a mano, R28— la funcion vive en **un solo archivo** y
 se edita ahi. El migrador la reaplica cuando cambia.
+
+**Por que el directorio se llama `repetibles/` y no `functions/`.** Porque dentro de un
+directorio de base de datos `functions/` es ambiguo entre funciones de PostgreSQL y las Cloud
+Functions de `functions/`, que son produccion desplegada y no las toca ningun agente. La
+ambiguedad no fue teorica: la barrera que protege las Cloud Functions matchea el componente
+`functions` **a cualquier profundidad del arbol** (R39), asi que tambien alcanzaba a
+`backend/db/functions/` y no dejaba crear la definicion canonica de `crear_venta()`. Se renombro
+el directorio en vez de agujerear la barrera. **No revertirlo a `functions/` por prolijidad**:
+reabre el bloqueo. Decision de Gaston, 2026-09-05.
 
 Reglas:
 
@@ -168,8 +178,52 @@ una migracion que no ejecuto. Dos salidas, las dos explicitas:
   Registra las pendientes **sin ejecutarlas** y lo dice en pantalla. Alcanza tambien a las
   repetibles: registra su nombre y su hash sin correr el SQL, por el mismo criterio —si el
   operador declara que la base ya esta en el estado de los archivos, tambien lo esta el de las
-  funciones—. Si el esquema real no coincide con los `.sql`, esto deja la base mintiendo sobre
-  su estado. Usarlo a conciencia.
+  funciones—. Para las **numeradas** sigue valiendo la advertencia de siempre: si el esquema real
+  no coincide con los `.sql`, esto deja la base mintiendo sobre su estado. Usarlo a conciencia.
+
+  Para las **repetibles ya no depende del cuidado del operador**: ver abajo.
+
+#### `--marcar-aplicadas` FALLA si una repetible no esta desplegada (R37)
+
+Antes, el flag baselineaba las repetibles a ciegas: escribia nombre y hash en `schema_repetibles`
+sin mirar la base. La asimetria con las numeradas es lo que lo hacia peligroso. Con una numerada,
+un baseline mal hecho revienta enseguida —la tabla no esta y la primera consulta falla—. Con una
+repetible **no revienta nada**: la base se queda con `crear_venta()` vieja, o sin ella, mientras
+el migrador informa `Repetibles: sin cambios` y `--estado` dice `al dia`. Textual de Gaston:
+*"un `crear_venta()` equivocado corriendo en silencio no aparece en un test, aparece en una
+venta"*.
+
+Desde TASK-018 el flag **no avisa: falla**. Antes de escribir una sola fila —ni numeradas ni
+repetibles— lee cada archivo de `db/repetibles/`, saca que funciones declara (nombre y cantidad de
+argumentos) y **consulta `pg_proc`**, o sea la base. Si alguna no esta desplegada, aborta con
+exit 1 y `schema_migrations` y `schema_repetibles` quedan **exactamente como estaban**:
+
+    --marcar-aplicadas ABORTADO: hay repetibles que NO estan desplegadas en la base.
+    No se marco NADA: ni migraciones numeradas ni repetibles.
+
+      crear_venta.sql declara crear_venta(8 argumento(s)) y en la base NO existe.
+    ...
+    Que hacer: correr el migrador SIN flags para desplegarlas de verdad, y recien despues
+    baselinear si todavia hace falta.
+
+Dos detalles del chequeo, y los dos importan:
+
+- **mira la base, no `schema_repetibles`.** La raiz del problema es que esa tabla *declara* el
+  estado de la base en vez de *observarlo*; un control que la consultara a ella heredaria el
+  mismo agujero;
+- **recorre TODAS las repetibles en disco, no solo las pendientes.** Un `DROP FUNCTION` a mano
+  despues de haber aplicado la funcion deja la fila al dia —y por lo tanto *no* pendiente— con la
+  funcion ausente. Es el mismo estado incoherente por otro camino, y queda cubierto por el mismo
+  control.
+
+Se comparan **nombre y aridad**, no los tipos: interpretar `double precision`, arrays o typmods
+seria una fuente de falsos positivos y para detectar las dos formas de ausencia no hace falta.
+Limitacion conocida y aceptada: una funcion con parametros `OUT` cuenta distinto que
+`pg_proc.pronargs`; ninguna funcion del dominio los usa y, si alguna los usara, el resultado
+seria un error explicito y legible, no un silencio.
+
+Documentar esto **no alcanzaba** y esa salida quedo descartada: el flag ya es explicito y
+peligroso, y un aviso en esa salida se lee tarde.
 
 ## Estructura
 
@@ -177,7 +231,7 @@ una migracion que no ejecuto. Dos salidas, las dos explicitas:
       docker-compose.yml     Postgres 16 local, solo loopback
       db/init/               se ejecuta una vez, al crear el volumen (crea delfino_test)
       db/migrations/         el esquema, en archivos numerados: se aplican una sola vez
-      db/functions/          migraciones repetibles: se reaplican cuando cambia su hash
+      db/repetibles/         migraciones repetibles: se reaplican cuando cambia su hash
       src/db/pool.js         cliente pg: urlConexion, crearPool, obtenerPool, cerrarPool, conTransaccion
       src/db/migrar.js       el migrador (CLI e importable)
       package.json           `type: module`. Declara pg en la misma version que la raiz.

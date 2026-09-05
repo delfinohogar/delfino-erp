@@ -9,7 +9,7 @@
 // Dos clases de migracion:
 //   - NUMERADAS, backend/db/migrations/*.sql: se aplican UNA vez, en orden alfabetico, y quedan
 //     registradas en schema_migrations. Una vez aplicadas no se editan nunca.
-//   - REPETIBLES, backend/db/functions/*.sql: definiciones que se reemplazan enteras
+//   - REPETIBLES, backend/db/repetibles/*.sql: definiciones que se reemplazan enteras
 //     (CREATE OR REPLACE FUNCTION y companina). Se aplican SIEMPRE DESPUES de las numeradas y
 //     se REAPLICAN solo cuando cambia el hash del archivo. Se registran en schema_repetibles.
 //     Es el patron que Flyway llama R__; cierra R28 (tres copias de crear_venta() a mano).
@@ -24,7 +24,23 @@
 //     corren bajo el MISMO lock—, asi que la misma migracion no se aplica dos veces;
 //   - es idempotente: correrlo de nuevo no reaplica nada y sale con codigo 0;
 //   - los argumentos se validan antes de conectarse a la base: un flag desconocido o mal
-//     tipeado aborta con exit != 0 y NO aplica nada (R14).
+//     tipeado aborta con exit != 0 y NO aplica nada (R14);
+//   - --marcar-aplicadas MIRA LA BASE antes de baselinear repetibles, y FALLA si lo que
+//     declara un archivo no esta desplegado. Ver el bloque de abajo (R37).
+//
+// --- POR QUE --marcar-aplicadas MIRA LA BASE (R37) ---------------------------------------
+// schema_repetibles DECLARA el estado de la base; no lo OBSERVA. Con esa sola tabla, dos
+// caminos distintos llegan al mismo estado incoherente —fila al dia, funcion ausente, y el
+// migrador informando "Repetibles: sin cambios"—: un --marcar-aplicadas sobre una base donde
+// la funcion no esta, y un DROP FUNCTION a mano despues de haberla aplicado.
+// Con una migracion numerada un baseline mal hecho revienta enseguida: la tabla no esta y todo
+// falla. Con una repetible NO revienta nada: la base se queda con crear_venta() vieja, o sin
+// ella, y nadie se entera. Gaston lo cerro asi, textual: "un crear_venta() equivocado corriendo
+// en silencio no aparece en un test, aparece en una venta". Por eso --marcar-aplicadas no
+// avisa: FALLA, con exit != 0 y sin escribir NADA —ni numeradas ni repetibles—.
+// El chequeo consulta pg_proc, o sea la base, y recorre TODAS las repetibles en disco, no solo
+// las pendientes: asi el DROP FUNCTION a mano —que deja la fila al dia y por lo tanto no
+// pendiente— queda cubierto por el mismo control.
 //
 // Requisito de las migraciones: tienen que poder correr dentro de una transaccion
 // (nada de CREATE INDEX CONCURRENTLY ni VACUUM).
@@ -50,7 +66,14 @@ import { crearPool } from "./pool.js";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const DIR_MIGRACIONES = join(AQUI, "..", "..", "db", "migrations");
-export const DIR_REPETIBLES = join(AQUI, "..", "..", "db", "functions");
+// El directorio se llama "repetibles", NO "functions", y no es cuestion de gusto: dentro de un
+// directorio de base de datos "functions/" es ambiguo entre funciones de PostgreSQL y las Cloud
+// Functions de functions/, que son produccion desplegada y ningun agente toca. Esa ambiguedad
+// nos costo un bloqueo real (R39): la barrera que protege las Cloud Functions matchea el
+// componente "functions" a cualquier profundidad del arbol, asi que tambien alcanzaba a
+// backend/db/functions/ y no dejaba crear la definicion canonica de crear_venta(). Renombrar
+// esto a "functions/" por prolijidad reabre el bloqueo. Decision de Gaston, 2026-09-05.
+export const DIR_REPETIBLES = join(AQUI, "..", "..", "db", "repetibles");
 
 // Clave arbitraria pero fija del lock de sesion. Cualquier proceso que migre esta base usa
 // esta misma clave; nadie mas la usa.
@@ -131,6 +154,140 @@ export function repetiblesPendientes(registradas, dir = DIR_REPETIBLES) {
     pendientes.push({ archivo, sql, hash, motivo: anterior === undefined ? "nueva" : "cambiada" });
   }
   return pendientes;
+}
+
+// --- Observar la base, no la tabla de control (R37) ---------------------------------------
+
+/**
+ * Busca donde cierra el parentesis abierto en `desde`, salteando lo que este entre comillas
+ * simples (un DEFAULT puede traer un parentesis adentro de un literal).
+ */
+function cierreDeParentesis(sql, desde) {
+  let nivel = 1;
+  let enLiteral = false;
+  for (let i = desde; i < sql.length; i++) {
+    const ch = sql[i];
+    if (enLiteral) {
+      if (ch === "'") {
+        if (sql[i + 1] === "'") i++;
+        else enLiteral = false;
+      }
+      continue;
+    }
+    if (ch === "'") enLiteral = true;
+    else if (ch === "(") nivel++;
+    else if (ch === ")" && --nivel === 0) return i;
+  }
+  return -1;
+}
+
+/** Cuenta los argumentos de una lista de parametros: comas de nivel 0, fuera de literales. */
+function contarArgumentos(lista) {
+  const texto = lista.trim();
+  if (!texto) return 0;
+  let cantidad = 1;
+  let nivel = 0;
+  let enLiteral = false;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (enLiteral) {
+      if (ch === "'") {
+        if (texto[i + 1] === "'") i++;
+        else enLiteral = false;
+      }
+      continue;
+    }
+    if (ch === "'") enLiteral = true;
+    else if (ch === "(" || ch === "[") nivel++;
+    else if (ch === ")" || ch === "]") nivel--;
+    else if (ch === "," && nivel === 0) cantidad++;
+  }
+  return cantidad;
+}
+
+// Solo se reconocen declaraciones que EMPIEZAN una linea: asi una mencion dentro de un
+// comentario `--` o de una linea de texto no cuenta como declaracion.
+const RE_DECLARACION = /^[ \t]*create\s+(?:or\s+replace\s+)?function\s+(?:"?[\w$]+"?\s*\.\s*)?"?([\w$]+)"?\s*\(/gim;
+
+/**
+ * Funciones que DECLARA una repetible: nombre y cantidad de argumentos de entrada.
+ * No se interpretan los tipos a proposito —"double precision", arrays, typmods— porque
+ * equivocarse ahi daria un falso positivo; el nombre y la aridad alcanzan para detectar las
+ * dos formas de ausencia que describe R37.
+ * Limitacion conocida y aceptada: una funcion con parametros OUT cuenta distinto que
+ * pg_proc.pronargs. Ninguna funcion del dominio los usa; si alguna los usara, el chequeo daria
+ * un error explicito y legible, no un silencio.
+ * @returns {Array<{nombre: string, argumentos: number}>}
+ */
+export function funcionesDeclaradas(sql) {
+  const encontradas = [];
+  RE_DECLARACION.lastIndex = 0;
+  let m;
+  while ((m = RE_DECLARACION.exec(sql)) !== null) {
+    const abre = m.index + m[0].length;
+    const cierra = cierreDeParentesis(sql, abre);
+    if (cierra === -1) continue;
+    encontradas.push({
+      nombre: m[1].toLowerCase(),
+      argumentos: contarArgumentos(sql.slice(abre, cierra)),
+    });
+  }
+  return encontradas;
+}
+
+/**
+ * Lo que los archivos de repetibles declaran y la BASE no tiene. Consulta pg_proc: es la
+ * unica fuente que dice lo que realmente esta desplegado.
+ * Recorre TODAS las repetibles en disco, no solo las pendientes (ver R37 en el encabezado).
+ * @returns {Promise<Array<{archivo: string, nombre: string, argumentos: number, candidatas: number}>>}
+ */
+export async function repetiblesNoDesplegadas(cliente, { dir = DIR_REPETIBLES } = {}) {
+  const faltantes = [];
+  for (const archivo of repetiblesEnDisco(dir)) {
+    const { sql } = leerRepetible(dir, archivo);
+    for (const { nombre, argumentos } of funcionesDeclaradas(sql)) {
+      const { rows } = await cliente.query(
+        `select coalesce(bool_or(p.pronargs = $2), false) as esta,
+                count(*)::int                             as candidatas
+           from pg_proc p
+           join pg_namespace n on n.oid = p.pronamespace
+          where p.proname = $1 and n.nspname not in ('pg_catalog', 'information_schema')`,
+        [nombre, argumentos]
+      );
+      if (!rows[0].esta) {
+        faltantes.push({ archivo, nombre, argumentos, candidatas: rows[0].candidatas });
+      }
+    }
+  }
+  return faltantes;
+}
+
+/**
+ * Corta el baseline si alguna repetible declara algo que la base no tiene. Se llama ANTES de
+ * escribir una sola fila, para que el aborto no deje nada marcado a medias.
+ */
+export async function verificarRepetiblesDesplegadas(cliente, { dir = DIR_REPETIBLES } = {}) {
+  const faltantes = await repetiblesNoDesplegadas(cliente, { dir });
+  if (!faltantes.length) return;
+  const detalle = faltantes.map(({ archivo, nombre, argumentos, candidatas }) =>
+    candidatas === 0
+      ? `  ${archivo} declara ${nombre}(${argumentos} argumento(s)) y en la base NO existe.`
+      : `  ${archivo} declara ${nombre}(${argumentos} argumento(s)); la base tiene ${candidatas} funcion(es) con ese nombre, ninguna con esa cantidad de argumentos.`
+  );
+  throw new Error(
+    [
+      "--marcar-aplicadas ABORTADO: hay repetibles que NO estan desplegadas en la base.",
+      "No se marco NADA: ni migraciones numeradas ni repetibles.",
+      "",
+      ...detalle,
+      "",
+      "--marcar-aplicadas afirma que la base YA esta en el estado de los archivos. Si eso no",
+      "es cierto para una funcion, la base se queda con la version vieja —o sin la funcion—",
+      "mientras el migrador jura estar al dia, y nada vuelve a avisar (R37).",
+      "Que hacer: correr el migrador SIN flags para desplegarlas de verdad, y recien despues",
+      "baselinear si todavia hace falta.",
+    ].join("\n")
+  );
 }
 
 function detallarError(err, archivo, clase = "migracion") {
@@ -237,6 +394,10 @@ export async function marcarPendientesComoAplicadas(cliente, { dir = DIR_MIGRACI
  * Baseline explicito de las repetibles: registra nombre y hash SIN ejecutar el SQL.
  * Va junto con el de las numeradas, por coherencia: si el operador declara que la base ya esta
  * en el estado de los archivos, tambien lo esta el de las funciones.
+ *
+ * OJO: esta funcion no verifica nada; solo escribe. El control de R37 —que lo declarado este
+ * de verdad desplegado— lo hace verificarRepetiblesDesplegadas(), que principal() llama ANTES
+ * de marcar cualquier cosa, para que un aborto no deje el baseline hecho a medias.
  */
 export async function marcarRepetiblesComoAplicadas(cliente, { dir = DIR_REPETIBLES, log = () => {} } = {}) {
   await cliente.query(SQL_TABLA_REPETIBLES);
@@ -277,7 +438,8 @@ const AYUDA = [
   "Flags validos (el string exacto, sin abreviaturas):",
   "  (sin flags)          aplica las migraciones pendientes y las repetibles que cambiaron",
   "  --estado             solo informa que hay aplicado y que falta",
-  "  --marcar-aplicadas   baseline explicito: registra las pendientes SIN ejecutarlas",
+  "  --marcar-aplicadas   baseline explicito: registra las pendientes SIN ejecutarlas.",
+  "                       Falla si una repetible declara algo que la base no tiene (R37).",
 ];
 
 /**
@@ -348,6 +510,9 @@ export async function principal(argv = process.argv.slice(2), log = console.log)
         }
         if (baseline) {
           log("BASELINE EXPLICITO: se marcan como aplicadas sin ejecutarlas.");
+          // Primero se MIRA la base (R37). Si algo de lo que se va a declarar como aplicado no
+          // esta desplegado, esto lanza y la corrida termina con exit != 0 sin escribir nada.
+          await verificarRepetiblesDesplegadas(cliente);
           const marcadas = await marcarPendientesComoAplicadas(cliente, { log });
           log(marcadas.length ? `Marcadas ${marcadas.length}.` : "No habia pendientes.");
           const marcadasRep = await marcarRepetiblesComoAplicadas(cliente, { log });

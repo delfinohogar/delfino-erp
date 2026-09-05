@@ -1,25 +1,37 @@
 // Utilidades del test de migraciones repetibles (TASK-012).
 //
 // Por que hace falta una COPIA de backend/ en vez de usar el arbol del repo:
-// el migrador resuelve `db/migrations/` y `db/functions/` como rutas fijas relativas a
+// el migrador resuelve `db/migrations/` y `db/repetibles/` como rutas fijas relativas a
 // `backend/src/db/migrar.js`, y no acepta overrides por CLI ni por entorno. Para probar el CLI
 // de verdad (exit code, salida, concurrencia entre procesos) hace falta poder poner archivos en
-// esos dos directorios. El tester NO escribe en backend/ —y en particular NO crea
-// backend/db/functions/crear_venta.sql, que es TASK-018—, asi que cada test arma su propia copia
-// desechable del migrador bajo tests/.tmp-migrador/ y la borra al terminar.
+// esos dos directorios, y con contenido inventado: los tests de aca no dependen del dominio.
+// El tester NO escribe en backend/, asi que cada test arma su propia copia desechable del
+// migrador bajo tests/.tmp-migrador/ y la borra al terminar.
+//
+// El directorio se llama `repetibles/`, NO `functions/`: TASK-018 lo renombro (decision de
+// Gaston, 2026-09-05) porque dentro de un directorio de base de datos "functions" es ambiguo
+// entre funciones de PostgreSQL y las Cloud Functions de functions/, y esa ambiguedad costo un
+// bloqueo real (R39). Este nombre TIENE que coincidir con DIR_REPETIBLES de migrar.js: si no
+// coincide, la copia del migrador no ve ninguna repetible y los tests pasan a probar el caso
+// "no hay repetibles" sin decirlo.
 //
 // La copia normaliza migrar.js y pool.js a LF. No es una modificacion: el arbol de trabajo esta
 // en CRLF por core.autocrlf, pero el indice de git tiene LF (`git ls-files --eol` da `i/lf
 // w/crlf`), asi que la copia es byte a byte lo que esta commiteado. Los finales de linea de un
 // fuente JS no tienen ningun efecto semantico.
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import { DIR_REPETIBLES } from "../../../backend/src/db/migrar.js";
 import { RAIZ } from "./_migrador_helpers.mjs";
 
 export const DIR_TRABAJO = join(RAIZ, "tests", ".tmp-migrador");
+
+// Se DERIVA de migrar.js en vez de escribirse a mano: si alguien vuelve a renombrar el
+// directorio, la copia lo sigue sola y ningun test se queda probando el caso vacio en silencio.
+export const NOMBRE_DIR_REPETIBLES = basename(DIR_REPETIBLES);
 
 const FUENTE_MIGRAR = join(RAIZ, "backend", "src", "db", "migrar.js");
 const FUENTE_POOL = join(RAIZ, "backend", "src", "db", "pool.js");
@@ -52,7 +64,7 @@ export function mutar(texto, [buscar, reemplazo]) {
  * @param {object} opciones
  * @param {Array<[string,string]>} [opciones.migraciones] numeradas: [nombre, sql]
  * @param {Array<[string,string]>|null} [opciones.repetibles] repetibles: [nombre, sql].
- *        `null` = NO se crea el directorio db/functions (caso "no existe").
+ *        `null` = NO se crea el directorio db/repetibles (caso "no existe").
  *        `[]`   = se crea vacio.
  * @param {Array<[string,string]>} [opciones.mutaciones] pares [buscar, reemplazar] sobre migrar.js
  */
@@ -61,7 +73,7 @@ export function crearCopiaBackend({ migraciones = [], repetibles = null, mutacio
   const raiz = join(DIR_TRABAJO, randomUUID().slice(0, 8));
   const dirDb = join(raiz, "backend", "src", "db");
   const dirMigraciones = join(raiz, "backend", "db", "migrations");
-  const dirRepetibles = join(raiz, "backend", "db", "functions");
+  const dirRepetibles = join(raiz, "backend", "db", NOMBRE_DIR_REPETIBLES);
   mkdirSync(dirDb, { recursive: true });
   mkdirSync(dirMigraciones, { recursive: true });
 
@@ -102,7 +114,7 @@ export function crearCopiaBackend({ migraciones = [], repetibles = null, mutacio
     for (const [nombre, sql] of repetibles) api.escribirRepetible(nombre, sql);
   }
   if (existsSync(dirRepetibles) && repetibles === null) {
-    throw new Error("no deberia existir db/functions cuando repetibles es null");
+    throw new Error(`no deberia existir db/${NOMBRE_DIR_REPETIBLES} cuando repetibles es null`);
   }
   return api;
 }

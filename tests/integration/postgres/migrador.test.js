@@ -7,14 +7,22 @@
 //   - el pool lee DATABASE_URL y, en tests, DATABASE_URL_TEST (verificado end-to-end);
 //   - atomicidad del registro: una migracion que falla no queda registrada ni deja efecto;
 //   - concurrencia: dos migradores en paralelo no aplican la misma migracion dos veces;
-//   - --marcar-aplicadas marca sin ejecutar y no se dispara solo.
+//   - --marcar-aplicadas marca sin ejecutar y no se dispara solo, y —desde TASK-018/R37— FALLA
+//     sin escribir nada si lo que baselinea no esta desplegado en la base.
 //
 // Aislamiento: cada test usa una base temporal propia (delfino_test_mig_*). delfino_test se
 // usa solo como base administrativa para CREATE/DROP DATABASE y queda intacta.
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
-import { aplicarPendientes, DIR_MIGRACIONES } from "../../../backend/src/db/migrar.js";
+import {
+  aplicarPendientes,
+  DIR_MIGRACIONES,
+  DIR_REPETIBLES,
+  normalizarFinDeLinea,
+  repetiblesEnDisco,
+} from "../../../backend/src/db/migrar.js";
 import {
   ADMIN_URL,
   baseDeUrl,
@@ -33,6 +41,17 @@ import {
 const MIGRACIONES_REALES = readdirSync(DIR_MIGRACIONES)
   .filter((n) => n.toLowerCase().endsWith(".sql"))
   .sort();
+
+// Repetibles reales del repo (hoy: crear_venta.sql). Se usan para poner una base en el estado
+// que --marcar-aplicadas AFIRMA, que desde el cierre de R37 es condicion para poder baselinear.
+const REPETIBLES_REALES = repetiblesEnDisco(DIR_REPETIBLES);
+
+/** Despliega a mano las repetibles reales, como lo hace aplicarRepetibles(): texto a LF. */
+async function desplegarRepetiblesAMano(cliente) {
+  for (const archivo of REPETIBLES_REALES) {
+    await cliente.query(normalizarFinDeLinea(readFileSync(join(DIR_REPETIBLES, archivo), "utf8")));
+  }
+}
 
 const basesCreadas = new Set();
 
@@ -67,10 +86,12 @@ describe("MIGRADOR_IDEMPOTENCIA", () => {
       const filas = await filasSchemaMigrations(c);
       expect(filas.map((f) => f.nombre)).toEqual(MIGRACIONES_REALES);
       expect(filas.length).toBe(MIGRACIONES_REALES.length);
-      // Centinela: hoy son 0001, 0002, 0003 y 0004 (esta última la agregó TASK-003, revisada
-      // por el tester el 2026-09-04: listas de precios e historial de costos inmutable).
-      // Si aparece una quinta, revisar antes de subir el número.
-      expect(filas.length).toBe(4);
+      // Centinela: hoy son 0001, 0002, 0003, 0004 y 0006 (esta última la agregó TASK-018 el
+      // 2026-09-05: deja constancia del corte y NO redefine crear_venta(), que pasa a vivir en
+      // backend/db/repetibles/crear_venta.sql. No hay 0005: ese número está reservado para
+      // TASK-004, contadores del corte, todavía PENDING).
+      // Si aparece una sexta, revisar antes de subir el número.
+      expect(filas.length).toBe(5);
       for (const f of filas) {
         expect(typeof f.nombre).toBe("string");
         expect(f.aplicada_en).toBeInstanceOf(Date);
@@ -442,23 +463,79 @@ describe("MIGRADOR_VARIABLES_ENTORNO", () => {
 });
 
 describe("MIGRADOR_BASELINE", () => {
-  it("--marcar-aplicadas registra sin ejecutar", async () => {
+  // ATENCION: este test afirmaba, hasta TASK-018, que --marcar-aplicadas sobre una base VACIA
+  // salia 0 y marcaba las cinco numeradas. Ya no: desde el cierre de R37 el baseline MIRA la
+  // base (pg_proc) antes de escribir, y en el repo hay una repetible real —crear_venta.sql— que
+  // una base vacia no tiene. Baselinear ahi seria declarar un estado falso, asi que FALLA.
+  // El caso "registra sin ejecutar" sigue cubierto en el test siguiente, con la base puesta de
+  // verdad en el estado que el operador afirma.
+  it("--marcar-aplicadas ABORTA sobre una base vacia y no marca NADA: las repetibles reales no estan desplegadas (R37)", async () => {
+    // Precondicion del test: si el repo se quedara sin repetibles, esto ya no probaria nada.
+    expect(REPETIBLES_REALES).toContain("crear_venta.sql");
+
     const { nombre, url } = await baseLimpia("base1");
     const r = correrMigrador(["--marcar-aplicadas"], entorno({ testUrl: url }));
-    expect(r.status, r.salida).toBe(0);
-    expect(r.salida).toMatch(/BASELINE/i);
+    expect(r.status, r.salida).not.toBe(0);
+    expect(r.salida).toMatch(/ABORTADO/i);
+    expect(r.salida).toContain("crear_venta.sql");
+    expect(r.salida).toMatch(/No se marco NADA/i);
+
     const c = await clienteDe(url);
     try {
-      expect((await filasSchemaMigrations(c)).map((f) => f.nombre)).toEqual(MIGRACIONES_REALES);
-      // No ejecuto una linea de SQL de las migraciones.
+      // Ni una fila, en ninguna de las dos tablas de control: el aborto es ANTES de escribir.
+      for (const tabla of ["schema_migrations", "schema_repetibles"]) {
+        if (await existeRelacion(c, tabla)) {
+          const { rows } = await c.query(`select count(*)::int as n from ${tabla}`);
+          expect(rows[0].n, `${tabla} quedo con filas pese al aborto`).toBe(0);
+        }
+      }
+      // Y tampoco ejecuto nada.
       expect(await existeRelacion(c, "clientes")).toBe(false);
       expect(await existeRelacion(c, "ventas")).toBe(false);
       const { rows } = await c.query("select proname from pg_proc where proname='crear_venta'");
       expect(rows.length).toBe(0);
+
+      // La salida de recuperacion que propone el propio error: correr sin flags. Y funciona.
+      const normal = correrMigrador([], entorno({ testUrl: url }));
+      expect(normal.status, normal.salida).toBe(0);
+      expect((await filasSchemaMigrations(c)).map((f) => f.nombre)).toEqual(MIGRACIONES_REALES);
+      expect(await existeRelacion(c, "clientes")).toBe(true);
+    } finally {
+      await c.end();
+      await borrarBase(nombre);
+      basesCreadas.delete(nombre);
+    }
+  });
+
+  it("--marcar-aplicadas registra sin ejecutar cuando la base SI esta en el estado que se afirma", async () => {
+    const { nombre, url } = await baseLimpia("base1b");
+    const c = await clienteDe(url);
+    try {
+      // El escenario real del baseline: alguien ya dejo la base en el estado de los archivos por
+      // otra via. Aca se despliegan solo las repetibles, que es lo que R37 exige comprobar.
+      await desplegarRepetiblesAMano(c);
+
+      const r = correrMigrador(["--marcar-aplicadas"], entorno({ testUrl: url }));
+      expect(r.status, r.salida).toBe(0);
+      expect(r.salida).toMatch(/BASELINE/i);
+      expect(r.salida).not.toMatch(/ABORTADO/i);
+
+      expect((await filasSchemaMigrations(c)).map((f) => f.nombre)).toEqual(MIGRACIONES_REALES);
+      // No ejecuto una linea de SQL de las migraciones numeradas: las tablas no existen.
+      expect(await existeRelacion(c, "clientes")).toBe(false);
+      expect(await existeRelacion(c, "ventas")).toBe(false);
+      // Las repetibles quedan registradas, y la unica crear_venta() es la que pusimos a mano.
+      const { rows: rep } = await c.query("select nombre from schema_repetibles order by nombre");
+      expect(rep.map((f) => f.nombre)).toEqual(REPETIBLES_REALES);
+      const { rows } = await c.query("select proname from pg_proc where proname='crear_venta'");
+      expect(rows.length).toBe(1);
+
       // Y despues no vuelve a intentar aplicarlas.
       const segunda = correrMigrador([], entorno({ testUrl: url }));
       expect(segunda.status, segunda.salida).toBe(0);
       expect(segunda.salida).toContain("Sin migraciones pendientes");
+      expect(segunda.salida).toContain("Repetibles: sin cambios");
+      expect(await existeRelacion(c, "clientes")).toBe(false);
     } finally {
       await c.end();
       await borrarBase(nombre);

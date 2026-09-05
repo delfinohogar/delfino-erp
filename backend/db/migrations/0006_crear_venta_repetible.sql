@@ -1,0 +1,28 @@
+-- ===========================================================================
+-- 0006 — Corte: crear_venta() pasa a vivir en una sola copia canónica. Cierra R28 (TASK-018).
+--
+-- Esta migración NO redefine crear_venta(). Deja constancia del corte y nada más.
+--
+-- Qué cambia a partir de acá:
+--   - la definición vigente de crear_venta() es backend/db/repetibles/crear_venta.sql, una
+--     MIGRACIÓN REPETIBLE que el migrador reaplica cuando cambia su hash, siempre después de
+--     las numeradas;
+--   - ninguna migración numerada vuelve a declarar crear_venta(). La próxima tarea que la
+--     toque (TASK-007, facturar_pedido) edita el archivo de la función, no copia el cuerpo.
+--
+-- Qué NO cambia, y es deliberado:
+--   - 0002_venta_servicio.sql:46, 0003_iva_y_destino_pago.sql:112 y
+--     0004_precios_y_costos.sql:241 quedan intactas. Son historia ya aplicada y registrada en
+--     schema_migrations; borrarlas o editarlas rompería el registro y la posibilidad de
+--     reconstruir la base desde cero.
+--   - reconstruir desde cero sigue dando el mismo esquema: las numeradas dejan la última
+--     versión histórica (la de 0004) y la repetible la reemplaza después por la vigente, que
+--     hoy es carácter por carácter la misma.
+--
+-- El COMMENT de abajo es la constancia, y es verificable desde la base:
+--   select obj_description('crear_venta'::regproc, 'pg_proc');
+-- Además falla en el acto si alguien intentara aplicar esta migración sobre una base donde
+-- crear_venta() no existe, que es exactamente lo que queremos que pase.
+-- ===========================================================================
+comment on function crear_venta(bigint, text, date, jsonb, jsonb, text, text, text) is
+  'Definicion canonica en backend/db/repetibles/crear_venta.sql (migracion repetible, R28/TASK-018). No redefinir en migraciones numeradas.';

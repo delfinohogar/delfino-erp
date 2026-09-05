@@ -1,0 +1,167 @@
+VEREDICTO: APROBADO
+
+Tarea:    TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
+Fecha:    2026-09-05
+Rama:     task/TASK-018
+Commit auditado: c252112 (rango 2af4a9f..c252112)
+Commits del trabajo: 1ae58fd y fe3123a (implementador), 5ba9093 (tester).
+El resto del rango es del director (b98e1c3, 545985a, 1af048f, d50c8f5, c252112) y del
+merge de TASK-012 ya aprobada.
+Auditor: agente auditor, independiente del implementador y del tester.
+
+Entorno de verificación: Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+(`delfino-pg-dev`, 127.0.0.1:5432). Base usada: `delfino_test` y bases temporales propias
+(`delfino_test_aud_r37_*`), destruidas al terminar. **Nunca `delfino_dev` ni producción.**
+Ningún deploy, ningún push, ningún `gcloud`/`firebase` fuera de los emuladores ya levantados.
+
+===========================================================================================
+INVARIANTES VERIFICADAS (una línea por invariante)
+===========================================================================================
+
+MUDANZA_SIN_CAMBIO_DE_COMPORTAMIENTO — VERIFICADA, medida por mí, no leída del informe.
+  `backend/db/repetibles/crear_venta.sql:30-197` es **byte a byte** igual a
+  `backend/db/migrations/0004_precios_y_costos.sql:241-408` normalizando CRLF a LF: 168
+  líneas, 8.563 bytes, SHA-256 `0aaf87367c29a13ac4c3c80c08c528f557639335d7c06d57ffae754bb57e3415`
+  en los dos lados (comparación binaria en Python sobre los bytes del archivo, no `diff` de
+  texto). Archivo completo: 10.558 bytes, 197 líneas, 0 CR. Coincide exactamente con lo que
+  reportó el implementador. En crudo difieren solo por los 163 CR de `0004` (la numerada se
+  aplica sin normalizar), que es la diferencia esperada y documentada.
+
+DEFINICION_VIGENTE_ES_LA_REPETIBLE — VERIFICADA, reproducida con un script propio.
+  Sobre `delfino_test` recreada desde cero (numeradas crudas → repetibles a LF):
+    copias de crear_venta en la base: 1   (pronargs 8)
+    prosrc == cuerpo de repetibles/crear_venta.sql (LF): true
+    prosrc == cuerpo de 0004 crudo:                      false   (163 CR de diferencia)
+    CR en prosrc desplegado:                             0
+    pg_get_functiondef contiene el cuerpo canónico:      true
+    pg_get_functiondef sin \r:                           true
+    obj_description = "Definicion canonica en backend/db/repetibles/crear_venta.sql
+                       (migracion repetible, R28/TASK-018). No redefinir en migraciones numeradas."
+  Es exactamente lo que reportó el tester. `recrearEsquema()` aplica las repetibles después de
+  las numeradas y normalizadas a LF, igual que `aplicarRepetibles()`: la suite prueba la
+  función canónica y no la copia de 0004. Cierra el agujero que yo mismo había detectado en
+  TASK-003.
+
+NEUTRALIDAD_PROBADA_SIN_TOCAR_LOS_TESTS — VERIFICADA, las dos mitades.
+  (a) Sin tocar: `git diff --name-only 2af4a9f..c252112` no incluye `invariantes.test.js`,
+      `iva_destino_y_fecha.test.js` ni `precios_y_costos.test.js`. Último commit que tocó cada
+      uno: `619cf17` (TASK-002), `619cf17`, `48edbd5` (TASK-019) — todos anteriores a la base.
+      Árbol de trabajo limpio (`git status --porcelain` vacío en `tests/` y `backend/`).
+  (b) Verdes: tres corridas completas de la suite de integración, 152/152 en las tres.
+      Desglose por archivo (reporter JSON): invariantes 21/21, iva_destino_y_fecha 25/25,
+      precios_y_costos 33/33, migrador 19/19, migrador_repetibles 30/30,
+      crear_venta_canonica 4/4, seed-emulator 16/16, safety 4/4. `npm test` 152/152, 9 archivos.
+
+CONTABILIDAD_DEBE_IGUAL_HABER — VERIFICADA en vivo contra la función canónica desplegada.
+  Venta de 2 unidades a 850.000: 1.1.1 debe 1.700.000 / 1.1.3 haber 1.200.000 /
+  2.1.2 haber 295.041,32 / 4.1 haber 1.404.958,68 / 5.1 debe 1.200.000. Suma debe = suma
+  haber = 2.900.000. Neto + IVA = 1.404.958,68 + 295.041,32 = 1.700.000 exacto: el centavo lo
+  absorbe el neto como residuo, el criterio de la decisión Nivel 3 del 2026-09-04. Ningún
+  asiento huérfano (`asientos`/`asiento_movimientos` consistentes).
+
+STOCK_Y_CONCURRENCIA — VERIFICADA (heredada, no alterada por la mudanza).
+  El archivo canónico conserva `select ... order by s.producto_id, s.deposito_id for update`
+  (líneas 60-61) — invariante ORDEN_DE_BLOQUEO — y el rechazo por `STOCK_INSUFICIENTE`
+  (línea 70). Descuento único comprobado: stock 5 → 3 tras vender 2, y sigue en 3 tras el
+  reintento con la misma clave. Los tests CONCURRENCIA de `invariantes.test.js` (dos
+  vendedores por la última unidad, orden de bloqueo sin deadlock) pasan.
+
+IDEMPOTENCIA — VERIFICADA en vivo. Segunda llamada con la misma `p_idem` devuelve el mismo
+  `venta_id` (1) y `count(*) from ventas` sigue en 1. La clave se consulta al entrar
+  (línea 50) y se registra en `idempotency_keys` dentro de la misma transacción (línea 194).
+
+TRANSACCION_UNICA y CONTADORES — VERIFICADAS (heredadas). Todo el trabajo ocurre en el cuerpo
+  plpgsql, o sea en la transacción del llamador; los tests FALLO_INTERMEDIO confirman rollback
+  total incluido el contador de ventas (numeración sin huecos). Ninguna escritura quedó afuera.
+
+R37_MARCAR_APLICADAS_FALLA — VERIFICADA por mutación reproducida por mí, fuera del repo
+  (copia del migrador en el scratchpad, bases temporales propias, destruidas después):
+    === ORIGINAL ===            exit=1  violaciones: []  → "--marcar-aplicadas ABORTADO: hay
+                                repetibles que NO estan desplegadas en la base."
+    === MUTANTE_SIN_PG_PROC === exit=0  violaciones:
+      - salio 0 pese a que repet_a() no esta desplegada
+      - la salida no dice ABORTADO
+      - schema_migrations quedo con 1 fila(s): el baseline escribio
+      - schema_repetibles quedo con 1 fila(s): el baseline escribio
+      2da corrida sin flags dice "Repetibles: sin cambios": true
+      estado incoherente (fila al día + función ausente): true
+  El fragmento mutado aparece exactamente 1 vez en `migrar.js` (la mutación muta algo). El
+  chequeo recorre TODAS las repetibles en disco, no solo las pendientes, así que el
+  `DROP FUNCTION` a mano cae en el mismo control (test propio del tester, verde). El caso
+  real está cubierto con las repetibles del repo: `MIGRADOR_BASELINE` aborta sobre base vacía
+  nombrando `crear_venta.sql`, y el caso legítimo del baseline conserva la afirmación
+  "marca sin ejecutar" en un test aparte, no la perdió.
+
+HISTORIA_INTACTA — VERIFICADA. `0001`, `0002`, `0003` y `0004` no aparecen en el diff.
+  `0006_crear_venta_repetible.sql` es solo un `comment on function`: no redefine nada, y falla
+  en el acto si `crear_venta()` no existiera. Reconstruir desde cero da un solo `crear_venta`
+  en `pg_proc` (verificado: 1 fila).
+
+CONTRATO_UI — VERIFICADA, no aplica riesgo. La firma es la misma (`pronargs = 8`, mismos tipos).
+  No se tocó una línea de `js/`, `functions/`, `scripts/`, `build.js`, `package.json`,
+  `firebase.json`, `firestore.rules`, `CLAUDE.md`. Ningún módulo de UI depende de nada de esto:
+  el backend Postgres todavía no tiene llamadores.
+
+AISLAMIENTO — VERIFICADA. Nada apunta a producción. `js/firebase.js` y `js/firebase-config.js`
+  intactos. `backend/db/init/01_bases.sql` solo crea `delfino_test`, no contiene esquema que
+  pueda quedar desactualizado. Sin bases huérfanas tras mis corridas (quedan solo
+  `delfino_dev`, `delfino_test`, `postgres`, `template0`, `template1`) y sin restos en
+  `tests/.tmp-migrador`.
+
+SEGURIDAD — VERIFICADA. Cero SQL por concatenación en el archivo canónico (no hay `format()`
+  ni `execute`); en `migrar.js` los parámetros van con placeholders (`$1`, `$2`). Sin secretos.
+  Las credenciales de `docker-compose.yml` son de juguete y locales, ya declaradas.
+
+RENOMBRE_COHERENTE — VERIFICADA. `migrar.js` (`DIR_REPETIBLES`), `backend/README.md`, `0006`,
+  `_helpers.mjs` y `_repetibles_helpers.mjs` usan `repetibles/`. Los helpers de test **derivan**
+  la ruta de `migrar.js` (`DIR_REPETIBLES` y `basename(DIR_REPETIBLES)`) en vez de escribirla a
+  mano: un próximo renombre lo sigue solo. Las menciones que quedan a `db/functions/` son
+  históricas y deliberadas (explican por qué NO usar ese nombre) o están en archivos append-only
+  (`IMPLEMENTATION_LOG.md`, `DECISIONS.md`) o tachadas (`RISKS.md:994`). `functions/` de la raíz
+  —las Cloud Functions— no se tocó.
+
+RIESGOS_CERRADOS — VERIFICADA. `RISKS.md:569` R28 `[RESUELTO 2026-09-05]` y `RISKS.md:970`
+  R37 `[RESUELTO 2026-09-05]`, los dos con evidencia y fecha.
+
+===========================================================================================
+OBSERVACIONES [MENOR] — registradas en migration/RISKS.md, no bloquean
+===========================================================================================
+
+1. [MENOR] R41 — `CREATE OR REPLACE FUNCTION` no puede cambiar la firma: si TASK-007 le agrega
+   o le saca un parámetro a `crear_venta()`, editar la repetible crea una **sobrecarga** en vez
+   de reemplazar, y el chequeo de R37 la daría por desplegada. `crear_venta.sql` no tiene
+   `drop function if exists` y el README no cubre el caso. Es el riesgo directo del sucesor.
+
+2. [MENOR] R42 — nada automatizado impide que una migración numerada futura vuelva a declarar
+   `crear_venta()` (la 4ª copia). Hoy la regla vive solo en comentarios de `0006`, del archivo
+   canónico y del README. Un test de una línea sobre `db/migrations/*.sql` la cerraría.
+
+3. [MENOR] El bloque `accept:` de TASK-018 en `migration/TASKS.md` quedó con la ruta vieja
+   `backend/db/functions/`, mientras que el `files:` de la misma tarea ya dice `repetibles/`.
+   Es el archivo del director, no del implementador; queda anotado para que nadie lo lea como
+   contradicción con la decisión del 2026-09-05.
+
+4. [MENOR] `migration/DECISIONS.md:542,550` (entrada del 2026-09-04) sigue diciendo
+   `backend/db/functions/`. Es append-only y la entrada del 2026-09-05 (línea 170) la
+   supersede explícitamente. Se anota, no se corrige.
+
+===========================================================================================
+JUICIO PEDIDO POR EL DIRECTOR
+===========================================================================================
+
+`backend/db/functions/` vacío y sin trackear: **está bien así, y el implementador hizo lo
+correcto al no esquivar el `deny` por shell.** Git no versiona directorios vacíos, así que no
+se mergea, no viaja y no existe para nadie más que para esta máquina. El `deny` de
+`functions/**` lo sigue cubriendo, o sea que ningún agente puede dejar un `.sql` adentro. Aun
+así **le pediría a Gastón que lo borre a mano** (`rmdir "backend/db/functions"`, un segundo):
+el único riesgo que queda es humano —alguien pone ahí un `.sql` creyendo que es el directorio
+de repetibles y el migrador nunca lo aplica, en silencio—, y borrarlo lo elimina de raíz. No
+lo borro yo: no es mi alcance de escritura.
+
+Qué le deja a medias a TASK-007: nada de lo que TASK-018 se comprometió a entregar. Lo que sí
+tiene que saber TASK-007 antes de empezar es el punto 1 de arriba (R41): el momento de tocar
+`crear_venta()` es exactamente el momento en que un cambio de firma se convierte en sobrecarga
+silenciosa. El `comment on function` de `0006` está anclado a la firma de 8 argumentos y
+también se rompería. Si TASK-007 sólo cambia el cuerpo, no hay nada que hacer.
+
+Firmado: auditor, 2026-09-05.

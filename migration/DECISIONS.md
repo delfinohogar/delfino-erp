@@ -167,6 +167,163 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [GASTÓN] Las repetibles viven en `backend/db/repetibles/`, no en `db/functions/`
+Cambia la ubicación decidida el 2026-09-04 al crear TASK-012 y TASK-018.
+
+**Por qué se cambia.** `.claude/settings.json` deniega `Edit(functions/**)` y `Write(functions/**)`
+para proteger la carpeta de Cloud Functions de la raíz, y **ese glob matchea en cualquier nivel**:
+también `backend/db/functions/**`. El implementador quedó bloqueado dos veces. Gastón intentó
+anclarlo con `./functions/**` y **no funcionó**: el patrón se sigue evaluando en cualquier nivel.
+Control empírico del implementador, que es lo que cierra el diagnóstico: `Write` sobre
+`backend/db/probe_task018.tmp` —mismo árbol, sin el componente `functions`— **sí funciona**.
+
+**Por qué renombrar y no seguir peleando con el glob:**
+1. **No depende de acertar una sintaxis incierta.** Ya se gastó un intento fallido; el segundo
+   habría costado otro ciclo del implementador si tampoco andaba.
+2. **El `deny` amplio queda intacto.** Sigue protegiendo cualquier carpeta llamada `functions/`, a
+   cualquier profundidad. Renombrar lo nuestro nos saca de la zona de riesgo en vez de agujerear
+   la barrera — que es la dirección correcta, y la misma lógica por la que no se tocó
+   `firestore.rules` para que pasara un test.
+3. **`repetibles` describe mejor el contenido, y la ambigüedad del nombre viejo es lo que causó el
+   bloqueo.** Formulación de Gastón: **`functions/` dentro de un directorio de base de datos es
+   ambiguo entre funciones de Postgres y Cloud Functions**, y esa ambigüedad es exactamente lo que
+   disparó el problema. No fue mala suerte con un glob: fue un nombre que significaba dos cosas en
+   el mismo repositorio. `repetibles` dice qué son —migraciones que se reaplican— y no colisiona
+   con nada.
+
+**SI ALGUIEN QUIERE "CORREGIRLO" DE VUELTA A `functions/` POR PROLIJIDAD: no.** El nombre viejo era
+ambiguo y estaba dentro del alcance de un `deny` que protege las Cloud Functions. Volver atrás
+rompe el trabajo y reabre el bloqueo.
+
+**Costo, medido antes de decidir:** ~12 referencias en 5 archivos — `backend/src/db/migrar.js` (una
+constante y comentarios), `backend/README.md` (7 menciones), `0006_crear_venta_repetible.sql` (2
+comentarios), y **`migrador_repetibles.test.js` y `_repetibles_helpers.mjs`, que son tests de
+TASK-012 ya aprobados**, así que necesitan una pasada del tester. Se aceptó ese costo a cambio de
+no depender de la sintaxis del glob.
+
+Nota de método: el director midió el costo **antes** de plantear la opción, en vez de proponer el
+renombre en abstracto. Sin ese número la comparación no se podía hacer.
+
+## 2026-09-05 — [GASTÓN] Las tareas de test transversales NO se encadenan a las de operación
+**PENDIENTE DE ESCRIBIR EN TASKS.md**: se redacta cuando cierre TASK-018 y **antes de arrancar
+TASK-004**. Se anota acá para no perderlo en el intervalo.
+
+Corrección de Gastón a la partición que escribió el director el 2026-09-04. Ahí TASK-016 quedó con
+`depends: TASK-008` y TASK-017 con `depends: TASK-010`, colgadas de **la última** tarea de
+operación que rozan. Eso las mete en la cadena lineal y las hace esperar de más.
+
+**El principio correcto:** una tarea de test transversal depende de **las tareas cuyo cruce
+prueba**, no de la última de la cadena. Si `crear_pedido` y `modificar_pedido` están aprobados, la
+tarea que los cruza **puede correr en paralelo** con la siguiente de operación.
+
+Textual: *"la cadena lineal es correcta para las migraciones numeradas, no para los tests
+transversales"*. La linealidad de TASK-001 → TASK-010 se aceptó porque cada migración numerada
+**necesita el esquema de la anterior**. Los tests transversales no: necesitan que existan las
+operaciones que cruzan, y nada más. Encadenarlos al final fue inercia del director, no una
+restricción real.
+
+Consecuencia concreta a escribir: `FACTURAR_VS_MODIFICAR` necesita TASK-006 y TASK-007, así que
+puede correr **en paralelo con TASK-008**; `ORDEN_DE_BLOQUEO` necesita TASK-005. Probablemente
+convenga partir TASK-016 en más de una tarea, cada una con sus dependencias reales, en vez de una
+sola colgada del final.
+
+**RESUELTO por Gastón el 2026-09-05, antes de escribir la partición:**
+
+1. **Las dependencias se escriben correctas**, reflejando la realidad y no la serialización.
+   TASK-016 se parte según sus dependencias reales: **ORDEN_DE_BLOQUEO con `depends: TASK-005`** y
+   **FACTURAR_VS_MODIFICAR con `depends: TASK-006, TASK-007`**.
+2. **No se paraleliza todavía**, aunque las dependencias lo permitan. El `git worktree` queda como
+   **opción disponible, no activada**. Si más adelante el ritmo lo justifica, se enciende.
+
+El motivo de Gastón **no es técnico** y por eso conviene citarlo entero: un worktree resolvería lo
+de los agentes pisándose, pero *"también significa dos agentes trabajando a la vez, dos ciclos de
+tester y auditor superpuestos, y yo aprobando merges de dos ramas en paralelo. Es más superficie
+para que algo se me pase, justo en las tareas más delicadas del proyecto"*.
+
+La distinción que deja sentada, y que vale para todo el proyecto: **las dependencias expresan lo
+que es posible; el orden de ejecución expresa lo que se elige.** Serializar por decisión es
+legítimo; escribir una dependencia falsa para forzar esa serialización, no — porque después nadie
+sabe cuál de las dos cosas era. Y una posibilidad registrada no obliga a usarla: queda ahí para
+cuando el ritmo la justifique.
+
+## 2026-09-05 — [GASTÓN] Descripción larga: campo nuevo, no renombrar `descripcion`
+INCLINACIÓN, **no decisión**: se toma cuando se planifique la tarea de Tiendanube, que es futura y
+está fuera de la PoC.
+
+Gastón se inclina por **agregar un campo nuevo** en vez de renombrar `descripcion`. Su motivo:
+tocar `descripcion` afecta listado, búsqueda y varias pantallas —el director verificó que
+`js/productos.js:213` ordena el listado por ese campo y la línea 57 lo usa como material de
+búsqueda— **por una mejora que no lo justifica**.
+
+Queda escrito para que quien planifique esa tarea no vuelva a evaluar la opción desde cero, y para
+que se note que el costo del renombre fue medido y no supuesto.
+
+## 2026-09-05 — [IDEA FUTURA · GASTÓN] Circuito Remito → Factura en compras
+**No es decisión ni tarea.** Idea de negocio, sin planificar, salida de un caso real de todos los
+días: llega mercadería con remito, entra al stock, y la factura llega después.
+
+**Estado actual, verificado contra el código por el director:** `productos/compras-nueva.js:57`
+ofrece `<option>Remito</option>`, pero `js/compras.js → crearCompra()` llama a `generarAsiento`
+**sin mirar `tipoComprobante`**, con `IVA_CREDITO_FISCAL` al debe en la línea 163. No hay ningún
+condicional por tipo. Eso está registrado aparte como **R40 [ALTA]**, porque no es una carencia
+funcional: es IVA crédito fiscal computado sobre comprobantes que no lo dan, en producción.
+
+**Lo que el circuito debería hacer:**
+- El remito **ingresa stock sin generar el asiento de compra**, o lo genera contra una cuenta
+  transitoria de "Mercadería recibida a facturar". **Cuál de las dos es decisión contable de
+  Gastón**, y no la toma un agente.
+- La factura posterior **se vincula al remito y lo convierte**: cancela la transitoria, imputa IVA
+  crédito fiscal y la deuda real, y **no vuelve a tocar el stock**.
+- **La conversión es una reconciliación, no un cambio de estado.** La factura puede traer otro
+  costo unitario, percepciones, retenciones, o cantidades distintas si el proveedor facturó de
+  menos. Tiene que permitir ajustar todo eso y que el resultado **cierre exacto**.
+- **Choca con P5** si el costo cambia respecto del remito: el costo maestro no se actualiza solo.
+  Hay que definir si la conversión **propone** la actualización o la **exige explícita**. Otra
+  decisión de Gastón.
+- Falta una **pantalla de remitos pendientes de facturar**, que hoy no existe.
+
+**Precedente en el repo, y conviene aprovecharlo:** `js/ordenes-compra.js` ya implementa
+pendiente → recibida con vínculo a la compra real. Es el mismo patrón, así que quien lo planifique
+tiene de dónde copiar la forma en vez de inventarla.
+
+Aparte del sistema: si se vinieron cargando remitos como compras, **la contabilidad ya tiene IVA
+crédito fiscal computado de más**. Gastón lo revisa con su contador. Qué hacer con lo ya
+registrado es criterio contable, no técnico, y no lo decide nadie de este proyecto.
+
+## 2026-09-05 — [IDEA FUTURA · GASTÓN] Traer descripciones y medidas de Tiendanube al ERP
+**No es una decisión ni una tarea.** Es relevamiento, para que quien la planifique no arranque de
+cero. **Fuera del alcance de la PoC** y posterior a dejar GBP.
+
+No existía ninguna nota previa sobre el chatbot en `migration/` ni en `docs/` —verificado—, así que
+ésta es la primera entrada del tema. Si hay una anterior en otro lado, conviene unificarlas acá.
+
+**Objetivo:** que el catálogo salga de **una sola fuente** y el chatbot no tenga que consultar dos
+sistemas. Es la aplicación directa de P9: Delfino ERP es la fuente de verdad de productos, precios
+y stock, y las plataformas externas reciben.
+
+**Estado real hoy, verificado contra el código por Gastón y confirmado por el director:**
+- `functions/tiendanubeCatalogo.js:37` pide `fields=id,name,variants,images`. **No trae
+  `description` ni los atributos físicos.**
+- En el ERP, `descripcion` es el **nombre corto** del producto, el que se ve en el listado:
+  `js/productos.js:213` ordena el listado por ese campo y la línea 57 lo usa como material de
+  búsqueda junto al SKU y los códigos. **No existe campo de descripción larga, ni medidas, ni
+  peso.**
+- Tiendanube **sí** tiene esos datos: `description` con el HTML de la ficha, y `weight`, `width`,
+  `height`, `depth` **por variante**.
+
+**Qué falta, y en qué orden:**
+1. Ampliar el `fields` de la importación.
+2. Crear los campos en el modelo de producto del ERP. Ojo con el nombre: `descripcion` ya está
+   tomado por el nombre corto, así que la descripción larga necesita otro nombre o hay que
+   renombrar el existente — y renombrarlo toca listado, búsqueda y varias pantallas.
+3. **Decidir qué hacer con el HTML de la descripción**: guardarlo tal cual, limpiarlo, o
+   convertirlo a texto plano. Gastón se inclina por **texto plano** por ser para un chatbot.
+   **Esa es una decisión de producto y queda para cuando se planifique**, no se toma acá.
+
+**Detalle que va a aparecer al implementarlo:** las medidas en Tiendanube son **por variante** y el
+ERP modela el producto; hay que definir qué medida queda cuando un producto tiene varias variantes,
+o si el ERP pasa a guardarlas por variante. Es diseño de modelo, no un mapeo directo.
+
 ## 2026-09-05 — [GASTÓN] Se saca `singleProjectMode` de `firebase.json`
 Decidido con el análisis de R36 sobre la mesa. Gastón edita el archivo, que está en `deny` para
 todos los agentes; el director le pasó el contenido completo con el único cambio.
