@@ -152,7 +152,9 @@ accept:
 - produce un **checklist accionable** de lo que tiene que hacer Gastón, en orden, y para cada ítem **cómo sabe que está listo** — un checklist sin criterio de verificación no sirve
 - **cada ítem marcado por dónde se verifica**, en dos grupos separados y visibles: `[ARCA]` los que Gastón puede resolver solo en la web de ARCA/AFIP sin depender de nadie, y `[CÓDIGO]` los que requieren mirar el repositorio o Firestore. El objetivo es que Gastón avance los suyos en paralelo mientras el equipo sigue con la cadena del esquema
 - si un ítem necesita las dos cosas, va marcado `[ARCA+CÓDIGO]` y dice explícitamente qué mitad es de cada lado, para que Gastón sepa hasta dónde puede llegar solo
-- cubre como mínimo: punto de venta de homologación habilitado para servicios web; condición fiscal del emisor en `configuracion/empresa`; datos mínimos del comprobante que exige WSFEv1; y qué campos del ERP alimentan cada uno
+- cubre como mínimo: condición fiscal del emisor en `configuracion/empresa`; datos mínimos del comprobante que exige WSFEv1; y qué campos del ERP alimentan cada uno
+- **el punto de venta ya está verificado por Gastón el 2026-09-04 y no hay que relevarlo**: existen tres de tipo "RECE para aplicativo y web services" — el **4** (Av. 24 4464), el **5** (Av. 24 4560) y el **6** (Lirio 863). Para homologación **no hace falta crear ninguno**. El checklist lo marca como resuelto y dice cuál se usa en la prueba; elegir cuál es parte del guion de TASK-015
+- **NO decide el punto de venta de producción**: si Delfino usa los mismos que GBP con numeración intercalada, o uno nuevo exclusivo, es decisión **Nivel 3 de Gastón** y está abierta. El relevamiento puede juntar los datos que ayuden a decidirla —cómo numera GBP hoy, qué implica intercalar— pero no la resuelve ni la asume
 - deja explícito qué parámetros toma `arcaAutorizarComprobante`, qué valida antes de llamar a ARCA, y qué devuelve en éxito y en error
 - lista los modos de falla conocidos de WSFEv1 con su código, para poder distinguir "error entendido" de "algo salió mal"
 - NO activa nada: `arcaActivo` sigue en `false`

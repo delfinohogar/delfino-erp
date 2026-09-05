@@ -72,6 +72,26 @@ Los tres ítems siguientes se movieron desde MIGRATION_STATUS.md el 2026-09-04, 
 Gastón: dependen de él y este es el lugar donde los va a buscar. Ninguno bloquea TASK-001 a
 TASK-010.
 
+### 2026-09-04 — Punto de venta de PRODUCCIÓN para ARCA: ¿compartido con GBP o exclusivo?
+ABIERTA. No bloquea homologación ni la PoC; se resuelve antes de facturar en producción.
+
+Dato verificado por Gastón el 2026-09-04: existen tres puntos de venta de tipo "RECE para
+aplicativo y web services" — el **4** (Av. 24 4464), el **5** (Av. 24 4560) y el **6**
+(Lirio 863). **Para homologación no hace falta crear ninguno**, así que esa parte del checklist
+ya está resuelta.
+
+Lo que queda abierto es producción: si Delfino emite por los **mismos** puntos de venta que usa
+GBP —con numeración intercalada entre los dos sistemas— o por **uno nuevo exclusivo**.
+
+Es Nivel 3 por partida doble: es criterio fiscal (la numeración de comprobantes por punto de
+venta debe ser correlativa y sin huecos) y toca la relación con GBP, que es un sistema en
+producción que hoy factura. Con numeración intercalada, los dos sistemas comparten un correlativo
+que ninguno de los dos controla entero, y un hueco o un salto no se puede atribuir sin cruzar los
+dos. Con un punto de venta exclusivo, Delfino controla su propia serie de punta a punta.
+
+No la toma ningún agente. TASK-014 puede juntar los datos que ayuden a decidirla —cómo numera GBP
+hoy, qué implica intercalar— pero no la resuelve ni la asume.
+
 ### 2026-09-04 — CLAUDE.md afirma que el IVA en ventas se calcula en $0
 Es falso —el IVA está discriminado e imputado a 2.1.2— y contradice la decisión de Nivel 3 del
 2026-09-04, que además corrige la premisa de P6. `CLAUDE.md` solo lo modifica Gastón. Impacto:
