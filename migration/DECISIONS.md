@@ -290,7 +290,30 @@ que la del tester. Partir TASK-016 y TASK-017 alivia al tester y **no hace nada 
 que igual tiene que reproducir todo lo de la tarea que audita. Queda anotado como pregunta abierta
 para el próximo corte: si el auditor necesita un equivalente —auditar por bloques, o un veredicto
 en dos pasadas— o si alcanza con priorizar y permitir la aprobación con salvedades, que es lo que
-se probó primero. La causa no es que 35 tests sean muchos: es que exigir la
+se probó primero.
+
+### Registro de cortes por límite de turnos — evidencia para decidir, no para intuir
+Se anota cada caso con su carga real. Cuando lleguemos a los servicios de dominio (TASK-005 a
+TASK-010, las tareas más grandes del lote) esto tiene que alcanzar para dimensionar con datos.
+
+| # | Fecha | Tarea | Rol | Qué se le pidió | Qué dejó |
+|---|---|---|---|---|---|
+| 1 | 2026-09-04 | TASK-003 | tester | 33-35 tests, 3 mutaciones propias, verificar 3 copias de `crear_venta()` | 786 líneas sin commitear, rescatadas en `bc605ea` |
+| 2 | 2026-09-04 | TASK-003 | auditor | reproducir 3 mutaciones, 8 vías de inmutabilidad, no-regresión de TASK-002 | nada; árbol limpio |
+| 3 | 2026-09-04 | TASK-013 | **implementador** | reescribir el seed, chequeo de proyecto, reporte y barrido de un namespace, 7 verificaciones | trabajo sin commitear |
+
+**Lo que cambia con el caso 3, señalado por Gastón:** hasta acá la conclusión era sobre el tamaño
+de las **tareas de test**, y la mitigación —partir TASK-016 y TASK-017— apunta al tester. El tercer
+corte es de **implementación**, así que el criterio de "contar mutaciones y no tests" puede tener
+un equivalente del lado del implementador: contar **verificaciones exigidas**, no archivos
+tocados. TASK-013 toca **un solo archivo** y aun así se cortó, porque lo caro no fue escribirlo
+sino las siete verificaciones —camino feliz por REST, idempotencia, aborto por desajuste, aborto
+sin variables, inventario de dos namespaces, barrido con comparación antes/después, y la suite—.
+
+Hipótesis a confirmar con el próximo caso, **no** decidida todavía: el costo de una tarea no lo
+predice la cantidad de archivos ni de líneas, sino **la cantidad de comprobaciones empíricas
+independientes** que se exigen antes de reportar. Si se sostiene, aplica igual a los tres roles y
+cambia cómo se parten TASK-005 a TASK-010. **No se cambia nada ahora**: se junta evidencia. La causa no es que 35 tests sean muchos: es que exigir la
 demostración de que cada test **puede fallar** multiplica el trabajo. El tester no solo escribe —
 levanta la base, corre, diagnostica, **planta la mutación, verifica el rojo, la revierte** y
 vuelve a correr. TASK-002 fueron 34 tests con dos mutaciones y entró justo; TASK-003 fueron 35 con
