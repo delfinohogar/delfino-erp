@@ -190,9 +190,24 @@ puede correr **en paralelo con TASK-008**; `ORDEN_DE_BLOQUEO` necesita TASK-005.
 convenga partir TASK-016 en más de una tarea, cada una con sus dependencias reales, en vez de una
 sola colgada del final.
 
-Queda pendiente resolver cómo se paraleliza sin volver a pisar el árbol de trabajo — Gastón pidió
-un solo hilo por vez después del incidente del `commit -am`. La salida técnica sería un
-`git worktree` separado, y **eso también hay que decidirlo al escribir la partición.**
+**RESUELTO por Gastón el 2026-09-05, antes de escribir la partición:**
+
+1. **Las dependencias se escriben correctas**, reflejando la realidad y no la serialización.
+   TASK-016 se parte según sus dependencias reales: **ORDEN_DE_BLOQUEO con `depends: TASK-005`** y
+   **FACTURAR_VS_MODIFICAR con `depends: TASK-006, TASK-007`**.
+2. **No se paraleliza todavía**, aunque las dependencias lo permitan. El `git worktree` queda como
+   **opción disponible, no activada**. Si más adelante el ritmo lo justifica, se enciende.
+
+El motivo de Gastón **no es técnico** y por eso conviene citarlo entero: un worktree resolvería lo
+de los agentes pisándose, pero *"también significa dos agentes trabajando a la vez, dos ciclos de
+tester y auditor superpuestos, y yo aprobando merges de dos ramas en paralelo. Es más superficie
+para que algo se me pase, justo en las tareas más delicadas del proyecto"*.
+
+La distinción que deja sentada, y que vale para todo el proyecto: **las dependencias expresan lo
+que es posible; el orden de ejecución expresa lo que se elige.** Serializar por decisión es
+legítimo; escribir una dependencia falsa para forzar esa serialización, no — porque después nadie
+sabe cuál de las dos cosas era. Y una posibilidad registrada no obliga a usarla: queda ahí para
+cuando el ritmo la justifique.
 
 ## 2026-09-05 — [GASTÓN] Descripción larga: campo nuevo, no renombrar `descripcion`
 INCLINACIÓN, **no decisión**: se toma cuando se planifique la tarea de Tiendanube, que es futura y
