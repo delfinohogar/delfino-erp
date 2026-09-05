@@ -295,7 +295,7 @@ accept:
 - R32 queda cerrado en RISKS.md con la fecha
 
 ### TASK-020 — La suite no depende del estado del emulador de Gastón (R43)
-status: IN_PROGRESS
+status: IN_REVIEW
 owner: tester
 depends: TASK-018
 files:
