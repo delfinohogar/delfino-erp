@@ -238,7 +238,7 @@ accept:
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
 ### TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
-status: IN_PROGRESS
+status: IN_REVIEW
 desbloqueo: el directorio de repetibles se renombra de `backend/db/functions/` a
   **`backend/db/repetibles/`** (decisión de Gastón, 2026-09-05). El `deny` de `functions/**` matchea
   en cualquier nivel y `./` no ancla —ver R39—, así que en vez de agujerear la barrera se sale de
