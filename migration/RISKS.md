@@ -8,11 +8,11 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R27 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+R28 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
 auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011, R20 el director, R21-R22 el
 auditor en la confirmación de TASK-011, R23-R25 el auditor en la aprobación de TASK-002, y
-R26-R27 el director con datos de Gastón, todos el 2026-09-04. R21 en adelante se agregan al final
-por orden de registro, no por severidad.
+R26-R27 el director con datos de Gastón y R28 el director en TASK-003, todos el 2026-09-04. R21 en
+adelante se agregan al final por orden de registro, no por severidad.
 
 ---
 
@@ -487,3 +487,31 @@ la librería, en 26 funciones a la vez.
 
 Igual que R26: fuera del alcance de la PoC, `functions/` no la toca ningún agente, y se registra
 para que las dos cosas se planifiquen juntas y con tiempo, no bajo presión.
+
+## R28 — [MEDIA] Tres copias de `crear_venta()` mantenidas a mano, y una cuarta en camino
+Detectado por el tester en TASK-003 y elevado por Gastón el 2026-09-04.
+
+`crear_venta()` está definida con `CREATE OR REPLACE` en `0002_venta_servicio.sql:46`,
+`0003_iva_y_destino_pago.sql:112` y `0004_precios_y_costos.sql:241`. El patrón es **correcto** en
+su motivo —no se editan migraciones ya aplicadas, porque eso rompe `schema_migrations`— pero cada
+cambio copia el cuerpo entero para tocar unas pocas líneas. En 0004 fueron **tres** agregados de
+`lista_precio_id` sobre ~90 líneas copiadas.
+
+Qué protege hoy, y qué no:
+- **Sí protege** la suite de comportamiento: los tests de TASK-002 corren contra la función
+  **viva**, así que una copia futura que rompa el IVA, la imputación o la fecha local sale en
+  rojo. El comparador de textos del tester **no** es el único centinela, y eso acota el riesgo.
+- **No protege** contra una divergencia de comportamiento que ningún test cubra. Ahí el error no
+  aparece en la suite: aparece en producción.
+- **No escala**: cada migración que toque la función suma una copia, y el costo de revisarlas
+  crece con el cuadrado de la cantidad, no con la cantidad.
+
+Margen real: **TASK-004 NO la toca** —`crear_venta()` llama a `siguiente_numero('ventas')` por
+nombre y esa firma no cambia—, así que no hay una cuarta copia inminente. La próxima que sí la va
+a tocar es **TASK-007** (`facturar_pedido`, que convierte el pedido en venta).
+
+**Condición de cierre (obligatoria, no opcional): antes de TASK-007.** Se cierra con
+**migraciones repetibles** — TASK-012 agrega soporte en el migrador para un directorio
+`backend/db/functions/` cuyos archivos se reaplican cuando cambia su hash, y TASK-018 mueve
+`crear_venta()` ahí. A partir de entonces la función tiene **una sola copia canónica** y las
+migraciones numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.

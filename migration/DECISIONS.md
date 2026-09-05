@@ -167,6 +167,44 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-04 — [NIVEL 2] Las funciones de dominio pasan a migraciones repetibles
+Cierra R28. Decidido antes de TASK-004, a pedido de Gastón, con el margen que da haber
+verificado que **TASK-004 no toca `crear_venta()`**: la función llama a `siguiente_numero('ventas')`
+por nombre y esa firma no cambia. La próxima que sí la toca es TASK-007.
+
+PROBLEMA: `crear_venta()` está copiada entera en 0002, 0003 y 0004. El patrón `CREATE OR REPLACE`
+por migración es correcto en su motivo —no se editan migraciones aplicadas, porque rompe
+`schema_migrations`— pero copia ~90 líneas para cambiar tres, y cada cambio futuro suma una copia.
+
+DECISIÓN: **migraciones repetibles**, el patrón que Flyway llama `R__`. Se agrega
+`backend/db/functions/`, cuyos archivos el migrador **reaplica cuando cambia su hash**, siempre
+después de las migraciones numeradas. `crear_venta()` se muda ahí y pasa a tener **una sola copia
+canónica**. Las migraciones numeradas dejan de redefinirla; si una necesita cambiarla, edita el
+archivo de la función.
+
+Se implementa en dos pasos, y el primero aprovecha que TASK-012 ya es dueña de `migrar.js`:
+- **TASK-012** suma el soporte de repetibles a lo que ya hacía (R14, validación de flags). Mismo
+  archivo, mismo dueño: evita que dos tareas declaren `backend/src/db/migrar.js` en `files:`.
+- **TASK-018** mueve `crear_venta()` a `backend/db/functions/crear_venta.sql`.
+Y **TASK-007 pasa a depender de TASK-018**, para que la conversión de pedido en venta no genere
+la cuarta copia.
+
+### Alternativas evaluadas y por qué no
+- **Dejarlo como está con el comparador de textos del tester.** Es lo que hay hoy. Rechazado por
+  Gastón: no escala. El costo de revisar N copias crece más rápido que N.
+- **Factorizar el cuerpo en funciones chicas que `crear_venta()` llame.** Ayudaría si los cambios
+  fueran locales, pero los de 0004 fueron tres `INSERT` distintos dentro del cuerpo: no se aíslan
+  sin partir la función por donde no tiene junta natural.
+- **Un test que exija una sola definición en todo el repo.** Rompe el patrón sin reemplazarlo: no
+  habría forma legítima de cambiar la función.
+
+### Lo que acota el riesgo mientras tanto, y hay que decirlo
+El comparador de textos **no es el único centinela**. Los tests de TASK-002 corren contra la
+función **viva**, así que una copia futura que rompa el IVA, la imputación de pagos o la fecha
+local sale en rojo sin que nadie compare textos. Lo que no cubre es una divergencia de
+comportamiento que ningún test mire — y ése es exactamente el caso que aparece en producción y no
+en la suite. Por eso se cierra, y no se acepta como residual.
+
 ## 2026-09-04 — [NIVEL 2] Las invariantes de concurrencia van en tarea propia, no en la del servicio
 **Si en el futuro alguien ve una tarea de tests separada de su implementación y quiere
 "arreglarla" juntándolas: leé esto antes. La separación es deliberada.**

@@ -77,7 +77,7 @@ accept:
 - los 4 tests de `safety.test.js` en verde, y la suite completa sin ningún rojo
 - no se toca ningún otro test ni código de aplicación
 
-### TASK-012 — Validación de flags del migrador (R14)
+### TASK-012 — Validación de flags del migrador (R14) y migraciones repetibles (R28)
 status: PENDING
 owner: implementador
 depends: TASK-011
@@ -85,6 +85,13 @@ files:
 - backend/src/db/migrar.js
 - backend/README.md
 accept:
+- **migraciones repetibles (R28)**: el migrador aplica, siempre **después** de las numeradas, los archivos de `backend/db/functions/*.sql`, y los **reaplica solo cuando cambia su hash**. El hash y la fecha quedan registrados, en `schema_migrations` con una marca que los distinga o en una tabla propia
+- una repetible que falla **no queda registrada** y no deja efectos: misma propiedad transaccional que TASK-001 exigió para las numeradas
+- correr el migrador dos veces seguidas sin cambios no reaplica ninguna repetible
+- cambiar un byte de un archivo de `functions/` hace que se reaplique en la corrida siguiente, y solo ese
+- las repetibles corren bajo el mismo `pg_advisory_lock` que las numeradas: dos migradores en paralelo no las aplican dos veces
+- el directorio `backend/db/functions/` puede estar vacío o no existir sin que el migrador falle
+- las migraciones numeradas ya aplicadas **no se modifican** y `schema_migrations` no pierde su historia
 - un argumento desconocido o mal tipeado **aborta con exit distinto de 0** y lista los flags válidos; nunca cae silenciosamente en el modo que aplica migraciones
 - caso concreto que hoy falla: `node backend/src/db/migrar.js --estad` no debe aplicar nada
 - `--estado` no crea la tabla `schema_migrations`, o el README deja de afirmar que "no escribe esquema": el código y la documentación tienen que coincidir
@@ -162,6 +169,22 @@ accept:
 - el esquema NO recalcula el costo maestro automáticamente en ninguna operación (P5)
 - **DIVERGENCIA DELIBERADA CON EL ERP, no la "corrijas" hacia el código.** `js/compras.js` hoy **sí** actualiza el costo maestro solo al registrar una compra. P5 decide lo contrario: una compra puede registrar un costo distinto en `historial_costos` sin modificar el maestro, y el cambio del maestro requiere **aceptación explícita**. Acá la decisión le gana al código actual. Si algo parece un bug porque no coincide con `js/compras.js`, no lo es: es esta decisión
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
+
+### TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
+status: PENDING
+owner: implementador
+depends: TASK-012
+files:
+- backend/db/functions/crear_venta.sql
+- backend/db/migrations/0006_crear_venta_repetible.sql
+accept:
+- `backend/db/functions/crear_venta.sql` contiene **la definición vigente**, la de `0004_precios_y_costos.sql:241`, sin cambios de comportamiento. Esta tarea **muda**, no refactoriza: si algo se comporta distinto, es un bug de la tarea
+- la migración numerada acompañante deja constancia del corte y no redefine la función: a partir de acá, `crear_venta()` vive en `functions/`
+- **las definiciones de 0002, 0003 y 0004 NO se borran ni se editan.** Son historia aplicada; borrarlas rompería `schema_migrations` y la posibilidad de reconstruir la base desde cero
+- después del cambio, `pg_get_functiondef('crear_venta')` devuelve la de `functions/`, verificado
+- **los tests de TASK-002 y TASK-003 siguen verdes sin tocarlos**: IVA a 2.1.2 = 648,68, imputación caja/banco→1.1.1, cuentaPorCobrar→1.1.5, pendiente→1.1.2, fecha local estable en varios husos, y la venta sin lista de precios sigue funcionando (P3). Ésa es la prueba de que la mudanza no cambió comportamiento
+- reconstruir la base desde cero con el migrador da el mismo esquema que aplicar las migraciones sobre una base existente
+- R28 queda marcado como cerrado en RISKS.md, con la fecha
 
 ### TASK-016 — Invariantes de concurrencia entre operaciones
 status: PENDING
@@ -270,7 +293,11 @@ accept:
 ### TASK-007 — Servicio `facturar_pedido`: convertir pedido en venta sin doble reserva
 status: PENDING
 owner: implementador
-depends: TASK-006
+depends: TASK-006, TASK-018
+nota: depende de TASK-018 porque es la primera tarea que vuelve a tocar `crear_venta()`. Para
+  entonces la función ya tiene una sola copia canónica en `backend/db/functions/`, así que esta
+  tarea **no genera una cuarta copia**: edita el archivo de la función (R28, decisión Nivel 2 del
+  2026-09-04).
 files:
 - backend/db/migrations/0008_facturar_pedido.sql
 accept:
