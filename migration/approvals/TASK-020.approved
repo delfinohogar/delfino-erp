@@ -1,0 +1,104 @@
+# TASK-020 — La suite no depende del estado del emulador de Gastón (R43)
+
+VEREDICTO: APROBADO
+Fecha: 2026-09-05
+Rama auditada: `task/TASK-020`
+Commit del tester: `a355848` · rango auditado: `27cc98d..91ae163` (HEAD de la rama al auditar:
+`873709f`, commit del director sobre `DECISIONS.md`, fuera del alcance de esta tarea).
+Archivo de código tocado: `tests/integration/seed-emulator.test.js` (único). El resto del diff es
+documentación: `RISKS.md`, `TASKS.md`, `TEST_MATRIX.md`, `TEST_RESULTS.md`.
+
+## La pregunta que decidía el veredicto: ¿borrar el `it` fue resolver o tapar?
+
+**Fue resolver. No se perdió cobertura.** Verifiqué la cadena de tres tests por mi cuenta, uno por
+uno, y cada uno prueba lo que se le atribuye:
+
+- **(a) el seed siembra en el namespace que declara `js/firebase-config.js`** —
+  `tests/integration/seed-emulator.test.js:128`. `crearCopia({ projectId: NS_PROPIO })`
+  (`tests/herramientas/seed-proceso.mjs`) arma un árbol fuera del repo y **reemplaza el projectId
+  en la copia de `js/firebase-config.js`**, abortando si el reemplazo no matchea. El seed se corre
+  como proceso hijo sobre esa raíz y se verifica **por escritura, no solo por el texto impreso**:
+  `NS_PROPIO` se vació en el `beforeAll` (línea 113) y después de sembrar tiene documentos
+  (`:142`), exactamente las 10 colecciones del seed (`:159`). Discrimina, además, en el unitario
+  `seed-emulator-barreras.test.js` ("con un projectId inventado en la copia, el seed nombra ése",
+  con `GCLOUD_PROJECT` puesto a otro valor).
+- **(b) ahí quedan Auth y `/usuarios/{uid}`** — `seed-emulator.test.js:145`. Verifica
+  `admin@delfino.local` en Auth, el perfil con el **mismo uid**, y `email`, `rol: administrador` y
+  `activo: true`. Contra el emulador de verdad.
+- **(c) ese archivo declara `delfino-hogar-erp`** — `tests/unit/seed-emulator-barreras.test.js:62`
+  lee el `js/firebase-config.js` **real** del repo y exige que el conjunto de projectId declarados
+  sea exactamente `["delfino-hogar-erp"]` (no "contiene": igualdad de conjunto, así que dos
+  distintos también fallan). `tests/integration/safety.test.js:245` lo reafirma sobre el módulo
+  importado. Y el unitario "el default del seed es delfino-hogar-erp" corre el seed del **repo**,
+  sin copia, y comprueba que nombre ese proyecto.
+
+La conjunción entrega la propiedad entera. Lo que el `it` borrado agregaba por encima era
+`exigirEntorno(usuario, ...)` sobre `delfino-hogar-erp`: un dato sobre una máquina, no una
+propiedad del código. **No encontré ninguna propiedad que se haya ido sin reemplazo.**
+
+## Invariantes verificadas por vía propia
+
+- **R43 cerrado de verdad, no tapado** — reproduje el tratamiento sobre un emulador vacío **mío**:
+  puertos 8383/9393, hub 4433, `firebase.json` propio fuera del repo, sin `--import`, sin
+  `--export-on-exit`, `TMP`/`TEMP`/`TMPDIR` en carpeta propia. Inventario previo:
+  `delfino-hogar-erp` **0 documentos, 0 usuarios de Auth, `admin@delfino.local` ausente**;
+  `demo-delfino` 0/0. Resultado literal, dos corridas seguidas:
+  `Test Files 8 passed (8)` · `Tests 151 passed (151)`. Unitarios: `Test Files 9 passed (9)` ·
+  `Tests 152 passed (152)`. **303 en verde**, el mismo número que reporta el tester.
+- **El `it` borrado no podía pasar en CI** — control por construcción: tras la suite **completa**
+  sobre mi emulador limpio, `admin@delfino.local` sigue **ausente** de `delfino-hogar-erp`, así que
+  el `exigirEntorno` de la 168 habría tirado sí o sí. El rojo de CI es exactamente ése.
+- **REGLA DE ORO INTACTA, probada más fuerte que con la huella** — sobre un emulador limpio, tras
+  correr la suite entera dos veces, `delfino-hogar-erp` quedó en **0 documentos y 0 usuarios de
+  Auth**: el seed no se corre ahí ni una vez, el namespace solo se lee. Las dos huellas se siguen
+  comparando enteras (`beforeAll:93` contra `SEED_ERP_INTACTO:365`), con `createTime`/`updateTime`
+  adentro, sin cambios en el diff.
+- **La medición del tester NO quedó contaminada por el hub (R36)** — con el emulador de Gastón en
+  pie y los dos usando el mismo `--project delfino-hogar-erp`, mi instancia leyó `delfino-hogar-erp`
+  en 0/0 mientras la de Gastón tenía 35 documentos y 1 usuario, en el mismo momento. Puertos
+  propios + `TEMP` propio alcanzan; el mismo `--project` no contamina.
+- **Barrido del resto de `tests/`** — coincido con el método, con un límite (abajo). Cerré yo el
+  hueco de Postgres por lectura: `recrearEsquema` (`tests/integration/postgres/_helpers.mjs:52`)
+  hace `drop schema public cascade; create schema public;` antes de cada test relevante,
+  `migrador*.test.js` crean y borran bases temporales propias, y `safety.test.js` crea su usuario
+  efímero. Ningún test depende de datos que no creó.
+- **CI verde en máquina limpia** — no puedo correr CI (no hay push), pero verifiqué las dos piezas
+  que podían dejarlo rojo igual: `.github/workflows/checks.yml` levanta un servicio Postgres 16 con
+  `POSTGRES_DB: delfino_test` **virgen**, y hace `mkdir -p emulator-data` antes de
+  `npm run test:integration`, que importa ese directorio vacío; confirmé en el código de
+  firebase-tools (`lib/emulator/controller.js:132-170`) que un directorio sin
+  `firebase-export-metadata.json` **no** es error: devuelve `undefined` y arranca vacío. Es
+  exactamente el escenario que reproduje a mano.
+- **Aislamiento y contrato** — no se tocó `js/`, `backend/`, `scripts/`, `functions/`,
+  `js/firebase.js`, `js/firebase-config.js`, `build.js`, `firebase.json`, `netlify.toml` ni
+  `.github/`. Ninguna firma exportada cambió; ningún módulo de UI depende de esto. Nada apunta a
+  producción: la suite corrió contra 127.0.0.1 y contra la base `delfino_test`, nunca
+  `delfino_dev`.
+- **Higiene** — el emulador de Gastón quedó como lo encontré (35 documentos, 1 usuario de Auth,
+  `demo-delfino` 0/0; solo lo leí). Mi emulador está apagado y 8383/9393/4433 libres. Árbol de
+  trabajo del repo sin cambios.
+
+## [MENOR] registrados en RISKS.md
+
+- **R44** — el emulador descartable tiene que usar el **mismo** `--project` que el ERP, no uno
+  distinto: con `--project auditor-t020`, `safety.test.js` falla entero en el `beforeAll` con
+  `auth/user-not-found` (`Tests 147 passed | 4 skipped (151)`), porque el Admin SDK crea el usuario
+  en `firebaseConfig.projectId` y el SDK cliente se autentica por API key contra el proyecto por
+  defecto de la instancia. Acota la regla práctica de R36, que hasta hoy decía lo contrario.
+- **R45** — el guard de `SEED_LIMPIEZA_REAL` puede quedar rojo en un emulador de larga vida si una
+  corrida muere entre el `beforeAll` que pone los marcadores y el test que los limpia. **Coincido
+  con dejarlo como está**: exige ausencia y no presencia, es invisible para CI, y la alternativa
+  sería el borrado automático de lo ajeno que R16 existe para impedir.
+- **R46** — quedó un árbol temporal huérfano `task013-copia-soWKCs` en el TEMP del sistema (de las
+  02:07, anterior a mi sesión), con un junction a `node_modules`. Inofensivo; borrarlo sacando
+  primero el enlace.
+
+## Límite del razonamiento "la corrida vacía ES el barrido"
+
+Es más fuerte que un barrido a ojo y lo acepto, pero **solo barre estado previo de Firestore y
+Auth**. No dice nada del estado previo de Postgres: mi `delfino_test` ya tenía esquema de corridas
+anteriores, así que un test que dependiera de datos viejos ahí habría pasado igual. Ese lado quedó
+cerrado por lectura (`recrearEsquema` con `drop schema ... cascade`) y por el servicio virgen de
+CI, no por la corrida. Segundo límite, teórico acá: solo cubre lo que esa corrida ejecuta; verifiqué
+que `vitest.integration.config.js` incluye `tests/integration/**/*.test.js` sin exclusiones y que
+no hubo tests salteados en las dos corridas verdes.
