@@ -223,7 +223,7 @@ accept:
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
 ### TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
-status: PENDING
+status: IN_PROGRESS
 owner: implementador
 depends: TASK-012
 files:
