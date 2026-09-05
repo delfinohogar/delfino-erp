@@ -535,6 +535,27 @@ accept:
 
 ---
 
+### TASK-022 — Manifiesto de corte: qué pasa con cada colección, verificable
+status: PENDING
+owner: implementador
+depends: —
+files:
+- migration/MANIFIESTO_CORTE.md
+**NO ARRANCAR todavía. Es para cuando se prepare el corte.**
+accept:
+- **una fila por colección de Firestore** —las 41 raíz y las 6 subcolecciones relevadas en ARCHITECTURE.md— con qué le pasa a cada una: **se preserva, se borra, se reimporta, o queda como histórico** en Delfino Histórico
+- **conteos antes y después**, y fecha de corte. Sin números no es un manifiesto, es una intención
+- es **operativo, no descriptivo**: alguien tiene que poder ejecutarlo paso a paso y **verificar** al terminar que quedó como dice
+- refleja la decisión Nivel 3 del 2026-09-05: a PostgreSQL van **solo stock, clientes y proveedores**; el histórico completo va a **Delfino Histórico**; lo que hay hoy en el ERP es prueba y **no se conserva**
+- incluye la **validación de unicidad de SKU antes de importar** (R48), con la lista completa de conflictos, en vez de morir en el primer `INSERT` que choque contra `sku text not null unique`
+- incluye el cierre de **R47**: la escritura de stock desde Tiendanube queda como diagnóstico de solo lectura o se retira, **verificando todos los caminos** y no uno
+- **las decisiones por colección las toma Gastón**, no el implementador. El entregable es el documento y su verificabilidad, no elegir qué se borra
+
+razón de existir, señalada por una revisión externa el 2026-09-05: la decisión de qué se migra está
+en `DECISIONS.md` **en prosa**. Eso alcanza para decidir y **no alcanza para ejecutar**: nadie puede
+tomar ese texto y correr el corte comprobando que no se olvidó nada. Un corte que se hace leyendo
+prosa se hace de memoria.
+
 ## Condiciones de cierre sin tarea asignada todavía
 
 Se listan acá porque la tarea que las tiene que cumplir **no está escrita**. Cuando se escriba,

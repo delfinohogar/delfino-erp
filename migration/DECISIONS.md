@@ -960,8 +960,28 @@ modifica en Postgres. Dos fuentes de verdad.
 
 VERIFICADO CONTRA EL CÓDIGO ACTUAL (2026-09-04): `tnWebhook` en `functions/tiendanube.js` NO
 escribe stock. Solo registra el pedido en `ordenesTiendaNube`, usando el id externo como id del
-documento —idempotente por diseño— y deja un log. La regla ya se cumple hoy; queda documentada
-para que no se rompa.
+documento —idempotente por diseño— y deja un log. ~~La regla ya se cumple hoy~~.
+
+**CORRECCIÓN 2026-09-05, a partir de una revisión externa del repositorio.** La verificación de
+arriba era **cierta pero incompleta**, y la conclusión que se sacó de ella era falsa: se revisó
+**un** camino —el webhook— y se concluyó que **la regla se cumplía**. No se cumple.
+
+`functions/tiendanubeCatalogo.js:199-205` **sí escribe `productos.stockTotal`** con el valor que
+viene de Tiendanube: calcula el delta y lo aplica dentro de una `runTransaction`, dejando log de
+auditoría. La dirección es **TN → Delfino**, exactamente al revés de lo que P9 establece. Verificado
+por el director el 2026-09-05 leyendo el código.
+
+Lo que acota la urgencia, y no lo anula: requiere **rol administrador** y se dispara desde una
+pantalla de **previsualización** donde alguien elige explícitamente qué aplicar. **No es
+sincronización automática, es reconciliación manual.** Hoy no es un agujero abierto: es una
+**capacidad** que viola la decisión si alguien la usa después del corte.
+
+Queda como **R47**, con condición de cierre atada a la tarea que prepare el corte.
+
+**La lección del método, que importa más que el hallazgo:** verificar un camino y concluir sobre
+**todos** es el mismo error que ya costó R8 y el perfil duplicado de R16. La frase "la regla ya se
+cumple hoy" no estaba respaldada por lo que se había medido. Cuando se verifique una regla
+arquitectónica, hay que enumerar **todos** los escritores del dato, no el primero que se mira.
 
 ## 2026-09-04 — [P9 · GASTÓN] Firestore durante la transición
 Durante la PoC no se rompe ni se reemplaza la integración productiva existente.

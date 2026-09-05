@@ -1314,3 +1314,65 @@ la sesion del auditor), con `js/`, `scripts/` y un **junction a `node_modules`**
 muere antes, el arbol sobrevive. Es inofensivo —esta fuera del repo y no lo lee nadie— pero
 conviene borrarlo a mano sacando **primero** el junction (`rmdir` sobre el enlace, no `rm -r`, para
 no seguirlo hasta el `node_modules` real, que es lo que hace `destruirCopia()`).
+
+## R47 — [MEDIA] Tiendanube puede escribir el stock de Delfino, y eso contradice P9
+Detectado por una **revisión externa del repositorio** el 2026-09-05 y **verificado por el director
+leyendo el código**.
+
+`functions/tiendanubeCatalogo.js:199-205` actualiza `productos.stockTotal` con el valor que viene
+de Tiendanube: calcula `delta = stockNuevo − stockAnterior`, lo aplica dentro de una
+`runTransaction` sobre el valor real leído en la transacción, y deja entrada en `logAuditoria`.
+Está **bien implementado**: es atómico y deja rastro. El problema no es cómo lo hace, es **la
+dirección**: TN → Delfino, cuando P9 establece que **Delfino ERP es la fuente de verdad del stock**
+y las plataformas externas **reciben**.
+
+**Qué acota la urgencia, y no la anula:**
+- requiere **rol administrador**;
+- se dispara desde una **pantalla de previsualización** donde alguien elige explícitamente qué
+  aplicar. **No es sincronización automática: es reconciliación manual.**
+
+Por eso es MEDIA y no ALTA: hoy **no es un agujero abierto**, es una **capacidad** que viola la
+decisión si alguien la usa después del corte. Y es fácil que se use sin mala intención, porque
+hasta hoy era el comportamiento razonable.
+
+**Corrección asociada, ya aplicada en DECISIONS.md:** la entrada de P9 afirmaba que "la regla ya se
+cumple hoy", apoyada en haber verificado que `tnWebhook` no escribe stock. Esa verificación era
+**cierta pero incompleta**: se miró un camino y se concluyó sobre todos. Es el mismo error que
+costó R8 y el perfil duplicado de R16.
+
+**Condición de cierre (obligatoria), atada a la tarea que prepare el corte:** esa capacidad tiene
+que quedar como **diagnóstico de solo lectura** —muestra la diferencia, no la aplica— o retirarse.
+Su auditor tiene que verificar que después del cambio **ningún camino desde Tiendanube escribe
+`stockTotal`**, enumerando los escritores y no revisando uno.
+
+## R48 — [MEDIA] No hay unicidad de SKU en Firestore, y Postgres sí la exige
+Detectado por la misma revisión externa el 2026-09-05, verificado por el director.
+
+`crearProducto()` en `js/productos.js:65` **no verifica duplicados de SKU**, y Firestore **no tiene
+ninguna restricción** que lo impida —no existe el concepto de índice único—. O sea que hoy pueden
+convivir dos productos con el mismo SKU.
+
+Importa porque **el SKU es la clave de vínculo con Tiendanube**: un SKU duplicado vuelve ambiguo el
+enlace, la actualización de precio y de stock, y el procesamiento de pedidos. No hay forma de
+decidir a cuál de los dos productos corresponde una operación.
+
+**Y hay una consecuencia directa para la migración que conviene ver como buena noticia:**
+`backend/db/migrations/0001_esquema_poc.sql:17` ya declara `sku text not null unique`. El esquema
+nuevo **sí** garantiza la unicidad. Entonces:
+- del lado de PostgreSQL **no hay nada que arreglar**;
+- pero **la importación del corte va a fallar** si hay duplicados en Firestore, y va a fallar
+  **fila por fila**, sin diagnóstico agregado.
+
+**Qué hacer, y en qué orden:**
+1. **Medir cuántos duplicados hay hoy.** Es una consulta de solo lectura sobre Firestore de
+   producción, así que **la corre Gastón**, no un agente. Sin ese número no se puede dimensionar
+   nada.
+2. Si hay duplicados, decidir qué se hace con ellos —fusionar, renumerar, descartar— antes del
+   corte. **Es decisión de Gastón**: toca datos reales de catálogo.
+3. La tarea del corte tiene que **validar la unicidad antes de importar** y reportar la lista
+   completa de conflictos, en vez de morir en el primer `INSERT` que choque.
+
+Nota: que Postgres lo exija convierte un problema latente en uno **visible en el momento del
+corte**, que es exactamente cuando conviene descubrirlo. Es un argumento a favor del esquema nuevo,
+pero **no** entra en `EVIDENCIA_POC.md`: la unicidad de SKU no está entre los cuatro problemas que
+motivan la migración, y el archivo tiene criterio de admisión estricto.
