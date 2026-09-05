@@ -801,3 +801,34 @@ Queda como flake de infraestructura, no como rojo del repositorio. Lo que lo vue
 una anécdota es que un timeout se lee igual que un fallo de lógica en el log: si aparece en medio
 de una tarea contable, cuesta una iteración distinguirlo. Cierre sugerido: subir el timeout de ese
 archivo, o medir el margen y dejarlo escrito.
+
+## R35 — [MEDIA] `singleProjectMode` hace ilusorio el aislamiento entre namespaces de Firestore
+Registrado por el director el 2026-09-05, a partir de un hallazgo del tester y del implementador en
+TASK-013.
+
+`firebase.json:17` declara `"singleProjectMode": true`. Con esa opción, el emulador de Firestore
+**sirve los documentos del proyecto principal a cualquier namespace virgen**: se le pida el
+proyecto que se le pida, devuelve los mismos datos, y además **reescribe el campo `name`** de cada
+documento con el `projectId` que se pidió. Medido por el implementador en un emulador descartable:
+con `singleProjectMode: false` un namespace virgen devuelve `[]`; con `true`, devuelve los 35
+documentos del ERP.
+
+Auth **no** se comporta así: ahí los usuarios sí están separados por proyecto. Eso explica la
+asimetría que se venía observando sin entenderla —`demo-delfino` con 0 usuarios de Auth pero 35
+documentos de Firestore idénticos a los del ERP—.
+
+**Consecuencia que hay que verificar, no dar por sentada:** el "perfil duplicado en los dos
+namespaces" que se documentó en R16 y que se usó como evidencia del bug **pudo ser un artefacto de
+`singleProjectMode`**, no un documento realmente almacenado dos veces. El bug de R16 en sí —el seed
+apuntando al proyecto equivocado— es real, está verificado por otras vías y Gastón confirmó que el
+login volvió a andar. Lo que queda en duda es **una** de las evidencias que se citaron, no la
+conclusión.
+
+Impacto más amplio: cualquier verificación futura que se apoye en "este dato está en el namespace
+X y no en el Y" **no es válida** mientras `singleProjectMode` esté activo. Afecta al shadow y a
+cualquier prueba de aislamiento por proyecto.
+
+**No se resuelve tocando `firebase.json`**, que es archivo de Gastón, y menos de noche y sin
+medir: esa opción probablemente esté puesta a propósito y cambiarla altera el comportamiento del
+emulador para todo el proyecto. Queda para que Gastón decida si se saca, con esta información
+sobre la mesa.

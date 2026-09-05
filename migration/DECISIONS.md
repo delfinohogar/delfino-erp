@@ -167,6 +167,35 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [NIVEL 2] `SEED_REPORTE_FIEL` se reapunta; no se toca `firebase.json`
+El implementador pidió `firebase.json` para cerrar el último test rojo de TASK-013: sacar
+`"singleProjectMode": true` es lo único que lo pone verde. **No se le da**, por tres razones, y
+ninguna es la jerarquía del archivo.
+
+1. **El test asserta una propiedad del emulador, no del seed.** `SEED_REPORTE_FIEL` verifica que
+   `inventarioNamespace(sonda_virgen).totalDocs === 0`. Eso no depende de `scripts/seed-emulator.mjs`
+   en absoluto: ningún cambio en el archivo bajo prueba puede hacerlo pasar ni fallar. Un test así
+   no está midiendo la unidad que dice medir.
+2. **La corrección de comportamiento ya está hecha y es la correcta.** Frente a un namespace
+   espejado, el reporte ahora **advierte** en vez de afirmar un conteo falso: dice que los
+   documentos no se pueden dar por propios, explica `singleProjectMode` y señala la firma típica
+   del espejo —35 documentos con cero usuarios de Auth—. Eso es exactamente la salida honesta que
+   se pidió, y es lo que el seed sí controla.
+3. **Cambiar `firebase.json` para que pase un test es la salida equivocada**, y ya lo decidimos en
+   este proyecto: es la misma forma del caso `_safety` de TASK-011, donde Gastón rechazó agregar
+   una regla a `firestore.rules` para que un test pasara. La opción está puesta a propósito y
+   cambiarla altera el emulador para todo el proyecto.
+
+DECISIÓN: el tester **reapunta la aserción** a lo que el seed sí controla —que ante un namespace
+espejado el reporte advierta y no reclame los documentos como propios— en lugar de exigir que el
+emulador aísle. Si además conviene sacar `singleProjectMode`, es una decisión aparte, de Gastón,
+con R35 sobre la mesa.
+
+Nota sobre el precedente: al implementador se le había dicho que "las dos veces que se discutió si
+un test estaba mal, el test tenía razón". Ésta es la primera vez que **no** la tiene, y conviene
+que quede escrito para no convertir aquella observación en una regla que impida corregir un test
+mal apuntado.
+
 ## 2026-09-04 — [GASTÓN] Los archivos se editan con Edit, nunca por shell. Para todos los roles
 Gastón rechazó un comando del implementador que editaba `scripts/seed-emulator.mjs` con
 `python -c`. Lo eleva de corrección puntual a **regla permanente**, y con razón: ya lo había
