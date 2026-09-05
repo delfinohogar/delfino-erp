@@ -277,3 +277,46 @@ confirmar; (b) no toque R28 —lo cierra TASK-018 cuando mude la funcion—, sol
 Corrido: `npm run check` OK 162 archivos; `npm test` 152/152 verde; integracion con
 `npx vitest run -c vitest.integration.config.js` (el emulador ya estaba levantado y
 `emulators:exec` choca los puertos) **117/117 verde**, y `migrador.test.js` solo 18/18.
+
+## TASK-018 — copia canonica de `crear_venta()` (R28) y cierre de R37 — BLOQUEADO POR PERMISOS
+
+Hecho y verificado: `backend/db/migrations/0006_crear_venta_repetible.sql` (deja constancia del
+corte con un `comment on function crear_venta(...)`; **no** redefine la funcion, y 0002/0003/0004
+quedan intactas) y el cierre de **R37** en `backend/src/db/migrar.js`: `--marcar-aplicadas` ahora
+**falla** —exit != 0, sin escribir ni una fila— si una repetible declara una funcion que la base
+no tiene. El chequeo mira `pg_proc` (la base), no `schema_repetibles` (la tabla), y recorre
+**todas** las repetibles en disco, no solo las pendientes: por eso cubre tambien el `DROP FUNCTION`
+a mano, que deja la fila al dia y por lo tanto fuera de "pendientes". Medido sobre bases
+temporales: base con la funcion -> no lanza; base vacia -> aborta con el detalle
+`crear_venta.sql declara crear_venta(8 argumento(s)) y en la base NO existe`; base tras
+`DROP FUNCTION` a mano -> mismo aborto. Decision menor: identifico la funcion por **nombre y
+cantidad de argumentos**, no por tipos; interpretar tipos (`double precision`, arrays, typmods)
+daria falsos positivos, y nombre+aridad alcanza para las dos ausencias que describe R37.
+
+**Lo que NO pude hacer, y por que.** `backend/db/functions/crear_venta.sql` —el archivo central de
+la tarea, y esta en su `files:`— **no se puede crear**: `.claude/settings.json` deniega
+`Write(functions/**)` y `Edit(functions/**)`, pensado para la carpeta de Cloud Functions, y el glob
+**tambien matchea `backend/db/functions/**`**. Las dos herramientas responden "File is in a
+directory that is denied by your permission settings". Es un falso positivo de la misma familia que
+los tres corregidos en f418870. No lo esquive por shell: la tarea lo prohibe explicitamente.
+Arreglo sugerido, de Gaston: anclar esas dos reglas a la raiz (`Write(./functions/**)` /
+`Edit(./functions/**)`). Sin eso, R28 no se puede cerrar.
+
+**Nada commiteado**: 0006 y `migrar.js` quedan en el arbol de trabajo, sin commit, porque 0006
+apunta a un archivo que todavia no existe y un commit parcial dejaria el repo incoherente.
+
+Tests que se ponen rojos y **no toque** (son del tester): (a) `migrador.test.js:73`
+`expect(filas.length).toBe(4)` — centinela deliberado del tester ("si aparece una quinta, revisar
+antes de subir el numero"); 0006 es la quinta. (b) `migrador_repetibles.test.js:925` — afirma la
+convencion **vieja** de `--marcar-aplicadas` (exit 0 y baseline aunque la funcion no exista), que
+es exactamente lo que R37 endurecido revierte. (c) queda avisado que `migrador.test.js:445`
+(`MIGRADOR_BASELINE > --marcar-aplicadas registra sin ejecutar`) hoy pasa solo porque
+`backend/db/functions/` esta vacio: en cuanto exista `crear_venta.sql`, ese test se pone rojo por
+el mismo motivo que (b).
+
+Duda para el auditor: `backend/README.md` describe `--marcar-aplicadas` con la semantica vieja
+("esto deja la base mintiendo sobre su estado") y no esta en mi `files:`. Hace falta actualizarlo
+en una ampliacion de la tarea o en una tarea aparte.
+
+Corrido: `npm run check` OK 162 archivos; `npm test` 152/152 verde; integracion con
+`npx vitest run -c vitest.integration.config.js` 142/144 (los 2 rojos son los de arriba).
