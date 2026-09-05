@@ -156,6 +156,48 @@ async function inventario(proyecto) {
   };
 }
 
+// ------------------------------------- singleProjectMode: por que el conteo no se puede afirmar
+// El emulador corre con `singleProjectMode` (firebase.json) y en ese modo le sirve los documentos
+// del proyecto principal a CUALQUIER projectId al que todavia no se le haya escrito. O sea: un
+// `demo-delfino` virgen "devuelve" los 35 documentos del ERP como si fueran suyos, y un reporte
+// que los cuente como propios dice exactamente lo contrario de la verdad, justo arriba de un
+// borrado. Medido en TASK-013 contra el emulador de verdad.
+//
+// No hay forma de distinguirlo por API desde este script. Se probaron las dos que habria:
+//   - el campo `name` de cada documento viene REESCRITO con el projectId que uno pidio, asi que
+//     un documento espejado no se delata (verificado: pedir /projects/sonda-xxx devuelve
+//     "projects/sonda-xxx/.../sucursales/solano");
+//   - comparar contra un namespace de control exigiria pedirle al emulador un proyecto distinto
+//     de `demo-delfino`, que es justo lo que este script tiene PROHIBIDO hacer: el alcance del
+//     barrido se demuestra con que ninguna URL nombre otro namespace (SEED_BARRIDO_ACOTADO).
+//
+// Entonces el reporte no afirma un conteo propio: avisa. Prefiere ser honesto y menos preciso
+// antes que preciso y falso.
+//
+// Lo unico que si se puede afirmar: Auth NO espeja (un namespace virgen devuelve cero usuarios),
+// asi que el conteo de usuarios de Auth es real. Y como el seed nunca deja documentos sin dejar
+// tambien el usuario admin en Auth, "documentos > 0 con CERO usuarios de Auth" es la firma tipica
+// del espejo y se remarca aparte.
+function advertirSiPuedeSerEspejo(inv) {
+  if (inv.totalDocs === 0) return;
+  const firma = inv.usuariosAuth.length === 0;
+  console.log(
+    `\n  !! Los ${inv.totalDocs} documentos de arriba NO se pueden dar por propios de "${inv.proyecto}".\n` +
+      `     El emulador corre con "singleProjectMode": en ese modo le sirve los documentos del\n` +
+      `     proyecto principal a cualquier namespace al que todavia no se le haya escrito, y desde\n` +
+      `     aca no hay forma de distinguir unos de otros (el emulador reescribe el projectId de\n` +
+      `     cada documento con el que uno pidio, y este script no tiene permitido consultar otro\n` +
+      `     namespace para comparar).\n` +
+      (firma
+        ? `     Y se da la firma tipica del espejo: ${inv.totalDocs} documentos con CERO usuarios de Auth,\n` +
+          `     cuando el seed nunca deja lo uno sin lo otro. Lo mas probable es que NINGUNO de estos\n` +
+          `     documentos sea de "${inv.proyecto}".\n`
+        : `     El conteo de usuarios de Auth de arriba si es de "${inv.proyecto}": Auth no espeja.\n`) +
+      `     Para confirmarlo a ojo: abri http://127.0.0.1:4000/firestore y fijate si los mismos\n` +
+      `     documentos aparecen bajo el proyecto principal.`
+  );
+}
+
 function imprimirInventario(inv) {
   const texto = (campo) => campo?.stringValue ?? campo?.booleanValue ?? "";
   console.log(`\nNamespace "${inv.proyecto}" del emulador (medido por REST, no por lo que sembro este script)`);
@@ -175,17 +217,37 @@ function imprimirInventario(inv) {
   console.log(`\n  Colecciones: ${inv.colecciones.length}, documentos: ${inv.totalDocs}`);
   for (const c of inv.colecciones) console.log(`    ${c.nombre.padEnd(20)} ${String(c.docs.length).padStart(3)} docs`);
   if (!inv.colecciones.length) console.log("    (ninguna)");
+  advertirSiPuedeSerEspejo(inv);
   console.log("");
 }
 
 // --------------------------------------------------------------------- modos
 async function modoReporte() {
-  imprimirInventario(await inventario(NAMESPACE_BASURA));
+  const inv = await inventario(NAMESPACE_BASURA);
+  imprimirInventario(inv);
+
+  // El contexto de R16 se explica siempre; lo que NO se afirma es que lo listado arriba SEA el
+  // resto de ese bug, porque con `singleProjectMode` puede ser el espejo del proyecto principal.
   console.log(
-    `Esto es lo que quedo del bug R16: el seed sembraba en "${NAMESPACE_BASURA}" mientras el ERP\n` +
-      `y los tests miran "${PROYECTO_ERP}". Para borrarlo:\n` +
-      `  node scripts/seed-emulator.mjs --limpiar-demo-delfino\n`
+    `Contexto (R16): el seed sembraba en "${NAMESPACE_BASURA}" mientras el ERP\n` +
+      `y los tests miran "${PROYECTO_ERP}".\n`
   );
+
+  if (inv.totalDocs === 0 && inv.usuariosAuth.length === 0) {
+    console.log(`No hay nada que informar: "${NAMESPACE_BASURA}" esta vacio. No hace falta limpiar nada.\n`);
+    return;
+  }
+  if (inv.totalDocs > 0 && inv.usuariosAuth.length === 0) {
+    console.log(
+      `Antes de limpiar, mira la advertencia de arriba: lo listado tiene la firma del espejo de\n` +
+        `"singleProjectMode", asi que puede no haber NADA propio de "${NAMESPACE_BASURA}" que borrar.\n` +
+        `Si aun asi queres correr la limpieza (no toca el proyecto del ERP: el namespace va fijo en\n` +
+        `la URL de cada llamada):\n` +
+        `  node scripts/seed-emulator.mjs --limpiar-demo-delfino\n`
+    );
+    return;
+  }
+  console.log(`Para borrar lo que sea propio de "${NAMESPACE_BASURA}":\n  node scripts/seed-emulator.mjs --limpiar-demo-delfino\n`);
 }
 
 async function modoLimpieza() {
@@ -215,6 +277,20 @@ async function modoLimpieza() {
     return;
   }
 
+  // El listado de arriba puede incluir documentos espejados del proyecto principal (ver la
+  // advertencia de singleProjectMode). Eso NO los pone en riesgo: el DELETE va contra
+  // /emulator/v1/projects/demo-delfino/..., el namespace viaja en la URL y el espejo es de
+  // lectura. Medido en TASK-013 sobre un emulador descartable: despues de este borrado, el
+  // proyecto del ERP seguia con sus 35 documentos y su usuario de Auth intactos.
+  if (antes.totalDocs > 0) {
+    console.log(
+      `Aclaracion sobre el listado de arriba: el borrado va SOLO contra el namespace\n` +
+        `"${NAMESPACE_BASURA}" (viaja en la URL de cada llamada). Los documentos que aparezcan ahi\n` +
+        `por el espejo de "singleProjectMode" son del proyecto principal y NO se borran: ese espejo\n` +
+        `es de lectura. Lo que se borra es unicamente lo que "${NAMESPACE_BASURA}" tenga de propio.\n`
+    );
+  }
+
   // Endpoints /emulator/v1/: solo existen en los emuladores, no en Firestore ni en Identity
   // Toolkit reales. El proyecto va en la ruta, asi que el alcance del borrado es el namespace
   // nombrado y ningun otro.
@@ -225,7 +301,13 @@ async function modoLimpieza() {
   console.log(`=== DESPUES ===`);
   imprimirInventario(despues);
   if (despues.usuariosAuth.length || despues.totalDocs) {
-    abortar(`ABORTADO: "${NAMESPACE_BASURA}" no quedo vacio. Revisalo a mano.`);
+    // No se usa abortar(): este punto es DESPUES de haber hecho fetch, y ahi `process.exit()`
+    // revienta con la asercion de libuv de Node en Windows y se lleva puesto el codigo de salida.
+    // Se fija `exitCode` y se vuelve: los sockets de undici estan unref, asi que el proceso
+    // termina solo, enseguida y con el 1 que corresponde.
+    console.error(`\nABORTADO: "${NAMESPACE_BASURA}" no quedo vacio. Revisalo a mano.\n`);
+    process.exitCode = 1;
+    return;
   }
   console.log(
     `Listo: "${NAMESPACE_BASURA}" quedo vacio. "${PROYECTO_ERP}" no se toco en ningun momento\n` +
@@ -366,13 +448,27 @@ Emulador cargado.
 `);
 }
 
+// Codigo de salida: los modos que hablan por `fetch` NO llaman `process.exit()`.
+//
+// En Node 24 / Windows, `process.exit()` con sockets de fetch todavia cerrandose dispara la
+// asercion de libuv `!(handle->flags & UV_HANDLE_CLOSING)` y una corrida perfectamente exitosa
+// termina con 3221226505 (0xC0000409). Un modo de solo lectura tiene que salir 0.
+// Dejar que el proceso termine solo no cuesta nada: los sockets de undici estan unref y el
+// proceso sale igual de rapido (medido: 1 ms de diferencia sobre 12 pedidos al emulador).
+// El modo sembrado es el unico que sigue con `process.exit()`: el Admin SDK deja canales gRPC
+// abiertos y sin eso no terminaria nunca. Ese camino no usa fetch, asi que no corre el riesgo.
+const MODO_POR_FETCH = modo === "--reporte-demo" || modo === "--limpiar-demo-delfino";
+
 try {
   if (modo === "--reporte-demo") await modoReporte();
   else if (modo === "--limpiar-demo-delfino") await modoLimpieza();
-  else await modoSeed();
-  process.exit(0);
+  else {
+    await modoSeed();
+    process.exit(0);
+  }
 } catch (err) {
   console.error("\nFALLO EL SEED:", err?.message || err);
   console.error(err?.stack || "");
-  process.exit(1);
+  if (MODO_POR_FETCH) process.exitCode = 1;
+  else process.exit(1);
 }

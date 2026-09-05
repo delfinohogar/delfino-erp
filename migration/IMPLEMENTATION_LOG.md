@@ -195,3 +195,42 @@ los mismos 2 rojos con mi cambio guardado en stash. No toco `tests/`.
 
 Corrido: `npm run check` OK 162 archivos; `npm test` 41/41 verde; integracion 99/101, los 2 rojos
 son los preexistentes de arriba.
+
+## TASK-013 (correccion de los 2 defectos del tester)
+
+Defecto 2 (SEED_SALIDA_LIMPIA) ARREGLADO. `--reporte-demo` y `--limpiar-demo-delfino` ya no llaman
+`process.exit()`: en Node 24/Windows salir con sockets de `fetch` cerrandose dispara la asercion de
+libuv y devolvia 3221226505. Ahora terminan solos (los sockets de undici estan unref: medi 1 ms de
+diferencia sobre 12 pedidos) y el aborto post-fetch de "no quedo vacio" usa `process.exitCode = 1`.
+`process.exit(0)` queda SOLO en el modo sembrado, que no usa fetch y necesita cortar los canales
+gRPC del Admin SDK. Verificado: `--reporte-demo` sale 0, y los 2 tests de SEED_SALIDA_LIMPIA en
+verde en 3 corridas seguidas.
+
+Defecto 1 (SEED_REPORTE_FIEL) ATENDIDO EN LO QUE ME TOCA, PERO EL TEST SIGUE ROJO Y NO LO PUEDO
+CERRAR DESDE MI ARCHIVO. Confirme el diagnostico del tester midiendo contra el emulador: un
+namespace virgen devuelve las 10 colecciones / 35 documentos del ERP. Busque distinguirlo por API y
+no se puede: (a) el emulador REESCRIBE el campo `name` de cada documento con el projectId que uno
+pidio, asi que el documento espejado no se delata; (b) comparar contra un namespace de control
+exigiria emitir una URL con otro proyecto, que es exactamente lo que prohibe SEED_BARRIDO_ACOTADO
+(`verificarBarridoAcotado` falla si alguna URL nombra un proyecto != demo-delfino) y habria roto
+~25 tests verdes. Asi que aplique la salida honesta que autorizo el director: cuando hay documentos,
+el reporte avisa que NO se los puede dar por propios y explica singleProjectMode; y si ademas se da
+la firma del espejo (documentos > 0 con CERO usuarios de Auth, que el seed nunca deja) lo dice
+fuerte. Auth no espeja —lo medi—, por eso el conteo de usuarios si se afirma. El preview de borrado
+aclara que el DELETE va solo contra demo-delfino y que lo espejado es de lectura.
+
+BLOQUEO DE ALCANCE, no de negocio: el test SEED_REPORTE_FIEL no invoca el seed; asserta una
+propiedad del EMULADOR (`inventarioNamespace(sonda_virgen).totalDocs === 0`). Lo unico que la vuelve
+verde es sacar `"singleProjectMode": true` de `firebase.json`, archivo de Gaston. Lo medi en un
+emulador descartable (puertos 8086/9096, config propia fuera del repo, ya apagado): con
+`singleProjectMode: false` el namespace virgen devuelve `[]` y el espejo desaparece. NECESITO
+`firebase.json` para cerrarlo, o que lo cambie Gaston. El test tiene razon; no lo toque.
+
+Decisiones menores: (a) la advertencia se imprime siempre que haya documentos, no solo ante la
+firma, porque desde este script la duda es real en los dos casos y preferi no afirmar de mas;
+(b) no bloquee el borrado ante la firma del espejo: el tester midio que no es destructivo y
+bloquearlo cambiaba comportamiento mas alla del defecto.
+
+Corrido: `npm run check` OK 162 archivos; `npm test` 150/150 verde; integracion (con
+`npx vitest run -c vitest.integration.config.js`, porque el emulador ya estaba levantado y
+`emulators:exec` choca los puertos) 117/118, el unico rojo es SEED_REPORTE_FIEL.
