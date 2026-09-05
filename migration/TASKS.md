@@ -294,6 +294,26 @@ accept:
 - se revisa si hay otras comparaciones de texto de archivos en `tests/` con el mismo problema, y se reportan aunque no se arreglen acá
 - R32 queda cerrado en RISKS.md con la fecha
 
+### TASK-020 — La suite no depende del estado del emulador de Gastón (R43)
+status: PENDING
+owner: tester
+depends: TASK-018
+files:
+- tests/integration/seed-emulator.test.js
+accept:
+- **CI en verde en una máquina limpia**, con el emulador arrancando vacío y **sin que nadie corra `npm run seed`**. Ése es el criterio, no que pase en la máquina de Gastón
+- el `it` de `seed-emulator.test.js:168` deja de exigir que `admin@delfino.local` ya exista en `delfino-hogar-erp`
+- **la regla de oro del archivo no se toca**: el seed **nunca** se corre sobre `delfino-hogar-erp`, que solo se lee, y las dos huellas se siguen comparando enteras
+- **barrido del resto de `tests/`**: cualquier otro test que dependa del estado previo del emulador se reporta, y se arregla si entra en este archivo. Si está en otro, se anota y no se toca
+- R43 queda cerrado en RISKS.md con la fecha
+
+decisión sobre la salida, la toma el tester con este análisis del director:
+- **Gastón se inclina por que el test se siembre a sí mismo**, como hizo TASK-011 con el usuario efímero, *"porque no depende del CI"*. Ese criterio es el correcto y ya está probado en este repo.
+- **Pero acá hay un problema propio**: sembrar `admin@delfino.local` en `delfino-hogar-erp` es exactamente lo que la regla de oro del archivo prohíbe. Y sembrarlo en un namespace efímero **ya lo hace `SEED_USUARIO_VISIBLE`**, que corre el seed sobre una copia del árbol y verifica que el admin queda donde el ERP lo mira. O sea que la versión auto-sembrada de este `it` **sería un duplicado** del que está veinte líneas más arriba.
+- **Lo que ese `it` aporta hoy no es una propiedad del código, es un dato sobre una máquina**: que en la de Gastón el seed ya se corrió. Eso es cierto y está verificado —él recuperó el login—, pero es evidencia de una sola corrida manual, no una invariante. **Ese tipo de evidencia va a MIGRATION_STATUS, no a la suite.**
+- Por eso la salida que el director recomienda es **borrar el `it`**, no auto-sembrarlo, y dejar constancia en `TEST_RESULTS.md` de por qué se retira. **La tercera opción —sembrar desde el workflow de CI— queda descartada**: haría que la suite pase en CI y siga sin poder correr en un clon limpio a mano, que es el problema de fondo.
+- **El tester puede estar en desacuerdo.** Si encuentra una propiedad real que ese `it` cubra y ningún otro test verifique, que la conserve y lo argumente; queda registrado.
+
 ### TASK-016A — ORDEN_DE_BLOQUEO: dos transacciones cruzadas sin deadlock
 status: PENDING
 owner: tester

@@ -1194,3 +1194,32 @@ alguno declara `create ... function crear_venta(`, salvo `0002`, `0003` y `0004`
 historia aplicada y no se tocan. `funcionesDeclaradas()` de `migrar.js` ya hace el parsing y
 está exportada. Se propone hacerlo en TASK-007, que es la primera tentación real de sumar la
 cuarta copia.
+
+## R43 — [MEDIA] Tests que pasan por el estado del emulador de Gastón, no por lo que dicen probar
+Detectado por **CI** el 2026-09-05, en la primera corrida sobre una máquina limpia después del push
+del lote de cuatro. Unitarios verdes, integración roja.
+
+Caso concreto: `tests/integration/seed-emulator.test.js:168`, el `it` titulado *"el emulador de
+Gastón ya tiene el admin sembrado en `delfino-hogar-erp`"*, falla en CI con
+`[INFRAESTRUCTURA] no hay usuario admin@delfino.local`. En la máquina de Gastón pasa porque él
+corrió `npm run seed`; en CI el emulador arranca vacío y **`npm run seed` no se corre nunca** — está
+pensado para que lo corra Gastón, y desde TASK-013 un agente que lo intente **aborta a propósito**.
+
+**Lo que lo hace interesante es que no fue un descuido.** El comentario que el tester dejó encima
+lo dice con todas las letras: *"si esto falla es, casi seguro, que nadie corrió `npm run seed`
+contra este emulador: es un rojo de entorno, no de lógica"*. Sabía que dependía del entorno y lo
+escribió igual, porque en su máquina era evidencia real de que R16 había quedado mitigado. La
+falla no es de conocimiento: es que **una aserción sobre el estado de una máquina se coló en la
+suite**, donde no distingue "el código anda" de "esta máquina está configurada".
+
+**Es la misma familia que R20**, y Gastón lo señaló así: un test verde por el estado del entorno y
+no por la propiedad que dice verificar. La diferencia con R20 es dónde estaba escondido — allá en
+el assert, acá en la precondición.
+
+**Lo que cambia a partir de ahora, y es lo más valioso de este hallazgo:** hasta hoy la suite se
+corría siempre contra el emulador de Gastón, así que **ninguna dependencia del estado local podía
+detectarse**. CI la encontró en su primera corrida limpia. **CI es el oráculo de esta clase de
+defecto**, mejor que cualquier revisión a ojo: un barrido manual busca los que uno imagina, CI
+encuentra los que hay.
+
+Puede haber más de uno. Se cierra en **TASK-020**, que además barre el resto de `tests/`.
