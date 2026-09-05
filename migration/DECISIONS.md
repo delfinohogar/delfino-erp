@@ -300,10 +300,18 @@ TASK-010, las tareas más grandes del lote) esto tiene que alcanzar para dimensi
 |---|---|---|---|---|---|
 | 1 | 2026-09-04 | TASK-003 | tester | 33-35 tests, 3 mutaciones propias, verificar 3 copias de `crear_venta()` | 786 líneas sin commitear, rescatadas en `bc605ea` |
 | 2 | 2026-09-04 | TASK-003 | auditor | reproducir 3 mutaciones, 8 vías de inmutabilidad, no-regresión de TASK-002 | nada; árbol limpio |
-**Son DOS cortes, no tres. Corrección del director, 2026-09-04.** Se anotó acá un tercer caso
-—TASK-013, implementador— que **no existió**: el agente estaba corriendo todavía y terminó bien,
-con su commit `66aa8d2`. El director lo dio por cortado leyendo el árbol —archivo modificado, sin
-commit, sin notificación— y escribió como evidencia algo que era una foto a mitad de camino.
+| 3 | 2026-09-05 | TASK-013 | tester | 61 tests en 4 archivos + 4 auxiliares, barrido atacado por 5 vías, comparación REST antes/después | 1.224 líneas sin commitear, rescatadas en `ef0e0f6` |
+
+**Sobre el caso 3, y una corrección previa que conviene leer.** El 2026-09-04 se anotó acá un
+tercer caso —TASK-013, **implementador**— que **no existió**: el agente seguía corriendo y terminó
+bien, con su commit `66aa8d2`. El director lo dio por cortado leyendo el árbol —archivo modificado,
+sin commit, sin notificación— y escribió como evidencia una foto sacada a mitad de camino. Se
+retiró.
+
+El caso 3 que figura ahora en la tabla es **otro**: el **tester** de TASK-013, cortado el
+2026-09-05 con señal explícita —"stopped at its 100-turn limit", 107 tool uses, 220k tokens—. La
+diferencia entre los dos episodios es exactamente la lección: uno se **infirió** de una foto del
+árbol y era falso; el otro vino **declarado** por el sistema y es real.
 
 Vale más como lección que el dato falso que reemplaza: **"no llegó la notificación" no significa
 "se cortó"**, significa que no se sabe. Es el mismo error que FASE 0 encontró tres veces en este
@@ -312,12 +320,28 @@ retirar la versión vieja de R8. Se corrige acá en vez de dejarlo, porque una t
 con un caso inventado es peor que no tener la tabla: se iba a usar para dimensionar TASK-005 a
 TASK-010.
 
-Lo que sí se sostiene, con los dos casos reales: los dos son de **TASK-003** y los dos tienen
-carga de reproducción alta. La hipótesis sigue abierta y **no decidida** — que el costo lo prediga
-la cantidad de **comprobaciones empíricas independientes** exigidas antes de reportar, y no la
-cantidad de archivos ni de líneas. Pero por ahora solo hay evidencia del lado del tester y del
-auditor; **del implementador no hay ningún caso**. No se cambia nada: se junta evidencia de
-verdad. La causa no es que 35 tests sean muchos: es que exigir la
+**Con tres casos reales, la hipótesis se refuerza y se puede afinar.** Los tres cortes son de
+tester (2) y auditor (1); **del implementador sigue sin haber ninguno**, y eso ya no es casualidad
+estadística sino un patrón con explicación: el implementador escribe una vez y verifica al final,
+mientras que tester y auditor hacen **un ciclo completo de entorno por cada propiedad** —levantar,
+mutar, correr, leer, revertir, correr de nuevo—.
+
+El caso 3 es el más claro de todos: el tester de TASK-013 escribió **61 tests en 4 archivos más 4
+auxiliares** para verificar **un solo archivo de 300 líneas**. No se cortó por el tamaño de lo que
+tenía que probar, sino por la cantidad de comprobaciones independientes que se le pidieron: cinco
+intentos de romper el barrido, tres barreras de aborto por separado, la fuente única del
+`projectId`, la idempotencia, la mutación de R20 y la comparación REST antes/después.
+
+Hipótesis, ahora con tres casos: **el costo de una tarea lo predice la cantidad de comprobaciones
+empíricas independientes exigidas, no la cantidad de archivos ni de líneas.** Consecuencia
+práctica para TASK-005 a TASK-010: cada servicio de dominio tiene cuatro invariantes, y cada una
+con su mutación son ~8 ciclos de entorno por tarea, más lo mismo del lado del auditor. **Eso no
+entra en un ciclo.** La partición de TASK-016 y TASK-017 va en la dirección correcta pero no
+alcanza: hay que partir también el trabajo de test de cada servicio, o aceptar de entrada que cada
+uno va a necesitar dos pasadas de tester.
+
+**Sigue sin decidirse formalmente**, porque la decisión correcta se toma al escribir TASK-005 y no
+antes. Pero la evidencia ya no es una anécdota. La causa no es que 35 tests sean muchos: es que exigir la
 demostración de que cada test **puede fallar** multiplica el trabajo. El tester no solo escribe —
 levanta la base, corre, diagnostica, **planta la mutación, verifica el rojo, la revierte** y
 vuelve a correr. TASK-002 fueron 34 tests con dos mutaciones y entró justo; TASK-003 fueron 35 con
