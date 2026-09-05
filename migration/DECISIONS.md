@@ -167,6 +167,40 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [IDEA FUTURA · GASTÓN] Traer descripciones y medidas de Tiendanube al ERP
+**No es una decisión ni una tarea.** Es relevamiento, para que quien la planifique no arranque de
+cero. **Fuera del alcance de la PoC** y posterior a dejar GBP.
+
+No existía ninguna nota previa sobre el chatbot en `migration/` ni en `docs/` —verificado—, así que
+ésta es la primera entrada del tema. Si hay una anterior en otro lado, conviene unificarlas acá.
+
+**Objetivo:** que el catálogo salga de **una sola fuente** y el chatbot no tenga que consultar dos
+sistemas. Es la aplicación directa de P9: Delfino ERP es la fuente de verdad de productos, precios
+y stock, y las plataformas externas reciben.
+
+**Estado real hoy, verificado contra el código por Gastón y confirmado por el director:**
+- `functions/tiendanubeCatalogo.js:37` pide `fields=id,name,variants,images`. **No trae
+  `description` ni los atributos físicos.**
+- En el ERP, `descripcion` es el **nombre corto** del producto, el que se ve en el listado:
+  `js/productos.js:213` ordena el listado por ese campo y la línea 57 lo usa como material de
+  búsqueda junto al SKU y los códigos. **No existe campo de descripción larga, ni medidas, ni
+  peso.**
+- Tiendanube **sí** tiene esos datos: `description` con el HTML de la ficha, y `weight`, `width`,
+  `height`, `depth` **por variante**.
+
+**Qué falta, y en qué orden:**
+1. Ampliar el `fields` de la importación.
+2. Crear los campos en el modelo de producto del ERP. Ojo con el nombre: `descripcion` ya está
+   tomado por el nombre corto, así que la descripción larga necesita otro nombre o hay que
+   renombrar el existente — y renombrarlo toca listado, búsqueda y varias pantallas.
+3. **Decidir qué hacer con el HTML de la descripción**: guardarlo tal cual, limpiarlo, o
+   convertirlo a texto plano. Gastón se inclina por **texto plano** por ser para un chatbot.
+   **Esa es una decisión de producto y queda para cuando se planifique**, no se toma acá.
+
+**Detalle que va a aparecer al implementarlo:** las medidas en Tiendanube son **por variante** y el
+ERP modela el producto; hay que definir qué medida queda cuando un producto tiene varias variantes,
+o si el ERP pasa a guardarlas por variante. Es diseño de modelo, no un mapeo directo.
+
 ## 2026-09-05 — [GASTÓN] Se saca `singleProjectMode` de `firebase.json`
 Decidido con el análisis de R36 sobre la mesa. Gastón edita el archivo, que está en `deny` para
 todos los agentes; el director le pasó el contenido completo con el único cambio.
