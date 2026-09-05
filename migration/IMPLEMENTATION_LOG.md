@@ -78,3 +78,35 @@ Prueba literal del caso de las 21:00: se esperó al instante `2026-09-05 00:00:0
 sesión veía `current_date` = 2026-09-05 y la venta y su asiento quedaron con `fecha_operacion`
 2026-09-04, con `creado_en` = 2026-09-05 00:00:00+00. El bug de UTC queda cerrado sin depender de
 cómo esté configurada la sesión.
+
+## TASK-013 — El seed apunta al proyecto del emulador (R16) — BLOQUEADO POR PERMISOS
+
+No pude implementar nada: `.claude/settings.json:88` tiene `"Edit(scripts/seed-emulator.mjs)"` en
+la lista `deny`, que es exactamente el unico archivo que la tarea me asigna. El intento de
+escritura devuelve "blocked by a deny rule" y una regla `deny` no se levanta pidiendo permiso. No
+busque ninguna via alternativa para escribirlo (node fs, sed): saltear una barrera del sistema de
+permisos seria peor que no hacer la tarea. `.claude/` solo lo toca Gaston.
+
+Segundo hallazgo, y es parte del mismo bug: `.claude/settings.json:8-9` define
+`GCLOUD_PROJECT=demo-delfino` y `GOOGLE_CLOUD_PROJECT=demo-delfino` para TODA sesion de agente.
+O sea que R16 no vive solo en el default del script: aunque el default pase a `delfino-hogar-erp`,
+cualquier agente que corra `npm run seed` sigue sembrando en `demo-delfino`, porque el Admin SDK
+obedece esas variables. Con el chequeo de la tarea el seed abortaria (bien, ya no es silencioso),
+pero ningun agente podria sembrar hasta que esas dos variables pasen a `delfino-hogar-erp` o se
+saquen. Eso tambien lo tiene que hacer Gaston.
+
+Lo que si pude hacer, porque es solo lectura: el inventario de los dos namespaces por REST contra
+los emuladores (`Bearer owner`, canal independiente del Admin SDK). Estado al 2026-09-04:
+
+    delfino-hogar-erp   Auth 1 usuario: admin@delfino.local  uid HfH7fg2RWwLBI6Lacotphm3rM1H9
+                        Firestore 10 colecciones, 35 docs (categorias 1, clientes 1, contadores 3,
+                        cuentasContables 22, depositos 1, listasPrecios 1, marcas 1, productos 3,
+                        sucursales 1, usuarios 1 -> usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9)
+    demo-delfino        Auth 0 usuarios
+                        Firestore 10 colecciones, 35 docs: el MISMO set exacto, incluido
+                        usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9 -> el perfil duplicado que reporto
+                        Gaston. El usuario de Auth existe una sola vez, en delfino-hogar-erp.
+
+No commiteo codigo porque no hay codigo. No toque `package.json`, `.claude/` ni ningun otro
+archivo. La limpieza de `demo-delfino` queda sin hacer: iba en el mismo script.
+

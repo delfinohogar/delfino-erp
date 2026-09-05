@@ -32,7 +32,31 @@ agentes con una barrera física, no con una instrucción.
 ## PENDIENTE DE GASTÓN
 (el director escribe acá las preguntas de Nivel 3 antes de hacerlas)
 
-(sin preguntas abiertas)
+### 2026-09-04 — TASK-013 bloqueada por `.claude/settings.json` (dos líneas)
+PREGUNTADO. `.claude/` solo lo modifica Gastón y dos cosas de ahí trancan la tarea:
+
+1. **`.claude/settings.json:88`** tiene `"Edit(scripts/seed-emulator.mjs)"` en `deny`. Es el único
+   archivo de TASK-013, así que la tarea no se puede implementar. El implementador lo reportó y
+   **no buscó ninguna vía alternativa** —node fs, sed, cp— para saltear la regla, que es el
+   comportamiento correcto: una regla `deny` que se puede eludir con otra herramienta no es una
+   barrera.
+2. **`.claude/settings.json:8-9`** fuerzan `GCLOUD_PROJECT=demo-delfino` y
+   `GOOGLE_CLOUD_PROJECT=demo-delfino` en toda sesión de agente. El Admin SDK las obedece, así que
+   aunque el default del script pase a `delfino-hogar-erp`, cualquier agente que corra
+   `npm run seed` seguiría sembrando en el namespace equivocado. Con el chequeo de la tarea puesto
+   abortaría ruidosamente, que es mejor que hoy, pero ningún agente podría sembrar.
+
+Puede que la línea 2 sea deliberada: mandar a los agentes a un namespace de juguete y dejar
+`delfino-hogar-erp` para Gastón es una separación razonable. Si es así, no hay nada que corregir
+ahí y alcanza con levantar el `deny`; el bug que Gastón sufrió es el del **default del script**,
+que le pega cuando corre `npm run seed` a mano, sin el entorno de agente.
+
+Inventario medido por REST en los dos namespaces del emulador (no por lo que imprime el script):
+- `delfino-hogar-erp`: Auth 1 usuario (`admin@delfino.local`), Firestore 10 colecciones / 35 docs.
+- `demo-delfino`: Auth **0 usuarios**, Firestore **el mismo set exacto**, 10 colecciones / 35 docs,
+  incluido el perfil duplicado `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9`.
+
+El duplicado es solo de Firestore: el usuario de Auth existe una sola vez.
 
 Los tres ítems siguientes se movieron desde MIGRATION_STATUS.md el 2026-09-04, a pedido de
 Gastón: dependen de él y este es el lugar donde los va a buscar. Ninguno bloquea TASK-001 a

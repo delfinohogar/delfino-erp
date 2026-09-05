@@ -170,6 +170,33 @@ clone el repo y siga INSTALAR.md.
 **CORRECCIÓN PENDIENTE — TASK-013.** El default tiene que ser `delfino-hogar-erp`, o el seed debe
 abortar con un mensaje claro si el proyecto que usa no coincide con el del emulador.
 
+**SIGUE VIVO — 2026-09-04. TASK-013 no pudo corregirlo: el implementador no tiene permiso de
+escritura sobre el único archivo de la tarea.** `.claude/settings.json:88` lista
+`"Edit(scripts/seed-emulator.mjs)"` en `deny`, y una regla `deny` no se levanta pidiendo permiso.
+El archivo quedó tal cual, con el default `"demo-delfino"` intacto. Solo Gastón puede tocar
+`.claude/`.
+
+**Segundo vector, descubierto al intentar la corrección: el default del script no es la única
+causa.** `.claude/settings.json:8-9` define `GCLOUD_PROJECT=demo-delfino` y
+`GOOGLE_CLOUD_PROJECT=demo-delfino` para **toda sesión de agente**. El Admin SDK obedece esas
+variables, así que aunque el default del script pase a `delfino-hogar-erp`, cualquier agente que
+corra `npm run seed` sigue sembrando en `demo-delfino`. Corregir el script sin corregir esas dos
+variables convierte el bug silencioso en un aborto ruidoso —una mejora— pero deja a los agentes
+sin poder sembrar. Las dos correcciones van juntas.
+
+Inventario del daño acumulado, medido por REST contra los emuladores el 2026-09-04 (token
+`owner`, canal independiente del Admin SDK):
+
+    delfino-hogar-erp   Auth: 1 usuario, admin@delfino.local, uid HfH7fg2RWwLBI6Lacotphm3rM1H9
+                        Firestore: 10 colecciones, 35 docs
+    demo-delfino        Auth: 0 usuarios
+                        Firestore: 10 colecciones, 35 docs — el mismo set exacto, incluido
+                        usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9
+
+El perfil `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` está duplicado en los dos namespaces; el usuario
+de Auth existe una sola vez, en `delfino-hogar-erp`. La limpieza de `demo-delfino` que autorizó
+Gastón el 2026-09-04 queda pendiente: iba en el mismo script bloqueado.
+
 ## R17 — [ELIMINADO 2026-09-04] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
 
 **ESTADO: ELIMINADO (no mitigado) — 2026-09-04, verificado contra el emulador.**
