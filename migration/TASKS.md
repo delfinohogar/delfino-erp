@@ -420,7 +420,7 @@ accept:
 - `arcaActivo` no se toca, y el ambiente `produccion` no aparece en el guion ni como ejemplo
 
 ### TASK-004 — Migración 0007: contadores del corte
-status: IN_REVIEW
+status: DONE
 owner: implementador
 depends: TASK-003
 files:
@@ -444,7 +444,7 @@ status: PENDING
 owner: implementador
 depends: TASK-004
 files:
-- backend/db/migrations/0006_crear_pedido.sql
+- backend/db/migrations/0008_crear_pedido.sql
 accept:
 - `crear_pedido()` es una sola transacción: pedido, líneas, reservas y `stock.reservado`, todo o nada
 - bloquea `stock` con `SELECT … FOR UPDATE` ordenado por `(producto_id, deposito_id)` ascendente antes de tocar `reservas`
@@ -452,14 +452,15 @@ accept:
 - rechaza reservar más que el disponible
 - idempotente por `pedidos.idempotency_key`
 - invariantes RESERVAS_CONSISTENTES, DISPONIBLE_DERIVADO y NO_VENDER_RESERVADO
-- el orden de bloqueo ascendente es **obligación de esta tarea**, pero la invariante ORDEN_DE_BLOQUEO se **prueba en TASK-016**: necesita dos transacciones cruzadas y no pertenece al archivo de un solo servicio (decisión Nivel 2 del 2026-09-04)
+- el orden de bloqueo ascendente es **obligación de esta tarea**, pero la invariante ORDEN_DE_BLOQUEO se **prueba en TASK-016A**: necesita dos transacciones cruzadas y no pertenece al archivo de un solo servicio (decisión Nivel 2 del 2026-09-04)
+- **R49 — el orden entre `stock` y `contadores`, no solo entre productos.** Detectado por el auditor en TASK-004. `crear_venta()` bloquea **primero `stock`** y **después** toma el lock de fila de `contadores` dentro de `siguiente_numero()`. Si `crear_pedido()` **numera antes de bloquear stock**, las dos funciones toman los mismos dos recursos en **orden inverso**: deadlock `40P01` intermitente, que aparece bajo carga y no en una corrida secuencial. **Esta tarea tiene que respetar el mismo orden: `stock` primero, contador después.** Ojo con el alcance de la invariante existente: **ORDEN_DE_BLOQUEO solo cubre el orden entre productos**, no entre tipos de recurso, así que este caso **no lo atrapa** — hay que probarlo aparte, cruzando `crear_pedido` con `crear_venta`
 
 ### TASK-006 — Servicio `modificar_pedido`: edición atómica con ajuste de reservas
 status: PENDING
 owner: implementador
 depends: TASK-005
 files:
-- backend/db/migrations/0007_modificar_pedido.sql
+- backend/db/migrations/0009_modificar_pedido.sql
 accept:
 - permite agregar y quitar productos, subir y bajar cantidades, y cambiar precio y descuento, mientras el pedido no se haya convertido en venta (Q1)
 - bajar una cantidad libera exactamente la diferencia y vuelve al disponible en el acto
@@ -482,7 +483,7 @@ accept adicional — **R41, leelo antes de tocar `crear_venta()`**:
 - si hace falta cambiar la firma, el archivo canónico tiene que traer un `drop function if exists` con la **firma vieja completa** antes del `create or replace`, y hay que actualizar el `comment on function` de `0006`, que hoy está anclado a la firma de 8 argumentos
 - **verificación obligatoria**: después del cambio, `select count(*) from pg_proc where proname='crear_venta'` devuelve **1**. Si devuelve 2, hay una sobrecarga y la tarea está mal aunque todo lo demás pase
 files:
-- backend/db/migrations/0008_facturar_pedido.sql
+- backend/db/migrations/0010_facturar_pedido.sql
 accept:
 - FACTURAR convierte el pedido en una venta registrada; **no** emite comprobante fiscal y **no** depende de ARCA (P11)
 - la mercadería ya reservada NO se vuelve a reservar, NO baja de nuevo el disponible y NO se descuenta dos veces del físico
@@ -498,7 +499,7 @@ status: PENDING
 owner: implementador
 depends: TASK-007
 files:
-- backend/db/migrations/0009_crear_entrega.sql
+- backend/db/migrations/0011_crear_entrega.sql
 accept:
 - consume la reserva y descuenta el físico en una sola transacción, y escribe `movimientos_stock` con motivo `entrega`
 - admite entrega parcial: venta de 5, se retiran 2 → entregado 2, pendiente 3, las 3 siguen reservadas
@@ -512,7 +513,7 @@ status: PENDING
 owner: implementador
 depends: TASK-008
 files:
-- backend/db/migrations/0010_cancelar_pedido.sql
+- backend/db/migrations/0012_cancelar_pedido.sql
 accept:
 - libera la cantidad pendiente de todas las reservas del pedido y deja el físico sin cambios
 - el pedido queda en estado `cancelado` y no se puede facturar después
@@ -525,7 +526,7 @@ status: PENDING
 owner: implementador
 depends: TASK-009
 files:
-- backend/db/migrations/0011_revertir_venta.sql
+- backend/db/migrations/0013_revertir_venta.sql
 accept:
 - devuelve el stock de la venta y genera un asiento espejado con los mismos montos y debe/haber invertidos
 - la venta original NO se modifica

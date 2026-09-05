@@ -39,8 +39,15 @@ en el reporte de un agente: vive en `tests/integration/postgres/numeracion_corte
 la sostiene. Cubre los tres casos —`ventas`/`asientos` (1 → rollback → 0 → 1), comprobantes, y
 post-corte 1500 → 1501 → rollback → 1501— más "dos sesiones dan 1 y 2, la segunda bloqueada".
 
-**Queda pendiente lo último: la verificación independiente del auditor.** Hasta que la reproduzca
-por su cuenta, esta entrada tiene salvedad y **no entra al `POC_REPORT.md` sin ella**.
+**VERIFICADA POR EL AUDITOR el 2026-09-05, sin salvedad. Entra al `POC_REPORT.md`.** Lo reprodujo
+con conexiones propias sobre una base desechable: `ventas`/`asientos` 1 → rollback → 1;
+comprobantes 1 → rollback → la fila ni siquiera existe → 1; post-corte 1500 → 1501 → rollback, con
+el contador en 1500 → **1501** → 1502.
+
+**Y agregó una medición que ninguno de los dos había pedido, que es la más fuerte de todas:**
+**20 transacciones simultáneas** —15 emisiones y 5 cortes— sobre un contador virgen entregaron
+**1 a 15 exactos, cero repetidos y cero huecos**. Eso ya no es "el rollback devuelve el número":
+es la correlatividad sosteniéndose bajo concurrencia real.
 
 **Sobrevivió a un arreglo que tocaba su mismo mecanismo**, y eso vale la pena anotarlo: al cerrar
 la carrera de H1 —`insert … on conflict do nothing` antes del lock— el riesgo real era romper el
