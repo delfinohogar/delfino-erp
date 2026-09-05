@@ -403,8 +403,8 @@ accept:
 - es un documento, **no un ejecutable**: no se agrega ningún script a `scripts/` ni a `package.json`. Un archivo que golpea producción y se puede correr sin querer es peor que un instructivo. Si Gastón prefiere un script, lo pide y se agrega como cambio aparte
 - `arcaActivo` no se toca, y el ambiente `produccion` no aparece en el guion ni como ejemplo
 
-### TASK-004 — Migración 0005: contadores del corte
-status: PENDING
+### TASK-004 — Migración 0007: contadores del corte
+status: IN_PROGRESS
 owner: implementador
 depends: TASK-003
 files:
