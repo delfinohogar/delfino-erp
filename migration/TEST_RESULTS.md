@@ -723,3 +723,144 @@ no arranca con un emulador ya levantado (puertos 8080/9099/9199 tomados). No es 
 los tests; se resuelve bajando el emulador o corriendo vitest contra el que ya está en pie.
 Los cinco rojos del archivo nuevo son mutaciones provocadas a propósito, todas revertidas por
 `recrearEsquema()` en el `beforeEach` siguiente, y todas vuelven a verde al retirarlas.
+
+---
+
+## TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-019` sobre `fbf2414`
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (`delfino-pg-dev`, 127.0.0.1:5432, base `delfino_test` vía `DATABASE_URL_TEST`), emulador de
+  Firebase ya levantado por fuera en 8080/9099/9199.
+- **Veredicto: VERDE.** Los 2 tests en rojo vuelven a verde normalizando los finales de línea
+  antes de comparar, y siguen cazando una diferencia real de contenido en las dos formas del
+  archivo. R32 cerrado.
+- **Archivos tocados:** `tests/integration/postgres/precios_y_costos.test.js` (una línea de
+  código y su comentario), `migration/RISKS.md` (cierre de R32) y este archivo. **No** se agregó
+  `.gitattributes`. **No** se tocó `backend/`, ni ningún assert, ni el resto de los tests.
+
+### Comandos ejecutados
+
+    # el emulador ya estaba en pie, así que `npm run test:integration` no arranca (ver "tipo de
+    # rojo"). Se corrió vitest con la misma config contra el emulador ya levantado:
+    FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+    FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 GCLOUD_PROJECT=delfino-hogar-erp \
+    DATABASE_URL_TEST=postgres://delfino:delfino_local_dev@127.0.0.1:5432/delfino_test \
+    npx vitest run -c vitest.integration.config.js
+
+    npm test                                   -> 41/41 verde, dos corridas
+    vitest -c vitest.integration.config.js     -> 101/101 verde, dos corridas seguidas (52 s, 51 s)
+    (solo el archivo de la tarea)              -> 33/33 verde, antes 31/33
+
+### Estado por invariante
+
+Este archivo cubre `LISTA_PRECIO_OPCIONAL` (P3), `HISTORIAL_COSTOS_INMUTABLE` (P5),
+`COSTO_MAESTRO_NO_AUTOMATICO` (P5), `HISTORICO_INMUTABLE` (P4) y, en el bloque
+`CREAR_VENTA_0004`, `IVA_DISCRIMINADO`, `IMPUTACION_PAGOS`, `FECHA_OPERACION_LOCAL` y
+`CONTABILIDAD`. **Todas verdes**, antes y después: ninguna estaba en discusión. Lo que estaba
+roto era el centinela de texto que vigila la tercera copia de `crear_venta()` (R28) y la mutación
+de `registrar_costo()`, es decir la capacidad de detectar que alguien toque esas dos funciones.
+
+| Antes de TASK-019 (árbol con CRLF) | |
+|---|---|
+| `COSTO_MAESTRO_NO_AUTOMATICO > MUTACIÓN R20 · registrar_costo() con el UPDATE de js/compras.js adentro también se caza` | **ROJO** |
+| `CREAR_VENTA_0004 > la de 0004 es idéntica a la de 0003 salvo los tres agregados de la lista de precios` | **ROJO** |
+| los otros 31 | verde |
+
+Se esperaba que `reemplazar()` encontrara sus literales en el texto de la migración; lo que pasó
+fue `AssertionError: no está el texto "  -- P5: el costo maestro queda como estaba. Acá NO va un
+UPDATE de productos.\n  return v_id;"` y el equivalente de `AGREGADOS_0004`. Los literales llevan
+`\n` y el archivo del checkout trae `\r\n`: `String.includes` no encuentra nada. **Contenido
+idéntico, comparación rota.**
+
+### El arreglo
+
+Una sola línea, en el único punto por donde el texto de las migraciones entra al archivo:
+
+    const aLF = (t) => t.replace(/\r\n/g, "\n");
+    const sqlDe = (n) => aLF(readFileSync(join(DIR_MIGRACIONES, n), "utf8"));
+
+De ahí salen `SQL_0003`, `SQL_0004` y el SQL que aplica `esquemaHasta()`. **No se cambió lo que
+se compara ni se relajó ningún assert**: siguen siendo igualdades exactas, carácter por carácter,
+sobre el mismo texto de antes; lo único que dejan de distinguir es el `\r` que puso el checkout.
+`normalizar()` y `reemplazar()` quedaron intactas, igual que los literales esperados.
+
+### La prueba de que sirve (no razonada: corrida)
+
+Se copió el árbol fuera del repositorio (migraciones + `tests/` + configs de vitest, con
+`node_modules` por junction) y se convirtieron **las copias** de los `.sql` a LF y a CRLF, con el
+conteo de finales de línea verificado en cada conversión. `backend/` del repo nunca se tocó.
+
+| # | archivo de test | migraciones | resultado |
+|---|---|---|---|
+| 1 | **sin** el arreglo (`git show HEAD:`) | LF (CRLF=0) | **33/33 verde** — así estaban cuando se aprobó TASK-003 |
+| 2 | **sin** el arreglo (`git show HEAD:`) | CRLF (CRLF=408) | **2 rojo / 31 verde** — R32 reproducido en la copia |
+| 3 | **con** el arreglo | LF (CRLF=0) | **33/33 verde** |
+| 4 | **con** el arreglo | CRLF (CRLF=408) | **33/33 verde** |
+
+Las corridas 1 y 2 son el control que faltaba para poder afirmar que la causa es el final de
+línea y nada más: el mismo archivo de test, el mismo contenido de migración, dos resultados
+distintos según el checkout.
+
+### Contraprueba: el test sigue discriminando contenido
+
+Sobre la copia se metieron dos cambios **reales** de contenido, elegidos semánticamente neutros a
+propósito para que **ningún assert numérico los pueda ver**:
+
+- `registrar_costo()`: `  return v_id;` -> `  return v_id + 0;`
+- `crear_venta()` de 0004: `iva_l := discriminar_iva(sub, ali);` -> `... + 0;`
+
+| # | migraciones | resultado |
+|---|---|---|
+| 5 | CRLF | **2 rojo / 31 verde** — los dos tests de texto, y solo ellos |
+| 6 | LF | **2 rojo / 31 verde** — los mismos dos |
+
+Los mensajes son los que corresponden a una diferencia de contenido, no a un problema de formato:
+`no está el texto "  -- P5: …\n  return v_id;"` y `0004 diverge de 0003 en algo más que la lista
+de precios`. Que los otros 31 sigan verdes es parte del resultado: confirma que estos dos son el
+**único** centinela de esas dos funciones, y que la normalización no los apagó (R20).
+
+### Otras comparaciones de texto de archivos en `tests/` con el mismo problema
+
+Revisado todo `tests/` (`readFileSync`, `readdirSync`, `pg_get_functiondef`, `prosrc`). Fuera del
+`files:` de esta tarea, así que **se reportan y no se tocan**:
+
+1. **`tests/integration/postgres/iva_destino_y_fecha.test.js` → `mutarCrearVenta()`, líneas
+   68-77.** Mismo patrón exacto: `sql.includes(de)` sobre el texto crudo de
+   `0003_iva_y_destino_pago.sql`, leído con `readFileSync` sin normalizar (línea 26). **Hoy está
+   verde por casualidad**, porque sus cuatro literales (líneas 214-218 y 395) son de una sola
+   línea y no hay ningún `\r` en el medio. El primer literal multilínea que alguien agregue ahí
+   reproduce R32 idéntico, y con el mismo síntoma engañoso: rojo sin que nadie haya cambiado
+   contenido. Se arregla con la misma línea. Riesgo **latente**, no activo.
+2. **`tests/integration/postgres/_helpers.mjs` → `recrearEsquema()`, línea 26.** Carga las
+   migraciones **crudas** (`readFileSync(...,"utf8")` directo al `pool.query`), así que el cuerpo
+   que queda desplegado en PostgreSQL conserva los finales de línea del checkout: hoy, `\r\n`
+   adentro de `pg_get_functiondef`. **Esto es lo que le importa a TASK-018**, que va a comparar la
+   definición de `crear_venta()` contra la que corre en la base: hay que normalizar **los dos
+   lados**, no solo el del archivo. En `precios_y_costos.test.js` la comparación equivalente
+   (test "lo que corre en la BASE es la definición de 0004") sobrevive porque pasa por
+   `normalizar()`, que colapsa `\s+` y se come el `\r` de rebote — pero es una protección
+   incidental, no deliberada, y una comparación cruda no la tiene.
+
+Nada más: las otras comparaciones de texto de la suite son regex de una sola línea sobre fuentes
+(`backend-higiene.test.js`) o `toContain` sobre stdout de un proceso hijo (`migrador.test.js`,
+`safety.test.js`), y ninguna es sensible a los finales de línea.
+
+### Tipo de rojo
+
+**Ninguno por lógica.** Dos por **infraestructura**, los dos ya conocidos y ninguno del código:
+
+1. `npm run test:integration` **no arranca** con un emulador ya levantado: `Could not start
+   Authentication Emulator, port taken` (8080, 9099 y 9199 ocupados, hub 4400 → 4401). Es el
+   mismo rojo de infraestructura reportado en TASK-001 y en todas las tareas siguientes. Se corrió
+   `vitest -c vitest.integration.config.js` con las variables de emulador puestas a mano, contra
+   el emulador que ya estaba en pie: misma config, mismo `globalSetup`, misma base `delfino_test`.
+2. En la **primera** corrida completa, `migrador.test.js > MIGRADOR_IDEMPOTENCIA > contra base
+   limpia aplica las migraciones, sale 0 y las registra con nombre y fecha` cortó por
+   `Test timed out in 30000ms`. **Es timing, no lógica**: ese test crea una base nueva y lanza el
+   migrador en un proceso hijo, y esa corrida tardó 89 s contra los 51-52 s de las siguientes.
+   Corrido solo, el archivo da **18/18 verde en 13 s**, y en las dos corridas completas
+   posteriores dio verde las dos veces (**101/101**). No lo toca nada de esta tarea: `migrador.js`
+   y `migrador.test.js` no comparten una línea con lo que se cambió. Queda anotado como flake de
+   la máquina bajo carga, no como rojo del repositorio.

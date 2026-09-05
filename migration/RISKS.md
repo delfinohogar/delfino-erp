@@ -660,8 +660,9 @@ migración es un control secundario y así la usan los tests.
 "demuestre" que nadie reintrodujo el recálculo. Para eso vale la enumeración de triggers y el
 assert de comportamiento.
 
-## R32 — [MEDIA] Tests que comparan texto de archivos se rompen al cambiar de rama, por CRLF
+## R32 — [RESUELTO 2026-09-05] Tests que comparan texto de archivos se rompen al cambiar de rama, por CRLF
 Registrado por el director el 2026-09-05, a partir de un hallazgo del implementador en TASK-013.
+**Cerrado el 2026-09-05 por TASK-019** (tester). Ver el bloque "Cierre" al final del riesgo.
 
 `tests/integration/postgres/precios_y_costos.test.js` tiene **2 tests en rojo** que comparan el
 texto de `backend/db/migrations/0004_precios_y_costos.sql` contra literales con `\n`. El
@@ -688,3 +689,49 @@ que el problema. Si más adelante se quiere igual, es una decisión aparte y de 
 Regla que se desprende, para las tareas que vienen: **un test que compara texto de archivos del
 repositorio tiene que ser insensible a los finales de línea.** Vale para TASK-018, que va a
 comparar la definición de `crear_venta()` con la que corre en la base.
+
+### Cierre — 2026-09-05, TASK-019 (tester)
+
+`tests/integration/postgres/precios_y_costos.test.js` pasa a LF el texto que ENTRA, en el único
+punto por donde entra (`sqlDe`, que es de donde salen `SQL_0003` y `SQL_0004` y el SQL de
+`esquemaHasta`). No se tocó ningún assert, ningún literal esperado y ningún otro test del
+archivo. No se agregó `.gitattributes`.
+
+Por qué no es relajar el assert: la comparación sigue siendo igualdad exacta carácter por
+carácter, y lo único que deja de distinguir es el `\r` del checkout. Demostrado con una copia
+del árbol fuera del repositorio, convirtiendo las migraciones a las dos formas y corriendo el
+archivo de tests contra las dos:
+
+| corrida | migraciones | tests | resultado |
+|---|---|---|---|
+| test SIN el arreglo (`git show HEAD:`) | LF | 33 | **33 verde** — así lo aprobó el auditor de TASK-003 |
+| test SIN el arreglo (`git show HEAD:`) | CRLF | 33 | **2 rojo** / 31 verde — el modo de falla del riesgo |
+| test CON el arreglo | LF | 33 | **33 verde** |
+| test CON el arreglo | CRLF | 33 | **33 verde** |
+| test CON el arreglo + cambio REAL de contenido | LF | 33 | **2 rojo** / 31 verde |
+| test CON el arreglo + cambio REAL de contenido | CRLF | 33 | **2 rojo** / 31 verde |
+
+El "cambio real de contenido" son dos ediciones semánticamente neutras del `0004` de la copia
+(`return v_id;` → `return v_id + 0;` en `registrar_costo()`, y
+`iva_l := discriminar_iva(sub, ali);` → `... + 0;` en `crear_venta()`): ningún assert numérico
+las ve, y aun así los dos tests de texto se ponen rojos en las dos formas del archivo. Es decir
+que siguen discriminando contenido y no quedaron apagados (R20).
+
+**Queda vigente la regla, y hay dos lugares más donde aplica** (reportados, no arreglados acá,
+por estar fuera del `files:` de la tarea):
+
+1. `tests/integration/postgres/iva_destino_y_fecha.test.js` → `mutarCrearVenta()` (líneas 68-77)
+   hace `sql.includes(de)` sobre el texto de `0003_iva_y_destino_pago.sql`. **Hoy está verde por
+   casualidad**: sus cuatro literales son de una sola línea, así que no hay `\r` en el medio. El
+   primer literal multilínea que alguien agregue ahí reproduce R32 exacto. Riesgo latente, mismo
+   patrón, misma solución de una línea.
+2. `tests/integration/postgres/_helpers.mjs` → `recrearEsquema()` (línea 26) carga las
+   migraciones **crudas**, con los `\r` incluidos, así que el cuerpo que queda desplegado en
+   PostgreSQL conserva los finales de línea del checkout. **Esto es lo que le importa a
+   TASK-018**: comparar `pg_get_functiondef('crear_venta')` contra el archivo exige normalizar
+   **los dos lados**, no solo el del archivo. En `precios_y_costos.test.js` esa comparación ya
+   sobrevive porque pasa por `normalizar()`, que colapsa `\s+`; una comparación cruda no.
+
+No se revisó nada más porque no hay más: las otras comparaciones de texto de la suite
+(`backend-higiene.test.js`, `migrador.test.js`, `safety.test.js`) son regex de una línea o
+`toContain` sobre stdout de un proceso, y ninguna es sensible a los finales de línea.
