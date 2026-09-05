@@ -1,8 +1,8 @@
 # Estado de la migración
 
-Fase actual: **1 en curso. 3 tareas cerradas, la suite en verde.**
+Fase actual: **1 en curso. 4 tareas cerradas, la suite en verde.**
 Rama de trabajo: `migration/postgresql`
-Última tarea cerrada: **TASK-002**, aprobada y mergeada el 2026-09-04
+Última tarea cerrada: **TASK-003**, aprobada y mergeada el 2026-09-04
 Tareas bloqueadas: —
 Pendientes de Gastón: 2, en DECISIONS.md § PENDIENTE DE GASTÓN
 
@@ -71,15 +71,41 @@ Dos cosas que conviene no olvidar:
   imputado a la cuenta fiscal. Un test que solo mirara Debe = Haber habría aprobado un peso mal
   imputado.
 
+**TASK-003 cerrada** el 2026-09-04, con dos cortes por límite de turnos en el camino: se cortaron
+el tester y el auditor, y es la primera tarea donde pasa. La migración 0004 agrega listas de
+precios e historial de costos inmutable.
+
+Lo que la distingue: **acá el criterio era divergir del ERP a propósito**, al revés de TASK-002.
+`js/compras.js` pisa el costo maestro en cada compra; P5 decide que no. Se probó por
+comportamiento y no por ausencia de mecanismo —costo 600000, se registra una compra a 715000,
+sigue 600000— y el auditor reprodujo las tres mutaciones, incluida la que **mete el `UPDATE` real
+de `js/compras.js` dentro de `registrar_costo()`** para comprobar que el test detecta esa
+divergencia concreta. La inmutabilidad se verificó por ocho vías distintas, todas 23001.
+
+De la tarea salieron tres decisiones de método que valen más que la migración:
+
+- **Aprobación con salvedades**: un `.approved-parcial.md` mergea pero no cierra, y el hook lo
+  bloquea solo porque busca el `.approved` exacto. Barrera, no convención.
+- **Las invariantes de concurrencia van en tarea propia** (TASK-016, TASK-017): se prueban entre
+  operaciones, así que dependen de que las dos existan.
+- **R28**: `crear_venta()` estaba copiada en tres migraciones. Se cierra con migraciones
+  repetibles (TASK-012 + TASK-018) antes de TASK-007.
+
 ## Qué sigue
 
-**TASK-012** cierra R14: un flag mal tipeado del migrador aplica migraciones en vez de avisar.
+**TASK-013** ya no está bloqueada: el permiso que Gastón levantó en `14c234d` llegó con este
+merge. **TASK-012** cierra R14: un flag mal tipeado del migrador aplica migraciones en vez de avisar.
 **TASK-013** cierra R16: el seed usa `demo-delfino` por defecto mientras el emulador corre en
 `delfino-hogar-erp`, así que siembra en un namespace que el ERP no mira — ya rompió un login
 local. Son independientes entre sí y ninguna bloquea el esquema.
 
-Después sigue la cadena del esquema: **TASK-003** (listas de precios e historial de costos) hasta
-TASK-010.
+Después sigue la cadena del esquema, **TASK-004** (contadores del corte) hasta TASK-010, más las
+dos tareas de ARCA en homologación (TASK-014 relevamiento, TASK-015 guion) que no dependen del
+esquema.
+
+**Orden que conviene:** TASK-013 primero, que es la que le devuelve a Gastón el `npm run seed`
+funcionando. Después TASK-012 y TASK-018, que cierran R28 y **tienen que estar antes de
+TASK-007**.
 
 El lote cubre los pasos 1 a 3 del plan maestro. Las tareas de API, adaptador y shadow se escriben
 cuando este lote esté aprobado, para no planificar sobre un esquema que todavía puede cambiar.
@@ -115,8 +141,8 @@ Netlify no lo lee).
 
 83 módulos en `js/` (10.719 LOC), 75 pantallas (12.403 LOC), 74 páginas HTML. 41 colecciones raíz
 y 6 subcolecciones. 32 módulos escriben en Firestore, con 140 call-sites, y **cero escrituras
-fuera de `js/`**. 50 decisiones, 27 riesgos, 43 invariantes de negocio más 7 propiedades de
-infraestructura, **109 tests** (41 unitarios y 68 de integración), **todos en verde**.
+fuera de `js/`**. 53 decisiones, 31 riesgos, 43 invariantes de negocio más 7 propiedades de
+infraestructura, **138 tests** (41 unitarios y 97 de integración), **todos en verde**.
 
 ## Cómo leer esto
 Resumen de una pantalla. El detalle está en TASKS.md (qué falta), DECISIONS.md (qué se decidió y
