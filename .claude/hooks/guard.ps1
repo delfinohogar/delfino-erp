@@ -11,6 +11,11 @@
 #   2. Los comandos de git (add, commit, checkout, merge, diff, log...) ya no se tratan como
 #      escrituras sobre rutas protegidas. Versionar un archivo no es modificarlo, y el deny
 #      de settings.json ya cubre push, remote, reset --hard y demas.
+#   4. Se retira la regla que bloqueaba cualquier comando que mencionara migration/approvals:
+#      disparaba en comandos de solo lectura. La proteccion contra escrituras ya la da la
+#      regla de $escritura + $protegidas, y Edit/Write sigue reservando approvals al auditor.
+#   5. Se bloquea `node -e/-p/--eval`: bypass directo de los deny de Read/Edit/Write, que
+#      aplican a las herramientas y no a un script que hace lo mismo. Baden, no barrera.
 #   3. Las rutas fuera del directorio del repo se permiten sin analisis: el guard gobierna el
 #      proyecto, no el disco. Antes bloqueaba cosas como ~/.claude/plans/*.md.
 
@@ -76,9 +81,21 @@ if ($tool -eq "Bash" -or $tool -eq "PowerShell") {
     if ($sinCd -match $escritura -and $sinCd -match $protegidas) {
         Deny "comando de shell que escribe sobre una ruta protegida. Usa Edit/Write si tenes permiso, o pedile al director que amplie la tarea. Comando: $cmd"
     }
-    if ($Role -ne "auditor" -and $sinCd -match 'migration/approvals') {
-        Deny "solo el auditor puede tocar migration/approvals/"
+    # CORRECCION 4 (2026-09-04): se retira la regla que bloqueaba cualquier comando que
+    # mencionara migration/approvals. Disparaba en comandos de SOLO LECTURA — por ejemplo un
+    # `for f in tests/...; do grep -c 'it(' ...` que no toca approvals en absoluto. La
+    # proteccion real contra escrituras por shell ya la da la regla de arriba
+    # ($escritura + $protegidas, donde migration/approvals esta incluido), y en Edit/Write el
+    # rol auditor sigue siendo el unico autorizado a escribir ahi.
+    # CORRECCION 5 (R39, 2026-09-05): `node -e` es un bypass directo de casi toda la lista de
+    # deny, porque los deny de Read/Edit/Write aplican a las HERRAMIENTAS, no a un script que
+    # hace lo mismo. Esto no es una barrera —un `node script.mjs` puede lo mismo— es un baden:
+    # obliga a escribir el script en un archivo, que queda en disco y es inspeccionable.
+    # El uso real de los agentes ya es asi: escriben .mjs en un scratchpad y lo ejecutan.
+    if ($sinCd -match '(^|\s|;|&&|\|)node\s+(-e|-p|--eval|--print)\b') {
+        Deny "no uses node -e/-p/--eval: escribi el script en un archivo y ejecutalo, para que quede en disco y se pueda inspeccionar"
     }
+
     if ($sinCd -match 'FIRESTORE_EMULATOR_HOST\s*=' -or $sinCd -match 'FIREBASE_AUTH_EMULATOR_HOST\s*=') {
         Deny "no se puede cambiar la configuracion de emuladores: es la barrera que impide tocar produccion"
     }
