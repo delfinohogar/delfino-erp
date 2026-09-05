@@ -15,11 +15,20 @@
 //      (c) EN_USO siempre, y el flag NO alcanza para saltearla.
 //   5. La constancia es CONSULTABLE y append-only: quién, cuándo, de cuánto a cuánto, si fue
 //      corrección y por qué.
+//   6. El corte no se puede esquivar por una carrera (H1): ni una emisión concurrente ni otro
+//      corte simultáneo consiguen que un contador primerizo termine con un número repetido o
+//      con dos constancias iniciales contradictorias. Con mutación (R20) derivada del archivo
+//      real: si se le saca el `insert … on conflict do nothing` previo al lock, vuelve el daño.
 //
 // Requiere: npm run db:up  (Postgres local, base delfino_test vía DATABASE_URL_TEST).
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { nuevoPool, recrearEsquema, seed, crearVenta, CONN } from "./_helpers.mjs";
+
+const RAIZ_REPO = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 let pool;
 beforeAll(async () => {
@@ -414,6 +423,26 @@ describe("NUMERACION_CORTE · el ROLLBACK devuelve el número (R10)", () => {
     expect(await emitir("0001", "FACTURA_B")).toBe(1);
   });
 
+  it("E1 · el contador de ventas y el de asientos también devuelven el número: 1 → rollback → 1", async () => {
+    // Ésta es la medición literal de E1 en migration/EVIDENCIA_POC.md, fijada como test: en el
+    // ERP de hoy js/ventas.js incrementa contadores/ventas en una TRANSACCIÓN PROPIA, así que
+    // una venta que falla después deja un hueco. Acá el incremento vive dentro de la
+    // transacción de la operación y el ROLLBACK lo deshace.
+    const c = await cliente();
+    try {
+      await c.query("begin");
+      expect(Number((await c.query("select siguiente_numero('ventas') as n")).rows[0].n)).toBe(1);
+      expect(Number((await c.query("select siguiente_numero('asientos') as n")).rows[0].n)).toBe(1);
+      // Dentro de la transacción el contador ya avanzó: lo que vuelve el número es el ROLLBACK.
+      expect(Number((await c.query("select ultimo from contadores where nombre='ventas'")).rows[0].ultimo)).toBe(1);
+      await c.query("rollback");
+    } finally { await c.end().catch(() => {}); }
+    expect(await contador("ventas")).toBe(0);
+    expect(await contador("asientos")).toBe(0);
+    expect(Number((await una("select siguiente_numero('ventas') as n")).n)).toBe(1);
+    expect(Number((await una("select siguiente_numero('asientos') as n")).n)).toBe(1);
+  });
+
   it("una venta fallida tampoco quema el número de venta ni el de asiento", async () => {
     await crearVenta(1, pool, { idem: "r10-ok-1" });
     await expect(crearVenta(1, pool, { idem: "r10-falla", fallarEn: "asiento" })).rejects.toThrow();
@@ -696,25 +725,22 @@ describe("NUMERACION_CORTE · la constancia del corte es consultable", () => {
 });
 
 // ===========================================================================
-// 6. Hallazgo del auditor de tests: la barrera del corte no es a prueba de carrera
-//    cuando el contador todavía NO tiene fila.
+// 6. El corte es a prueba de carrera también cuando el contador TODAVÍA NO TIENE FILA.
+//
+// Historia de esta sección, que explica por qué es tan insistente: hasta el 2026-09-05 estos
+// tres tests estaban acá como `it.fails`, documentando el hallazgo H1 del auditor —
+// `SELECT … FOR UPDATE` traba filas que EXISTEN, y sobre una fila que todavía no existe no
+// traba nada ni espera a nadie, que es justo el caso normal del corte —. El implementador lo
+// arregló materializando la fila con `insert … on conflict do nothing` ANTES del lock, y el
+// director lo tomó como bloqueante: un número de comprobante repetido rompe la correlatividad,
+// que es la única invariante que TASK-004 existe para sostener.
+//
+// Los tres pasan a ser tests normales. Los asserts son POR MENSAJE y no por "falló de alguna
+// forma": bajo la mutación que borra la línea del arreglo el corte muere con un error de clave
+// foránea, que también es un rechazo — y un assert flojo lo daría por bueno.
 // ===========================================================================
-describe("NUMERACION_CORTE · HALLAZGO abierto (known-failing, ver TEST_RESULTS.md)", () => {
-  // fijar_contador_comprobante() hace `select ... from contadores where nombre = v_nombre
-  // for update` para serializar. Si la fila TODAVÍA NO EXISTE ese SELECT no bloquea nada: las
-  // ramas (b) y (c) se evalúan sobre v_actual = null y el `insert ... on conflict do update
-  // set ultimo = excluded.ultimo` de más abajo pisa lo que haya quedado.
-  //
-  // Consecuencia: una emisión concurrente al corte, sobre un contador sin fila, termina con el
-  // contador reseteado al valor del corte y el número ya entregado se vuelve a entregar. Es la
-  // rama (c) esquivada por una carrera, no por el flag.
-  //
-  // Ventana real: el corte se hace una vez, antes de emitir. Pero (c) existe justamente para NO
-  // asumir eso. Se deja como `it.fails` para que la suite quede verde HOY y se ponga roja el día
-  // en que se arregle, obligando a actualizar este archivo. Decisión de si se arregla: del
-  // director. El auditor de tests no toca backend/.
-
-  it.fails("una emisión concurrente al corte NO debería poder reusar un número ya entregado", async () => {
+describe("NUMERACION_CORTE · el corte no se puede esquivar por una carrera (H1)", () => {
+  it("una emisión concurrente al corte NO puede reusar un número ya entregado", async () => {
     const emisor = await cliente();
     const cortador = await cliente();
     try {
@@ -724,33 +750,115 @@ describe("NUMERACION_CORTE · HALLAZGO abierto (known-failing, ver TEST_RESULTS.
       // El emisor estrena el contador y se lleva el 1, todavía sin commitear.
       expect(await emitir("0004", "FACTURA_B", emisor)).toBe(1);
 
-      // El corte arranca sin ver la fila: su SELECT ... FOR UPDATE no encuentra nada y no bloquea.
+      // El corte arranca sin ver la fila. Tiene que ESPERAR igual: el `insert … on conflict do
+      // nothing` se serializa contra el INSERT sin commitear del emisor por el índice único.
+      let corteResuelto = false;
       const pCorte = fijar("0004", "FACTURA_B", 0, "u-gaston", "corte", false, cortador)
-        .then(() => "aplicado").catch((e) => "rechazado: " + e.message.slice(0, 40));
+        .then(() => "aplicado")
+        .catch((e) => "rechazado: " + e.message)
+        .then((r) => { corteResuelto = true; return r; });
       await dormir(400);
+      // La afirmación fuerte: el corte NO pudo resolverse mientras el emisor tenía la fila
+      // tomada. Si pudiera, decidiría sobre un estado que ya no es cierto.
+      expect(corteResuelto).toBe(false);
+
       await emisor.query("commit");
       const resultado = await pCorte;
       await cortador.query("commit").catch(() => {});
 
-      // LO QUE SE ESPERA: el corte se rechaza (rama c) o, como mínimo, el número 1 no se repite.
-      expect(resultado).toMatch(/^rechazado/);
+      // Y se rechaza POR LA RAMA (c), con el valor real del contador en el mensaje: el corte no
+      // murió por un efecto colateral, vio `ultimo = 1` y se negó.
+      expect(resultado).toMatch(/NUMERACION_CORTE_EN_USO/);
+      expect(resultado).toMatch(/ya entrego numeros \(ultimo = 1\)/);
+
+      // El 1 no se entrega dos veces y el contador no quedó reseteado al valor del corte.
       expect(await emitir("0004", "FACTURA_B")).toBe(2);
+      expect(await contador("comprobantes_0004_FACTURA_B")).toBe(2);
+      expect(await constancias()).toEqual([]);
     } finally {
       await emisor.end().catch(() => {});
       await cortador.end().catch(() => {});
     }
   });
 
-  // Segundo hallazgo, menor y no fiscal: el guard del "quién" usa btrim(), que en PostgreSQL
-  // recorta SOLO espacios. Un usuario_uid de una tabulación pasa el guard de la función Y el
-  // CHECK de la tabla —que usa el mismo btrim()— y queda como constancia de un "quién" vacío.
-  // null, "" y "   " sí se rechazan (probado arriba). Se deja como it.fails por lo mismo.
-  it.fails("un usuario_uid de solo tabulaciones NO debería contar como 'quién'", async () => {
-    await expect(fijar("0001", "FACTURA_A", 100, "\t"))
-      .rejects.toThrow(/falta el usuario que hace el corte/);
+  it("dos cortes primerizos simultáneos con valores distintos: se aplica UNO solo", async () => {
+    const a = await cliente();
+    const b = await cliente();
+    try {
+      await a.query("begin");
+      await b.query("begin");
+      await fijar("0009", "FACTURA_C", 1000, "u-a", "corte", false, a);
+
+      let bResuelto = false;
+      const pb = fijar("0009", "FACTURA_C", 7777, "u-b", "corte", false, b)
+        .then(() => "aplicado")
+        .catch((e) => "rechazado: " + e.message)
+        .then((r) => { bResuelto = true; return r; });
+      await dormir(400);
+      expect(bResuelto).toBe(false);
+
+      await a.query("commit");
+      const rb = await pb;
+      await b.query("commit").catch(() => {});
+
+      // El segundo, con valor distinto, ve la constancia del primero y cae por la rama (b).
+      expect(rb).toMatch(/NUMERACION_CORTE_YA_FIJADO/);
+      expect(rb).toMatch(/ya fue fijado en 1000 por u-a/);
+      // Rige el que ganó, y hay UNA sola constancia: no quedaron dos declaraciones iniciales
+      // contradictorias sobre el mismo contador.
+      expect(await contador("comprobantes_0009_FACTURA_C")).toBe(1000);
+      expect((await constancias("comprobantes_0009_FACTURA_C")).map((x) => x.ultimo_fijado)).toEqual([1000]);
+      expect(await emitir("0009", "FACTURA_C")).toBe(1001);
+    } finally {
+      await a.end().catch(() => {});
+      await b.end().catch(() => {});
+    }
   });
 
-  it.fails("dos cortes primerizos simultáneos con valores distintos NO deberían aplicarse los dos", async () => {
+  it("MUTACIÓN R20 · sin el `insert … on conflict do nothing` previo al lock, la carrera vuelve", async () => {
+    // Se replanta el estado exacto de antes del arreglo, derivado del ARCHIVO REAL y no
+    // reescrito a mano: se le quita la línea que materializa la fila y se le devuelve el UPSERT
+    // final que tenía. Si alguien deshace el arreglo, este test describe el daño que vuelve y
+    // los dos tests de arriba se ponen rojos.
+    const sql = readFileSync(join(RAIZ_REPO, "backend", "db", "migrations", "0007_contadores_corte.sql"), "utf8");
+    const bloque = sql.match(/create or replace function fijar_contador_comprobante\([\s\S]*?end \$\$ language plpgsql;/)?.[0];
+    expect(bloque, "no se pudo extraer fijar_contador_comprobante() de 0007").toBeTruthy();
+    const materializa = "insert into contadores(nombre, ultimo) values (v_nombre, 0) on conflict (nombre) do nothing;";
+    const updateFinal = "update contadores set ultimo = p_ultimo_emitido where nombre = v_nombre;";
+    // Si estas dos líneas dejan de estar textualmente, el arreglo cambió de forma y esta
+    // mutación ya no representa el "antes": mejor que falle acá que quedar probando un fantasma.
+    expect(bloque).toContain(materializa);
+    expect(bloque).toContain(updateFinal);
+    const mutante = bloque
+      .replace(materializa, "")
+      .replace(updateFinal,
+        `insert into contadores(nombre, ultimo) values (v_nombre, p_ultimo_emitido)
+           on conflict (nombre) do update set ultimo = excluded.ultimo;`);
+    await pool.query(mutante);
+
+    // Daño 1 · corte contra emisión: el corte no ve la fila sin commitear, se cree primerizo, y
+    // su UPSERT pisa el contador. El número 1 se entrega DOS VECES.
+    const emisor = await cliente();
+    const cortador = await cliente();
+    try {
+      await emisor.query("begin");
+      await cortador.query("begin");
+      expect(await emitir("0004", "FACTURA_B", emisor)).toBe(1);
+      const pCorte = fijar("0004", "FACTURA_B", 0, "u-gaston", "corte", false, cortador)
+        .then(() => "aplicado").catch((e) => "rechazado: " + e.message);
+      await dormir(400);
+      await emisor.query("commit");
+      expect(await pCorte).toBe("aplicado");   // bajo la mutación NO se rechaza
+      await cortador.query("commit");
+      expect(await contador("comprobantes_0004_FACTURA_B")).toBe(0);
+      expect(await emitir("0004", "FACTURA_B")).toBe(1);  // el 1, por segunda vez
+    } finally {
+      await emisor.end().catch(() => {});
+      await cortador.end().catch(() => {});
+    }
+
+    // Daño 2 · corte contra corte: los dos primerizos se aplican y quedan DOS constancias
+    // iniciales contradictorias sobre el mismo contador.
     const a = await cliente();
     const b = await cliente();
     try {
@@ -758,17 +866,39 @@ describe("NUMERACION_CORTE · HALLAZGO abierto (known-failing, ver TEST_RESULTS.
       await b.query("begin");
       await fijar("0009", "FACTURA_C", 1000, "u-a", "corte", false, a);
       const pb = fijar("0009", "FACTURA_C", 7777, "u-b", "corte", false, b)
-        .then(() => "aplicado").catch((e) => "rechazado: " + e.message.slice(0, 40));
+        .then(() => "aplicado").catch((e) => "rechazado: " + e.message);
       await dormir(400);
       await a.query("commit");
-      const rb = await pb;
-      await b.query("commit").catch(() => {});
-      // LO QUE SE ESPERA: el segundo, con valor distinto, cae por NUMERACION_CORTE_YA_FIJADO.
-      expect(rb).toMatch(/^rechazado/);
-      expect(await contador("comprobantes_0009_FACTURA_C")).toBe(1000);
+      expect(await pb).toBe("aplicado");
+      await b.query("commit");
+      expect(await contador("comprobantes_0009_FACTURA_C")).toBe(7777);
+      expect((await constancias("comprobantes_0009_FACTURA_C")).map((x) => x.ultimo_fijado))
+        .toEqual([1000, 7777]);
     } finally {
       await a.end().catch(() => {});
       await b.end().catch(() => {});
     }
+  });
+
+  // H2, el hallazgo menor y no fiscal del mismo informe: el guard del "quién" usaba btrim(),
+  // que en PostgreSQL recorta SOLO el espacio U+0020. Un usuario_uid de una tabulación pasaba el
+  // guard de la función Y el CHECK de la tabla, y quedaba una constancia con responsable vacío.
+  // Hoy los dos usan la clase [^[:space:]], así que "quién" incluye tab, salto de línea y demás.
+  it("un usuario_uid de solo espacios en blanco NO cuenta como 'quién' (tab, salto de línea, CR)", async () => {
+    for (const usuario of ["\t", "\n", "\r", " \t\n ", "", "\f"]) {
+      await expect(fijar("0001", "FACTURA_A", 100, usuario))
+        .rejects.toThrow(/falta el usuario que hace el corte/);
+    }
+    // Y el CHECK de la tabla lo rechaza igual por SQL directo, sin pasar por la función.
+    await fijar("0002", "FACTURA_A", 100, "u-gaston");
+    await expect(pool.query(
+      `insert into contadores_corte(contador, punto_venta, tipo_comprobante, ultimo_anterior,
+                                    ultimo_fijado, usuario_uid)
+       values ('comprobantes_0002_FACTURA_A','0002','FACTURA_A',0,1,E'\\t\\n')`))
+      .rejects.toThrow(/usuario_uid/);
+    // Un uid legítimo con espacios alrededor SÍ se acepta: el criterio es "algo que no sea
+    // blanco", no "sin blancos".
+    expect(await fijar("0003", "FACTURA_A", 100, "\tuid-gaston\n")).toBeGreaterThan(0);
+    expect(await constancias("comprobantes_0001_FACTURA_A")).toEqual([]);
   });
 });

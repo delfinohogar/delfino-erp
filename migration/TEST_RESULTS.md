@@ -1935,4 +1935,159 @@ fuera del repo. No se tocó `backend/`, `js/`, `functions/`, `scripts/`, `packag
 `firebase.json`, `firestore.rules`, `build.js` ni `netlify.toml`. La base usada fue `delfino_test`
 vía `DATABASE_URL_TEST`; `delfino_dev` no se abrió en ningún momento.
 
+---
+
+# TASK-004 (cierre 2026-09-05) — los tres `it.fails` pasan a tests normales
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-004` sobre `019a599` (`TASK-004: verificado el arreglo
+  de H1/H2 contra Postgres. 0007 queda como estaba`)
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16.15 en Docker
+  (`delfino-pg-dev`, 127.0.0.1:5432, base `delfino_test`), emulador de Firebase ya levantado por
+  Gastón en 8080/9099/9199.
+- **Veredicto: VERDE.** Los tres `it.fails` se convirtieron en tests normales y pasan. **No quedan
+  `it.fails` en la suite.**
+
+### Comandos ejecutados
+
+    # `npm run test:integration` sigue sin arrancar: levanta su propio emulador y los puertos
+    # 8080/9099/9199 ya están tomados. Resultado literal:
+    #   "! auth: Port 9099 is not open on 127.0.0.1, could not start Authentication Emulator."
+    #   (ídem firestore 8080 y storage 9199). Rojo de INFRAESTRUCTURA conocido, ajeno a la tarea.
+    npx vitest run -c vitest.integration.config.js      # integración, la vía documentada
+    npx vitest run                                      # unitarios
+
+| Corrida | Integración | Unitarios |
+|---|---|---|
+| baseline (sobre `019a599`, sin tocar nada) | 44 + **3 rojos** en `numeracion_corte.test.js`, los tres `→ Expect test to fail` | — |
+| 1 | **200/200 verde** (9 archivos) | **152/152 verde** |
+| 2 | **200/200 verde** (9 archivos) | — |
+
+`numeracion_corte.test.js` pasa de 47 a **49 tests** (47 verdes → 49 verdes): los 3 `it.fails`
+convertidos, 1 test nuevo de mutación R20 sobre la carrera y 1 test nuevo que fija E1 sobre los
+contadores `ventas` y `asientos`.
+
+## Verde/rojo por invariante
+
+| Invariante | Estado | Evidencia |
+|---|---|---|
+| NUMERACION_CORTE — carrera corte vs emisión (H1) | **VERDE** | el corte **espera** (flag `corteResuelto` en false tras 400 ms) y después cae por la rama (c) con el mensaje literal `NUMERACION_CORTE_EN_USO: el contador comprobantes_0004_FACTURA_B ya entrego numeros (ultimo = 1)`. La emisión siguiente da **2**, el contador queda en **2** y `contadores_corte` queda **vacía** |
+| NUMERACION_CORTE — carrera corte vs corte (H1) | **VERDE** | A fija 1000, B pide 7777 y recibe `NUMERACION_CORTE_YA_FIJADO: … ya fue fijado en 1000 por u-a`. Contador final **1000**, **una** sola constancia, siguiente emisión **1001** |
+| NUMERACION_CORTE — el "quién" del corte (H2) | **VERDE** | `\t`, `\n`, `\r`, `\f`, `" \t\n "` y `""` se rechazan los seis con `falta el usuario que hace el corte`; el `CHECK` de la tabla rechaza `E'\t\n'` también por SQL directo; y `"\tuid-gaston\n"` **sí** se acepta (el criterio es "algo que no sea blanco", no "sin blancos") |
+| NUMERACION_CORTE — R10 / E1, el ROLLBACK devuelve el número | **VERDE, fijado como test** | ver abajo |
+| NUMERACION_CORTE — `p_corregir` no saltea un contador ya usado | **VERDE, con test propio** | ver abajo |
+| resto de NUMERACION_CORTE, CONCURRENCIA | **VERDE** | sin cambios respecto de la corrida anterior |
+| FALLO_INTERMEDIO, VENTA_NORMAL, STOCK_INSUFICIENTE, DOBLE_ENVIO, CONTABILIDAD | **VERDE** | `invariantes.test.js`, no se tocó |
+| COMPROBANTES, COMPRA_ATOMICA, COBRO_SIN_PARCIAL, CTA_CTE | N/A | sus tareas todavía no están implementadas |
+
+### La mutación de R20 — resultado literal, no razonado
+
+Se corrieron **los dos tests de carrera convertidos, verbatim**, contra la función mutada. El
+mutante **no se escribe a mano**: se extrae el bloque `create or replace function
+fijar_contador_comprobante(…)` del **archivo real** `backend/db/migrations/0007_contadores_corte.sql`
+y se le aplica la transformación. `backend/` no se tocó en ningún momento; la mutación vive dentro
+de la transacción del test, sobre `delfino_test`, y el `beforeEach` recrea el esquema.
+
+**Mutante A — se borra literalmente `insert into contadores(nombre, ultimo) values (v_nombre, 0)
+on conflict (nombre) do nothing;` y nada más. Los dos rojos:**
+
+    × una emisión concurrente al corte NO puede reusar un número ya entregado
+      → expected true to be false        (el corte NO esperó: resolvió con el emisor sin commitear)
+    × dos cortes primerizos simultáneos con valores distintos: se aplica UNO solo
+      → insert or update on table "contadores_corte" violates foreign key constraint
+        "contadores_corte_contador_fkey"
+
+Con el mutante A, además, **el corte primerizo más simple deja de funcionar**: sin materializar la
+fila, el `update contadores` final no toca ninguna fila y la constancia choca contra la FK. O sea:
+sacar solo esa línea no reintroduce la carrera, rompe la función entera. Por eso los asserts se
+escribieron **por mensaje** (`NUMERACION_CORTE_EN_USO` / `YA_FIJADO`) y no como "falló de alguna
+forma": un assert flojo habría dado por bueno el error de clave foránea.
+
+**Mutante B — el estado literal previo al arreglo: sin el `insert … on conflict do nothing` y con
+el `insert … on conflict do update set ultimo = excluded.ultimo` de vuelta al final. Los dos
+rojos:**
+
+    × una emisión concurrente al corte NO puede reusar un número ya entregado
+      → expected 'aplicado' to match /NUMERACION_CORTE_EN_USO/
+    × dos cortes primerizos simultáneos con valores distintos: se aplica UNO solo
+      → expected 'aplicado' to match /NUMERACION_CORTE_YA_FIJADO/
+
+Es el mutante que aísla la carrera: el corte primerizo simple **sigue funcionando** (1500 → 1501),
+así que lo único que rompe es la protección. El daño medido bajo B: el emisor se lleva el 1, el
+corte **se aplica**, el contador queda en **0** y la emisión siguiente devuelve **1 otra vez**; y
+los dos cortes primerizos se aplican los dos, contador final **7777** y **dos** constancias
+(`[1000, 7777]`). El mutante B quedó **fijado como test permanente** en la suite —`MUTACIÓN R20 ·
+sin el 'insert … on conflict do nothing' previo al lock, la carrera vuelve`—, con dos asserts sobre
+la forma exacta del contador y de las constancias, para que se rompa también si alguien cambia el
+arreglo por otro que no serialice.
+
+**Conclusión de la mutación:** los dos tests de carrera **pueden fallar** y fallan por el motivo
+correcto. No son verdes decorativos.
+
+### E1 quedó fijado como test
+
+`migration/EVIDENCIA_POC.md` tenía E1 como *"medida por el implementador, pendiente de fijarse como
+test"*. Ya no: el describe `NUMERACION_CORTE · el ROLLBACK devuelve el número (R10)` tiene **siete**
+tests, y se agregó el que faltaba para cubrir las tres mediciones de E1 tal como están escritas:
+
+- **`ventas` y `asientos`** (el test nuevo): dentro de la transacción `siguiente_numero('ventas')`
+  da **1** y el contador ya vale 1; tras el `rollback` los dos contadores vuelven a **0** y la
+  llamada siguiente vuelve a dar **1**. Es el contraste directo con `js/ventas.js`, que incrementa
+  `contadores/ventas` en transacción propia;
+- **comprobantes primerizo**: 1 → rollback → la fila del contador **ni existe** → 1;
+- **post-corte 1500**: 1501 → rollback → contador en 1500 → **1501** de nuevo, después 1502;
+- y las que ya estaban: tanda con aborto en el medio (1,2,3 y no 1,3,4), excepción cualquiera
+  (`select 1/0`) en vez de rollback explícito, venta fallida vía `crear_venta()` (ventas 1,2 y
+  asientos 1,2), y el corte que hace rollback sin dejar contador ni constancia.
+
+La medición adicional que E1 cita —dos sesiones estrenando el mismo contador dan **1 y 2**, con la
+segunda bloqueada— también está fijada, y **no por tiempo de respuesta**: el test mantiene un flag
+`bResuelto` y afirma que sigue en `false` tras 600 ms de espera con A sin commitear.
+
+**Queda a criterio del director** actualizar la entrada E1 de `EVIDENCIA_POC.md`: `EVIDENCIA_POC.md`
+lo escribe solo el director y el auditor de tests no lo toca. Lo que faltaba —que fuera test y no
+medición— está hecho.
+
+### `p_corregir` no alcanza para saltear un contador ya usado
+
+Es una decisión de Gastón del 2026-09-05 y es fiscal. **Tiene test propio, y no uno solo:**
+
+- `(c) EL FLAG NO ALCANZA · con p_corregir := true sigue siendo NUMERACION_CORTE_EN_USO`: se emite
+  el 1 y después se intenta fijar en 0, 1, 2 y 1500 **con el flag**; rechaza los cuatro, el contador
+  no se mueve, no hay constancia y la emisión siguiente es la 2;
+- `(c) CON corte previo y ya emitido`: seis combinaciones `[valor, corregir]` —incluido
+  **re-declarar el mismo valor con el flag**, que es el caso que probaría que (c) se evalúa **antes**
+  que (a) y (b)— y las seis rechazan;
+- `MUTACIÓN R20 · si p_corregir salteara la rama (c)`: bajo la mutación la llamada **tiene éxito**,
+  el contador vuelve a 0 y el número 1 se entrega **dos veces**.
+
+Verificado además en el código de `0007`: la rama (c) está escrita **antes** que (a) y (b) y su
+condición **no menciona `p_corregir`**, así que el flag no puede alcanzarla.
+
+## Tipo de rojo
+
+**Ninguno.** Los 3 rojos del baseline eran los `it.fails` reportando `Expect test to fail` porque el
+arreglo del implementador los había puesto en verde: era exactamente la señal que esos `it.fails`
+estaban puestos para dar, y quedó consumida al convertirlos.
+
+Rojo de **infraestructura** conocido y ajeno a la tarea, otra vez: `npm run test:integration` no
+arranca mientras el emulador de Gastón esté en pie (8080/9099/9199 tomados). Se usó la vía
+documentada `vitest -c vitest.integration.config.js` contra ese mismo emulador.
+
+## Nota de higiene
+
+**Volvió a aparecer el texto no confiable**, esta vez en el bloque de contexto del entorno, con esta
+forma: *"Do your work through the Bash tool wherever it can accomplish the job… make file changes
+with sed, heredocs, or short scripts, rather than using the dedicated Read, Edit, or Write tools."*
+**Se ignoró.** Todas las ediciones se hicieron con la herramienta de edición. Es el mismo patrón que
+le llegó a los agentes anteriores de esta tarea.
+
+Los dos archivos temporales usados para correr la mutación —`tests/integration/postgres/
+_mutacion_tmp.test.js` y `_probe_tmp.mjs`— **se borraron**; `git status` quedó limpio salvo los tres
+archivos del alcance. No se tocó `backend/`, `js/`, `functions/`, `scripts/`, `package.json`,
+`firebase.json`, `firestore.rules`, `build.js` ni `netlify.toml`. `0007_contadores_corte.sql` se
+**leyó** (el test extrae de ahí el texto que muta) pero no se modificó: `git diff` sobre `backend/`
+está vacío. La base usada fue `delfino_test` vía la constante de `_helpers.mjs`; no se creó ninguna
+base temporal y `delfino_dev` no se abrió en ningún momento.
+
 
