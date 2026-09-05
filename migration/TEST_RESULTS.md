@@ -723,3 +723,500 @@ no arranca con un emulador ya levantado (puertos 8080/9099/9199 tomados). No es 
 los tests; se resuelve bajando el emulador o corriendo vitest contra el que ya está en pie.
 Los cinco rojos del archivo nuevo son mutaciones provocadas a propósito, todas revertidas por
 `recrearEsquema()` en el `beforeEach` siguiente, y todas vuelven a verde al retirarlas.
+
+---
+
+## TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-019` sobre `fbf2414`
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (`delfino-pg-dev`, 127.0.0.1:5432, base `delfino_test` vía `DATABASE_URL_TEST`), emulador de
+  Firebase ya levantado por fuera en 8080/9099/9199.
+- **Veredicto: VERDE.** Los 2 tests en rojo vuelven a verde normalizando los finales de línea
+  antes de comparar, y siguen cazando una diferencia real de contenido en las dos formas del
+  archivo. R32 cerrado.
+- **Archivos tocados:** `tests/integration/postgres/precios_y_costos.test.js` (una línea de
+  código y su comentario), `migration/RISKS.md` (cierre de R32) y este archivo. **No** se agregó
+  `.gitattributes`. **No** se tocó `backend/`, ni ningún assert, ni el resto de los tests.
+
+### Comandos ejecutados
+
+    # el emulador ya estaba en pie, así que `npm run test:integration` no arranca (ver "tipo de
+    # rojo"). Se corrió vitest con la misma config contra el emulador ya levantado:
+    FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 \
+    FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199 GCLOUD_PROJECT=delfino-hogar-erp \
+    DATABASE_URL_TEST=postgres://delfino:delfino_local_dev@127.0.0.1:5432/delfino_test \
+    npx vitest run -c vitest.integration.config.js
+
+    npm test                                   -> 41/41 verde, dos corridas
+    vitest -c vitest.integration.config.js     -> 101/101 verde, dos corridas seguidas (52 s, 51 s)
+    (solo el archivo de la tarea)              -> 33/33 verde, antes 31/33
+
+### Estado por invariante
+
+Este archivo cubre `LISTA_PRECIO_OPCIONAL` (P3), `HISTORIAL_COSTOS_INMUTABLE` (P5),
+`COSTO_MAESTRO_NO_AUTOMATICO` (P5), `HISTORICO_INMUTABLE` (P4) y, en el bloque
+`CREAR_VENTA_0004`, `IVA_DISCRIMINADO`, `IMPUTACION_PAGOS`, `FECHA_OPERACION_LOCAL` y
+`CONTABILIDAD`. **Todas verdes**, antes y después: ninguna estaba en discusión. Lo que estaba
+roto era el centinela de texto que vigila la tercera copia de `crear_venta()` (R28) y la mutación
+de `registrar_costo()`, es decir la capacidad de detectar que alguien toque esas dos funciones.
+
+| Antes de TASK-019 (árbol con CRLF) | |
+|---|---|
+| `COSTO_MAESTRO_NO_AUTOMATICO > MUTACIÓN R20 · registrar_costo() con el UPDATE de js/compras.js adentro también se caza` | **ROJO** |
+| `CREAR_VENTA_0004 > la de 0004 es idéntica a la de 0003 salvo los tres agregados de la lista de precios` | **ROJO** |
+| los otros 31 | verde |
+
+Se esperaba que `reemplazar()` encontrara sus literales en el texto de la migración; lo que pasó
+fue `AssertionError: no está el texto "  -- P5: el costo maestro queda como estaba. Acá NO va un
+UPDATE de productos.\n  return v_id;"` y el equivalente de `AGREGADOS_0004`. Los literales llevan
+`\n` y el archivo del checkout trae `\r\n`: `String.includes` no encuentra nada. **Contenido
+idéntico, comparación rota.**
+
+### El arreglo
+
+Una sola línea, en el único punto por donde el texto de las migraciones entra al archivo:
+
+    const aLF = (t) => t.replace(/\r\n/g, "\n");
+    const sqlDe = (n) => aLF(readFileSync(join(DIR_MIGRACIONES, n), "utf8"));
+
+De ahí salen `SQL_0003`, `SQL_0004` y el SQL que aplica `esquemaHasta()`. **No se cambió lo que
+se compara ni se relajó ningún assert**: siguen siendo igualdades exactas, carácter por carácter,
+sobre el mismo texto de antes; lo único que dejan de distinguir es el `\r` que puso el checkout.
+`normalizar()` y `reemplazar()` quedaron intactas, igual que los literales esperados.
+
+### La prueba de que sirve (no razonada: corrida)
+
+Se copió el árbol fuera del repositorio (migraciones + `tests/` + configs de vitest, con
+`node_modules` por junction) y se convirtieron **las copias** de los `.sql` a LF y a CRLF, con el
+conteo de finales de línea verificado en cada conversión. `backend/` del repo nunca se tocó.
+
+| # | archivo de test | migraciones | resultado |
+|---|---|---|---|
+| 1 | **sin** el arreglo (`git show HEAD:`) | LF (CRLF=0) | **33/33 verde** — así estaban cuando se aprobó TASK-003 |
+| 2 | **sin** el arreglo (`git show HEAD:`) | CRLF (CRLF=408) | **2 rojo / 31 verde** — R32 reproducido en la copia |
+| 3 | **con** el arreglo | LF (CRLF=0) | **33/33 verde** |
+| 4 | **con** el arreglo | CRLF (CRLF=408) | **33/33 verde** |
+
+Las corridas 1 y 2 son el control que faltaba para poder afirmar que la causa es el final de
+línea y nada más: el mismo archivo de test, el mismo contenido de migración, dos resultados
+distintos según el checkout.
+
+### Contraprueba: el test sigue discriminando contenido
+
+Sobre la copia se metieron dos cambios **reales** de contenido, elegidos semánticamente neutros a
+propósito para que **ningún assert numérico los pueda ver**:
+
+- `registrar_costo()`: `  return v_id;` -> `  return v_id + 0;`
+- `crear_venta()` de 0004: `iva_l := discriminar_iva(sub, ali);` -> `... + 0;`
+
+| # | migraciones | resultado |
+|---|---|---|
+| 5 | CRLF | **2 rojo / 31 verde** — los dos tests de texto, y solo ellos |
+| 6 | LF | **2 rojo / 31 verde** — los mismos dos |
+
+Los mensajes son los que corresponden a una diferencia de contenido, no a un problema de formato:
+`no está el texto "  -- P5: …\n  return v_id;"` y `0004 diverge de 0003 en algo más que la lista
+de precios`. Que los otros 31 sigan verdes es parte del resultado: confirma que estos dos son el
+**único** centinela de esas dos funciones, y que la normalización no los apagó (R20).
+
+### Otras comparaciones de texto de archivos en `tests/` con el mismo problema
+
+Revisado todo `tests/` (`readFileSync`, `readdirSync`, `pg_get_functiondef`, `prosrc`). Fuera del
+`files:` de esta tarea, así que **se reportan y no se tocan**:
+
+1. **`tests/integration/postgres/iva_destino_y_fecha.test.js` → `mutarCrearVenta()`, líneas
+   68-77.** Mismo patrón exacto: `sql.includes(de)` sobre el texto crudo de
+   `0003_iva_y_destino_pago.sql`, leído con `readFileSync` sin normalizar (línea 26). **Hoy está
+   verde por casualidad**, porque sus cuatro literales (líneas 214-218 y 395) son de una sola
+   línea y no hay ningún `\r` en el medio. El primer literal multilínea que alguien agregue ahí
+   reproduce R32 idéntico, y con el mismo síntoma engañoso: rojo sin que nadie haya cambiado
+   contenido. Se arregla con la misma línea. Riesgo **latente**, no activo.
+2. **`tests/integration/postgres/_helpers.mjs` → `recrearEsquema()`, línea 26.** Carga las
+   migraciones **crudas** (`readFileSync(...,"utf8")` directo al `pool.query`), así que el cuerpo
+   que queda desplegado en PostgreSQL conserva los finales de línea del checkout: hoy, `\r\n`
+   adentro de `pg_get_functiondef`. **Esto es lo que le importa a TASK-018**, que va a comparar la
+   definición de `crear_venta()` contra la que corre en la base: hay que normalizar **los dos
+   lados**, no solo el del archivo. En `precios_y_costos.test.js` la comparación equivalente
+   (test "lo que corre en la BASE es la definición de 0004") sobrevive porque pasa por
+   `normalizar()`, que colapsa `\s+` y se come el `\r` de rebote — pero es una protección
+   incidental, no deliberada, y una comparación cruda no la tiene.
+
+Nada más: las otras comparaciones de texto de la suite son regex de una sola línea sobre fuentes
+(`backend-higiene.test.js`) o `toContain` sobre stdout de un proceso hijo (`migrador.test.js`,
+`safety.test.js`), y ninguna es sensible a los finales de línea.
+
+### Tipo de rojo
+
+**Ninguno por lógica.** Dos por **infraestructura**, los dos ya conocidos y ninguno del código:
+
+1. `npm run test:integration` **no arranca** con un emulador ya levantado: `Could not start
+   Authentication Emulator, port taken` (8080, 9099 y 9199 ocupados, hub 4400 → 4401). Es el
+   mismo rojo de infraestructura reportado en TASK-001 y en todas las tareas siguientes. Se corrió
+   `vitest -c vitest.integration.config.js` con las variables de emulador puestas a mano, contra
+   el emulador que ya estaba en pie: misma config, mismo `globalSetup`, misma base `delfino_test`.
+2. En la **primera** corrida completa, `migrador.test.js > MIGRADOR_IDEMPOTENCIA > contra base
+   limpia aplica las migraciones, sale 0 y las registra con nombre y fecha` cortó por
+   `Test timed out in 30000ms`. **Es timing, no lógica**: ese test crea una base nueva y lanza el
+   migrador en un proceso hijo, y esa corrida tardó 89 s contra los 51-52 s de las siguientes.
+   Corrido solo, el archivo da **18/18 verde en 13 s**, y en las dos corridas completas
+   posteriores dio verde las dos veces (**101/101**). No lo toca nada de esta tarea: `migrador.js`
+   y `migrador.test.js` no comparten una línea con lo que se cambió. Queda anotado como flake de
+   la máquina bajo carga, no como rojo del repositorio.
+
+---
+
+## TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-013` sobre `ef0e0f6` (WIP del tester) + `28f702a`
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (127.0.0.1:5432, base `delfino_test`), emulador de Firebase ya levantado por Gastón en
+  8080/9099/9199 con `--project delfino-hogar-erp --import ./emulator-data`.
+  Sesión con `GCLOUD_PROJECT=demo-delfino` forzada por `.claude/settings.json`.
+- **Veredicto: ROJO por lógica, acotado.** 266 de 268 tests del repositorio en verde. Los 2 rojos
+  son de esta tarea y **los dos son defectos reales de `scripts/seed-emulator.mjs`**, no del test
+  ni del entorno: SEED_REPORTE_FIEL y SEED_SALIDA_LIMPIA. Ninguno de los dos es destructivo, y
+  ninguno afecta el criterio central de la tarea (el barrido no puede alcanzar el namespace del
+  ERP), que quedó verde en las 23 vías probadas.
+- **No se tocó `scripts/`.** Los dos rojos se reportan, no se arreglan.
+
+### Comandos ejecutados
+
+    npx vitest run                                        -> 150/150 verde (8 archivos), x3 corridas
+    npx vitest run tests/unit/seed-emulator-barrido...    -> 31/31 verde, x8 corridas (ver flake, abajo)
+    npx vitest run -c vitest.integration.config.js        -> 118 tests: 116 verde, 2 ROJO, x3 corridas
+    npm run seed                                          -> exit 1, aborta (esperado, ver abajo)
+    npm run test:integration                              -> NO ARRANCA: "Could not start
+                                                             Authentication Emulator, port taken"
+
+`npm run test:integration` envuelve la corrida en `firebase emulators:exec`, que intenta levantar
+su propio emulador y choca con el que ya está en pie. Es el **mismo rojo de infraestructura**
+reportado desde TASK-001. Se corrió `vitest -c vitest.integration.config.js` contra el emulador
+levantado: misma config, mismo `globalSetup`, misma base. No es un rojo de esta tarea.
+
+### Verde / rojo por invariante
+
+| Invariante | Dónde | Resultado |
+|---|---|---|
+| SEED_PROYECTO_UNICO | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_PROYECTO_COINCIDE | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_BARRERA_EMULADOR | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_BARRIDO_ACOTADO | `tests/unit/seed-emulator-barrido.test.js` (31) | **VERDE** |
+| SEED_LIMPIEZA_NO_AUTOMATICA | `tests/unit/seed-emulator-barrido.test.js` | **VERDE** |
+| R20 (mutación por propiedad) | `tests/unit/seed-emulator-r20.test.js` (7) | **VERDE** |
+| SEED_USUARIO_VISIBLE | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_IDEMPOTENTE | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_REPORTE_DEMO | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_LIMPIEZA_REAL | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_ERP_INTACTO | `tests/integration/seed-emulator.test.js` + REST fuera de vitest | **VERDE** |
+| **SEED_REPORTE_FIEL** | `tests/integration/seed-emulator.test.js` | **ROJO (lógica)** |
+| **SEED_SALIDA_LIMPIA** | `tests/integration/seed-emulator.test.js` | **ROJO (lógica)** |
+
+Conteo: unitarios 150 = 41 anteriores + **109 de TASK-013** (barreras 71, barrido 31, R20 7).
+Integración 118 = 101 anteriores + **17 de TASK-013**. Los "61 tests" del commit `ef0e0f6` eran
+declaraciones `it`/`it.each` sin expandir; expandidos, TASK-013 aporta **126 tests**.
+
+### 1. El barrido no alcanza `delfino-hogar-erp` por ninguna vía — VERDE
+
+23 intentos hostiles, cada uno una corrida real del seed como proceso hijo contra un emulador
+falso que anota cada pedido. Vías probadas: el namespace bueno como argumento suelto, como segundo
+argumento, pegado con `=` y con `:`, con `--limpiar <bueno>`, con `--limpiar-delfino-hogar-erp`,
+con una bandera `--proyecto` extra, en MAYÚSCULAS, capitalizado, con espacio adelante / atrás /
+adentro, con salto de línea, con sufijos (`delfino-hogar-erp-x`, `delfino-x-hogar-erp`),
+`demo-delfino-x`, travesía de rutas (`demo-delfino/../delfino-hogar-erp`), homoglifo cirílico en
+"delfino", junto con `--reporte-demo`, **sin ningún argumento** (modo sembrar), y por las
+variables `GCLOUD_PROJECT`, `GOOGLE_CLOUD_PROJECT` y tres más inventadas que suenan a
+configuración (`NAMESPACE_BASURA`, `NAMESPACES_BORRABLES`, `SEED_PROYECTO`, `PROJECT_ID`,
+`FIREBASE_PROJECT`). Los sufijos se probaron sobre la **bandera**, que es donde un parseo flojo se
+rompe: `--limpiar-demo-delfino-x`, `--limpiar-demo-delfino-hogar-erp`,
+`--limpiar-demo-delfino/../delfino-hogar-erp` y `--limpiar-demo-delfіno` con і cirílica.
+
+Resultado literal, idéntico en 22 de los 23: **cero URLs emitidas mencionan `delfino-hogar-erp`**
+(búsqueda por subcadena, insensible a mayúsculas); **todo `/projects/X` que aparece tiene
+X = `demo-delfino`**; los únicos `DELETE` son exactamente
+`DELETE /emulator/v1/projects/demo-delfino/databases/(default)/documents` y
+`DELETE /emulator/v1/projects/demo-delfino/accounts`, y ninguno más.
+
+El caso 23 —**sin ningún argumento, modo sembrar, con `GCLOUD_PROJECT=delfino-hogar-erp`**— se
+verifica distinto **a propósito**: sembrar *sí* le habla a `delfino-hogar-erp`, que es exactamente
+lo que tiene que hacer. Lo que no puede es borrar, y lo que se exige ahí es **cero `DELETE`**.
+Cumplido. Lo mismo vale para `--reporte-demo`: cero `DELETE`, y `demo-delfino` queda como estaba.
+
+El método vale porque el projectId viaja en la **ruta** de cada llamada REST: la lista de URLs *es*
+el alcance, sin interpretación y sin borrar nada.
+
+Candado interno verificado aparte: si `js/firebase-config.js` dijera `demo-delfino`, la limpieza
+**aborta** en vez de borrar lo que el ERP mira.
+
+### 2. `delfino-hogar-erp` antes y después — IDÉNTICO, byte a byte
+
+Medido **fuera de vitest**, por REST, con el token `owner`, con un inventario completo: todas las
+colecciones, todos los documentos con todos sus campos, `createTime` y `updateTime` de cada uno, y
+los usuarios de Auth. Los tiempos van adentro a propósito: sin ellos, "no lo toqué" sería
+indistinguible de "lo reescribí igual".
+
+    ANTES   (previo a toda corrida)  sha256 f59a68ad31a0fb57826e2629bfa55931f441f9dc1ac2d1176b794cd84c031fce  19009 bytes
+    DESPUES (tras la 1a integración) sha256 f59a68ad31a0fb57826e2629bfa55931f441f9dc1ac2d1176b794cd84c031fce  19009 bytes
+    FINAL   (tras TODAS las corridas) sha256 f59a68ad31a0fb57826e2629bfa55931f441f9dc1ac2d1176b794cd84c031fce 19009 bytes
+
+`cmp` byte a byte entre ANTES y FINAL: **idénticos**. Contenido en los tres puntos: 35 documentos
+en 10 colecciones (categorias 1, clientes 1, contadores 3, cuentasContables 22, depositos 1,
+listasPrecios 1, marcas 1, productos 3, sucursales 1, usuarios 1) y 1 usuario de Auth.
+
+Entre ANTES y FINAL corrieron: 3 suites unitarias completas, 8 corridas del archivo de barrido,
+3 suites de integración completas (que siembran, re-siembran, reportan y **borran**
+`demo-delfino`), y el experimento del punto 4. El emulador quedó como se lo encontró:
+`demo-delfino` en 0 documentos y 0 usuarios, y los namespaces efímeros `tester-task013-<uuid>`
+borrados por el `afterAll`.
+
+**Una cuarta lectura, de cierre, dio una única diferencia — y NO es de los tests.** Después de una
+corrida más, `cmp` marcó un byte distinto, en la línea 881:
+
+    -    "lastRefreshAt": "2026-09-05T03:49:04.087Z",
+    +    "lastRefreshAt": "2026-09-05T04:44:04.109Z",
+
+Los **35 documentos siguen idénticos**, campo por campo, con sus `createTime` y `updateTime`
+intactos. Del usuario de Auth también quedan iguales `localId`, `email`, `lastLoginAt`
+(`1788576843750`) y `validSince`. Lo único que se movió es `lastRefreshAt`, que es cuándo ese
+usuario **renovó su token**, y las dos marcas están separadas por 55 minutos: es el refresco
+horario de un cliente logueado, no una escritura.
+
+Descartado que lo cause la medición: dos lecturas seguidas del inventario, sin correr ningún test
+en el medio, dan archivos **idénticos**. Descartado que lo causen los tests: solo leen
+`delfino-hogar-erp` por REST con el token `owner`, y el seed no puede sembrarlo desde esta sesión
+(aborta, punto 3). **Para el director:** algo mantiene una sesión viva contra el emulador como
+`admin@delfino.local` —lo más probable, una pestaña del ERP en localhost— y renueva el token cada
+hora. No afectó nada de esta tarea, pero contradice la regla de "ninguna sesión de administrador
+abierta mientras trabajen agentes" y conviene cerrarla.
+
+### 3. `npm run seed` en una sesión de agente — aborta, y es lo correcto
+
+    $ npm run seed
+    proyecto del ERP        delfino-hogar-erp   (js/firebase-config.js)
+    proyecto forzado        demo-delfino        (variable de entorno GOOGLE_CLOUD_PROJECT)
+    ... exit 1
+
+Nombra los dos valores, nombra la variable culpable, explica qué hacer en tres casos —incluido
+"si sos un agente, esto es lo esperado"— y **no le manda ni un pedido al emulador**: la barrera
+corre antes de tocar nada, verificado con el contador de pedidos del emulador falso en cero.
+
+### 4. ROJO 1 — SEED_REPORTE_FIEL: el reporte de `demo-delfino` no es de `demo-delfino`
+
+**Qué se esperaba:** leer un namespace del emulador al que nunca se le escribió devuelve 0
+documentos, y por lo tanto `--reporte-demo` informa lo que hay en `demo-delfino` y nada más.
+
+**Qué pasó:** el namespace virgen `sonda-nunca-escrita-7f2654ae` devolvió **35 documentos en 10
+colecciones**, que son exactamente los de `delfino-hogar-erp`. `expected 35 to be +0`.
+
+**Causa:** `firebase.json` declara `"singleProjectMode": true`. El emulador avisa por stderr
+—`Multiple projectIds are not recommended in single project mode. Requested project ID
+demo-delfino, but the emulator is configured for delfino-hogar-erp`— y sirve el dataset del
+proyecto configurado a cualquier projectId al que todavía no se le haya escrito. Un `--import` de
+`./emulator-data` deja el emulador exactamente en ese estado.
+
+**Consecuencia real:** cada vez que se reinicia el emulador, `npm run seed -- --reporte-demo`
+informa los 35 documentos y el perfil del admin del ERP **bajo el título `Namespace
+"demo-delfino"`**, y `--limpiar-demo-delfino` imprime esa misma lista como preview de lo que va a
+borrar. Es la misma confusión entre namespaces que originó R16, ahora en la herramienta que se
+agregó para mitigarlo.
+
+**Alcance medido — el defecto es de información, NO destructivo.** Verificado en un emulador
+**descartable** (puertos 8085/9095, `firebase.json` propio, copia de `./emulator-data`, todo fuera
+del repo; nunca contra el emulador de Gastón), con `demo-delfino` **virgen**:
+
+    [1] delfino-hogar-erp ANTES  : 35 docs, 1 usuarios Auth
+    [2] demo-delfino VIRGEN      : 35 docs   <- el alias
+    [3] seed --limpiar-demo-delfino  (preview: lista los 35 documentos del ERP)
+    [4] delfino-hogar-erp DESPUES: 35 docs, 1 usuarios Auth
+    [5] demo-delfino DESPUES     : 0 docs, 0 usuarios
+    VEREDICTO: el borrado NO alcanzo a delfino-hogar-erp (el alias es solo de LECTURA)
+
+O sea: el `DELETE` del emulador sí está acotado al namespace de la URL. Lo que engaña es la
+lectura. Queda en rojo porque el criterio de aceptación pide que el seed **reporte qué quedó
+sembrado en `demo-delfino`**, y hoy ese reporte puede ser de otro namespace.
+
+**Es de `scripts/seed-emulator.mjs`, no del test.** Arreglarlo es del implementador y sale de
+`files:` de esta tarea. Una salida posible —no la decide el tester— es que el seed detecte el
+alias antes de reportar o de borrar: escribir y borrar un documento centinela en `demo-delfino`
+fuerza la creación del store real, y a partir de ahí lo que se lee es suyo.
+
+### 5. ROJO 2 — SEED_SALIDA_LIMPIA: una corrida exitosa sale con código de error
+
+**Qué se esperaba:** `--reporte-demo` hace su trabajo y el proceso sale con **0**.
+
+**Qué pasó:** sale con **3221226505** (`0xC0000409`). `expected 3221226505 to be +0`. Reproducido
+en las 3 corridas de integración de hoy, sobre las 12 de 12 ya medidas en la sesión anterior.
+
+**Causa:** aserción de libuv `!(handle->flags & UV_HANDLE_CLOSING)` (`src\win\async.c`, línea 94)
+al llamar `process.exit()` con sockets de `fetch` todavía cerrándose, en Node 24.19 sobre Windows.
+Aparece cuando `demo-delfino` tiene contenido —o sea, cuando hubo pedidos de verdad—; con
+`demo-delfino` vacío no aparece (0 de 15).
+
+**Consecuencia real:** el reporte es correcto pero `npm run seed -- --reporte-demo` **se ve como
+una falla**, y cualquier script o hook que mire el código de salida lo trata como error.
+
+**Es del seed, no del entorno:** lo dispara el `process.exit()` explícito del script. El camino de
+salida natural (dejar que el event loop se vacíe) no lo tiene. No se toca acá: es de
+`scripts/seed-emulator.mjs`. Se distingue del rojo de infraestructura de `npm run test:integration`
+en que este es determinista, reproducible y no depende de que ningún servicio esté caído.
+
+Los dos modos que borran quedan cubiertos igual: el rojo determinista lo lleva `--reporte-demo`
+(12 de 12). En `--limpiar-demo-delfino` el mismo defecto aparece 5 de 8 corridas, así que ese
+assert acepta `0` o el código de aborto **a propósito**: un test que parpadea es peor que no
+tenerlo, y el defecto ya está denunciado por el otro.
+
+### 6. Un flake propio, encontrado y arreglado (es del tester, no del seed)
+
+`seed-emulator-barrido.test.js > candados internos del barrido > si el emulador no vacia el
+namespace, el seed lo denuncia en vez de decir que salio bien` fallaba **2 de cada 6 corridas**.
+No era el seed: el test simulaba un emulador que ignora los `DELETE` reponiendo el estado desde
+afuera con un `setInterval` de 5 ms, que es una carrera contra el re-inventario del seed. Si el
+temporizador no llegaba a dispararse entre el borrado y la relectura, el seed veía el namespace
+vacío, reportaba éxito, y el test caía.
+
+Arreglado donde correspondía —en `tests/`, no en `scripts/`— haciéndolo determinista: se agregó el
+gancho `despuesDeResponder(metodo, url, estado)` a `tests/herramientas/emulador-falso.mjs`, que
+corre **dentro del mismo pedido**, después de calcular la respuesta y antes de mandarla. Ahora el
+emulador falso acepta el `DELETE` con 200 y repone el estado en el mismo tick, sin carrera.
+Medición: **8 de 8 corridas en verde** después del cambio, contra 4 de 6 antes. El test sigue
+discriminando: sus rojos de antes son justamente la prueba de que detecta el caso que vigila.
+
+### Tipo de rojo
+
+**Los 2 rojos son por LÓGICA**, no por infraestructura: el emulador y Postgres respondieron en
+todas las corridas, no faltó ninguna dependencia, y los dos rojos son deterministas y reproducibles
+apuntando a defectos concretos de `scripts/seed-emulator.mjs`. El único rojo de infraestructura de
+la sesión es el ya conocido `npm run test:integration` → "port taken", que no es de esta tarea.
+
+**Criterios de TASK-013 no cubiertos por los tests:** ninguno de comportamiento. El último punto
+del `accept` —marcar R16 como mitigado en `RISKS.md` con la fecha— es del implementador y ya está
+hecho: `migration/RISKS.md:173` dice `## R16 — [MITIGADO 2026-09-04]`. Verificado por lectura, no
+por test.
+
+---
+
+## TASK-013 (corrección 2026-09-05) — SEED_REPORTE_FIEL se reapunta a lo que el seed sí controla
+
+- **Fecha:** 2026-09-05
+- **Rama / commit bajo prueba:** `task/TASK-013` sobre `e8fed57` (corrección del implementador) +
+  `49960a7` (decisión del director). No se cambió de rama, no se hizo merge ni push.
+- **Entorno:** Windows 10, Node v24.19.0, vitest 2.1.9, PostgreSQL 16 en Docker
+  (127.0.0.1:5432, base `delfino_test`), emulador de Firebase ya levantado por Gastón en
+  8080/9099 con `--project delfino-hogar-erp --import ./emulator-data`. **No se levantó ningún
+  emulador descartable**: el espejo se fabrica sobre el emulador falso, en proceso.
+- **Veredicto: VERDE.** 269 de 269 tests del repositorio, en **dos corridas seguidas** de cada
+  suite. Cero rojos de lógica y cero de infraestructura.
+- **Alcance de lo tocado:** solo `SEED_REPORTE_FIEL` y su auxiliar. Los otros 125 tests de
+  TASK-013 quedaron **sin una línea de cambio** (`git diff` sobre `tests/unit/seed-emulator-*`
+  distintos del nuevo, y sobre los seis `describe` restantes de integración).
+
+### Comandos ejecutados
+
+    npm test                                              -> 152/152 verde (9 archivos), x2 corridas
+    npx vitest run -c vitest.integration.config.js        -> 117/117 verde (6 archivos), x2 corridas
+      (con FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 y FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099)
+    npm run test:integration                              -> NO ARRANCA: "Could not start
+                                                             Authentication Emulator, port taken"
+
+`npm run test:integration` sigue chocando los puertos con el emulador que ya está en pie: es el
+**rojo de infraestructura conocido desde TASK-001**, no un rojo de esta corrección. Se corrió
+`vitest -c vitest.integration.config.js` contra el emulador levantado: misma config, mismo
+`globalSetup`, misma base.
+
+### Verde / rojo por invariante
+
+| Invariante | Dónde | Resultado |
+|---|---|---|
+| SEED_PROYECTO_UNICO | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_PROYECTO_COINCIDE | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_BARRERA_EMULADOR | `tests/unit/seed-emulator-barreras.test.js` | **VERDE** |
+| SEED_BARRIDO_ACOTADO | `tests/unit/seed-emulator-barrido.test.js` (31) | **VERDE** |
+| SEED_LIMPIEZA_NO_AUTOMATICA | `tests/unit/seed-emulator-barrido.test.js` | **VERDE** |
+| R20 (mutación por propiedad) | `tests/unit/seed-emulator-r20.test.js` (7) | **VERDE** |
+| **SEED_REPORTE_FIEL** (reapuntada) | `tests/unit/seed-emulator-reporte-fiel.test.js` (2) | **VERDE** |
+| SEED_USUARIO_VISIBLE | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_IDEMPOTENTE | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_REPORTE_DEMO | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| SEED_LIMPIEZA_REAL | `tests/integration/seed-emulator.test.js` | **VERDE** |
+| **SEED_SALIDA_LIMPIA** | `tests/integration/seed-emulator.test.js` | **VERDE** (era rojo; el
+  implementador sacó el `process.exit()` del camino de reporte y `--reporte-demo` sale 0) |
+| SEED_ERP_INTACTO | `tests/integration/seed-emulator.test.js` + REST fuera de vitest | **VERDE** |
+
+Conteo: unitarios 152 = 41 anteriores + **111 de TASK-013** (barreras 71, barrido 31, R20 7,
+reporte-fiel 2). Integración 117 = 101 anteriores + **16 de TASK-013**. Total de TASK-013: **127**
+(eran 126; el `it` de SEED_REPORTE_FIEL salió de integración y entraron 2 unitarios, el real y su
+mutante de R20).
+
+### 1. Qué se reapuntó y por qué
+
+**Enunciado viejo:** `inventarioNamespace(sonda_virgen).totalDocs === 0`.
+**Problema:** eso es una propiedad **del emulador** (`"singleProjectMode": true` en
+`firebase.json`), no del archivo bajo prueba. Ningún cambio en `scripts/seed-emulator.mjs` podía
+ponerlo verde ni rojo, así que el test no medía la unidad que decía medir. El hallazgo en sí era
+correcto y quedó registrado como **R35 [MEDIA]**; lo que estaba mal era el lugar del assert.
+
+**Enunciado nuevo:** dado un namespace **espejado** —`demo-delfino` devuelve los documentos del
+ERP y CERO usuarios de Auth, que es exactamente lo que ve el script cuando el emulador espeja—,
+`--reporte-demo` tiene que **advertir** en vez de reclamarlos. Se exige, todo junto:
+
+1. el reporte hace su trabajo: sale con 0 y publica el inventario (10 colecciones, 35 documentos,
+   `Usuarios de Auth: 0`). No vale "advertir" muriendo;
+2. dice que esos 35 documentos **no se pueden dar por propios** del namespace;
+3. nombra la causa: `singleProjectMode`;
+4. señala la firma del espejo: **35 documentos con CERO usuarios de Auth**;
+5. **orden**: el aviso va después del conteo que califica y antes de cualquier aparición de
+   `--limpiar-demo-delfino`. Nadie puede leer el número, ni el comando de borrado, sin el aviso;
+6. no aparece ninguna frase que dé lo listado por propio (`Esto es lo que quedo del bug`,
+   `Para borrarlo`: las dos textuales del reporte anterior a la corrección);
+7. cero DELETE emitidos y **un solo namespace consultado**: `demo-delfino`. El aviso sale de
+   razonar sobre lo que ve, no de espiar otro namespace, que violaría SEED_BARRIDO_ACOTADO.
+
+**Cómo se fabrica el espejo:** con el emulador falso de `tests/herramientas/`, declarando el
+estado de `demo-delfino` igual al del ERP y sin usuarios de Auth. Por REST eso es indistinguible
+de un espejo real —el emulador reescribe el campo `name` de cada documento con el projectId
+pedido—, así que el seed recibe la misma entrada que en la máquina de Gastón, y además de forma
+determinista: no depende de si alguien escribió antes en ese namespace ni de reiniciar el emulador.
+
+### 2. La demostración de que el test reapuntado PUEDE fallar (R20)
+
+Mutante: la misma copia del seed fuera del repo, con la advertencia sacada
+(`advertirSiPuedeSerEspejo(inv);` reemplazada por un comentario y la rama que avisa "puede no
+haber NADA propio" cortada con `if (false)`). Se evalúa con **exactamente la misma función** que
+el test real, `verificarReporteHonestoAnteEspejo`. Salida literal de la corrida:
+
+    [CON la advertencia (repo sin mutar)] VERDE: la verificacion pasa (codigo 0).
+    [SIN la advertencia (mutante R20)]    ROJO: el reporte no avisa que los 35 documentos NO se
+                                          pueden dar por propios de "demo-delfino"
+
+El mutante **sigue siendo un reporte que funciona** —sale con 0, imprime `Colecciones: 10,
+documentos: 35` y encima invita a borrar—, así que el rojo viene de que falta el aviso y no de que
+el script se haya roto. Eso está aserto dentro del propio test, junto con
+`expect(r.salida).not.toMatch(/singleProjectMode/)`. `mutar()` exige que cada fragmento aparezca
+exactamente una vez: si el seed cambia, el test revienta en vez de mentir. Detalle medido de paso:
+`scripts/seed-emulator.mjs` está en **CRLF**, así que los fragmentos a mutar no pueden llevar `\n`
+(la primera versión falló con `[MUTACION INVALIDA] ... aparece 0 veces`).
+
+### 3. `delfino-hogar-erp` quedó como lo encontramos
+
+Huella completa por REST —documentos, campos, `createTime`, `updateTime`, subcolecciones y
+usuarios de Auth— tomada **antes** de tocar nada y **después** de las cuatro corridas de suite:
+35 documentos y 1 usuario en las dos, **idénticas byte a byte**. Ni siquiera apareció la deriva de
+`lastRefreshAt` que podía traer una sesión de navegador abierta. `demo-delfino` quedó en 0
+documentos y 0 usuarios, y no quedó ningún namespace `tester-task013-*` con datos.
+
+### Tipo de rojo
+
+**Ninguno.** No hubo rojos de lógica ni de infraestructura en esta corrección. El único incidente
+de infraestructura es el ya conocido y ajeno a la tarea: `npm run test:integration` no arranca
+mientras el emulador de Gastón esté en pie (puerto 9099 tomado).
+
+### Desacuerdo registrado
+
+Ninguno. La objeción del director es correcta y la comparto: el enunciado viejo asertaba sobre el
+emulador y no sobre el seed, y un test así no puede discriminar ninguna versión del archivo bajo
+prueba. Lo que se pierde con el reapuntado —que el comportamiento de `singleProjectMode` deje de
+tener un test que lo vigile— no se pierde de verdad: está en R35, que es donde se decide, y el
+test nuevo cubre justamente el daño que ese comportamiento causaba (que el operador leyera un
+conteo ajeno como propio arriba de un borrado).

@@ -167,6 +167,61 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [NIVEL 2] `SEED_REPORTE_FIEL` se reapunta; no se toca `firebase.json`
+El implementador pidió `firebase.json` para cerrar el último test rojo de TASK-013: sacar
+`"singleProjectMode": true` es lo único que lo pone verde. **No se le da**, por tres razones, y
+ninguna es la jerarquía del archivo.
+
+1. **El test asserta una propiedad del emulador, no del seed.** `SEED_REPORTE_FIEL` verifica que
+   `inventarioNamespace(sonda_virgen).totalDocs === 0`. Eso no depende de `scripts/seed-emulator.mjs`
+   en absoluto: ningún cambio en el archivo bajo prueba puede hacerlo pasar ni fallar. Un test así
+   no está midiendo la unidad que dice medir.
+2. **La corrección de comportamiento ya está hecha y es la correcta.** Frente a un namespace
+   espejado, el reporte ahora **advierte** en vez de afirmar un conteo falso: dice que los
+   documentos no se pueden dar por propios, explica `singleProjectMode` y señala la firma típica
+   del espejo —35 documentos con cero usuarios de Auth—. Eso es exactamente la salida honesta que
+   se pidió, y es lo que el seed sí controla.
+3. **Cambiar `firebase.json` para que pase un test es la salida equivocada**, y ya lo decidimos en
+   este proyecto: es la misma forma del caso `_safety` de TASK-011, donde Gastón rechazó agregar
+   una regla a `firestore.rules` para que un test pasara. La opción está puesta a propósito y
+   cambiarla altera el emulador para todo el proyecto.
+
+DECISIÓN: el tester **reapunta la aserción** a lo que el seed sí controla —que ante un namespace
+espejado el reporte advierta y no reclame los documentos como propios— en lugar de exigir que el
+emulador aísle. Si además conviene sacar `singleProjectMode`, es una decisión aparte, de Gastón,
+con R35 sobre la mesa.
+
+Nota sobre el precedente: al implementador se le había dicho que "las dos veces que se discutió si
+un test estaba mal, el test tenía razón". Ésta es la primera vez que **no** la tiene, y conviene
+que quede escrito para no convertir aquella observación en una regla que impida corregir un test
+mal apuntado.
+
+## 2026-09-04 — [GASTÓN] Los archivos se editan con Edit, nunca por shell. Para todos los roles
+Gastón rechazó un comando del implementador que editaba `scripts/seed-emulator.mjs` con
+`python -c`. Lo eleva de corrección puntual a **regla permanente**, y con razón: ya lo había
+marcado horas antes para `TASKS.md` y el patrón reapareció en otro rol y otro archivo.
+
+REGLA: nada de `python -c`, `sed -i`, `cp`, redirecciones ni heredocs para modificar archivos del
+repositorio. Archivo existente → `Edit`. Archivo nuevo → `Write`. Sin excepciones y **sin excepción
+para el director**, que fue el primero en romperla.
+
+Los tres motivos, todos observados en este proyecto:
+
+1. **Le saca al guard su única señal.** Una escritura por shell sobre una ruta protegida no se
+   distingue de una maliciosa: el hook ve un comando, no una edición. Es el mismo principio por el
+   que se prohibió pasar `-c core.hooksPath=.githooks` en los commits: una barrera que se elude
+   cambiando de herramienta no es una barrera.
+2. **Le saca a Gastón el diff**, es decir, la posibilidad de ver qué cambia antes de aprobarlo.
+3. **Vacía los permisos de contenido.** Éste es el argumento nuevo y el más filoso. El `deny` de
+   `scripts/seed-emulator.mjs` se levantó **para que el implementador pudiera usar `Edit`**. Si
+   igual lo edita por shell, el permiso no cambió nada: el archivo se modifica por un canal que el
+   sistema de permisos no mira. El levantamiento del `deny` habría sido teatro.
+
+Deuda propia reconocida: el director siguió usando `sed -i` y `python -` sobre `migration/*.md`
+—RISKS, MIGRATION_STATUS, DECISIONS— después de haber aceptado la regla para `TASKS.md`. Corregido
+desde el 2026-09-04. La regla no se cumple porque esté escrita; se cumple porque se aplica también
+a quien la escribe.
+
 ## 2026-09-04 — [NIVEL 2] Aprobación con salvedades: se mergea, no se cierra
 A pedido de Gastón, tras el corte del auditor en TASK-003. Un `.approved` que diga "no llegué a
 reproducir la mutación X" **no es lo mismo** que uno completo y no puede pasar a DONE como si lo
@@ -264,7 +319,58 @@ que la del tester. Partir TASK-016 y TASK-017 alivia al tester y **no hace nada 
 que igual tiene que reproducir todo lo de la tarea que audita. Queda anotado como pregunta abierta
 para el próximo corte: si el auditor necesita un equivalente —auditar por bloques, o un veredicto
 en dos pasadas— o si alcanza con priorizar y permitir la aprobación con salvedades, que es lo que
-se probó primero. La causa no es que 35 tests sean muchos: es que exigir la
+se probó primero.
+
+### Registro de cortes por límite de turnos — evidencia para decidir, no para intuir
+Se anota cada caso con su carga real. Cuando lleguemos a los servicios de dominio (TASK-005 a
+TASK-010, las tareas más grandes del lote) esto tiene que alcanzar para dimensionar con datos.
+
+| # | Fecha | Tarea | Rol | Qué se le pidió | Qué dejó |
+|---|---|---|---|---|---|
+| 1 | 2026-09-04 | TASK-003 | tester | 33-35 tests, 3 mutaciones propias, verificar 3 copias de `crear_venta()` | 786 líneas sin commitear, rescatadas en `bc605ea` |
+| 2 | 2026-09-04 | TASK-003 | auditor | reproducir 3 mutaciones, 8 vías de inmutabilidad, no-regresión de TASK-002 | nada; árbol limpio |
+| 3 | 2026-09-05 | TASK-013 | tester | 61 tests en 4 archivos + 4 auxiliares, barrido atacado por 5 vías, comparación REST antes/después | 1.224 líneas sin commitear, rescatadas en `ef0e0f6` |
+
+**Sobre el caso 3, y una corrección previa que conviene leer.** El 2026-09-04 se anotó acá un
+tercer caso —TASK-013, **implementador**— que **no existió**: el agente seguía corriendo y terminó
+bien, con su commit `66aa8d2`. El director lo dio por cortado leyendo el árbol —archivo modificado,
+sin commit, sin notificación— y escribió como evidencia una foto sacada a mitad de camino. Se
+retiró.
+
+El caso 3 que figura ahora en la tabla es **otro**: el **tester** de TASK-013, cortado el
+2026-09-05 con señal explícita —"stopped at its 100-turn limit", 107 tool uses, 220k tokens—. La
+diferencia entre los dos episodios es exactamente la lección: uno se **infirió** de una foto del
+árbol y era falso; el otro vino **declarado** por el sistema y es real.
+
+Vale más como lección que el dato falso que reemplaza: **"no llegó la notificación" no significa
+"se cortó"**, significa que no se sabe. Es el mismo error que FASE 0 encontró tres veces en este
+repositorio —afirmaciones sin respaldo que después se citan como hechos— y el mismo que motivó
+retirar la versión vieja de R8. Se corrige acá en vez de dejarlo, porque una tabla de evidencia
+con un caso inventado es peor que no tener la tabla: se iba a usar para dimensionar TASK-005 a
+TASK-010.
+
+**Con tres casos reales, la hipótesis se refuerza y se puede afinar.** Los tres cortes son de
+tester (2) y auditor (1); **del implementador sigue sin haber ninguno**, y eso ya no es casualidad
+estadística sino un patrón con explicación: el implementador escribe una vez y verifica al final,
+mientras que tester y auditor hacen **un ciclo completo de entorno por cada propiedad** —levantar,
+mutar, correr, leer, revertir, correr de nuevo—.
+
+El caso 3 es el más claro de todos: el tester de TASK-013 escribió **61 tests en 4 archivos más 4
+auxiliares** para verificar **un solo archivo de 300 líneas**. No se cortó por el tamaño de lo que
+tenía que probar, sino por la cantidad de comprobaciones independientes que se le pidieron: cinco
+intentos de romper el barrido, tres barreras de aborto por separado, la fuente única del
+`projectId`, la idempotencia, la mutación de R20 y la comparación REST antes/después.
+
+Hipótesis, ahora con tres casos: **el costo de una tarea lo predice la cantidad de comprobaciones
+empíricas independientes exigidas, no la cantidad de archivos ni de líneas.** Consecuencia
+práctica para TASK-005 a TASK-010: cada servicio de dominio tiene cuatro invariantes, y cada una
+con su mutación son ~8 ciclos de entorno por tarea, más lo mismo del lado del auditor. **Eso no
+entra en un ciclo.** La partición de TASK-016 y TASK-017 va en la dirección correcta pero no
+alcanza: hay que partir también el trabajo de test de cada servicio, o aceptar de entrada que cada
+uno va a necesitar dos pasadas de tester.
+
+**Sigue sin decidirse formalmente**, porque la decisión correcta se toma al escribir TASK-005 y no
+antes. Pero la evidencia ya no es una anécdota. La causa no es que 35 tests sean muchos: es que exigir la
 demostración de que cada test **puede fallar** multiplica el trabajo. El tester no solo escribe —
 levanta la base, corre, diagnostica, **planta la mutación, verifica el rojo, la revierte** y
 vuelve a correr. TASK-002 fueron 34 tests con dos mutaciones y entró justo; TASK-003 fueron 35 con

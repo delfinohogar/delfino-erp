@@ -14,6 +14,34 @@ Formato obligatorio. Un hook parsea `status:`, `owner:` y `files:`, así que no 
 Reglas: una sola tarea IN_PROGRESS por owner; dos tareas nunca comparten archivos en `files:`;
 ninguna tarea pasa a DONE sin `migration/approvals/TASK-NNN.approved`.
 
+## Regla permanente: los archivos se editan con Edit, nunca por shell
+
+Vale para **todos** los roles, incluido el director. Nada de `python -c`, `sed -i`, `cp`,
+redirecciones ni heredocs para modificar archivos del repositorio. Si el archivo existe, se edita
+con **Edit**; si es nuevo, con **Write**.
+
+**Excepción por herramientas, no por criterio:** el rol **auditor** no tiene `Edit` en su conjunto
+de herramientas — solo `Read`, `Grep`, `Glob`, `Bash` y `Write`. Para archivos nuevos usa `Write`;
+para agregar al final de uno existente, la shell es su única vía. Eso es aceptable **solo para
+agregar**, nunca para reescribir líneas previas, y el commit tiene que mostrarlo (`N insertions,
+0 deletions`). Detectado el 2026-09-05: la regla se había escrito para todos los roles sin
+verificar que todos pudieran cumplirla.
+
+Tres motivos, y los tres son consecuencia de cosas que ya pasaron acá:
+
+1. **Le saca al guard su única señal.** Una escritura por shell sobre una ruta protegida no se
+   distingue de una maliciosa: el hook ve un comando de shell, no una edición de archivo. Un guard
+   que se elude cambiando de herramienta no es una barrera.
+2. **Le saca a Gastón el diff.** Editar por shell le quita la posibilidad de ver qué cambia antes
+   de aprobarlo. La revisión deja de ser revisión.
+3. **Vacía los permisos de contenido.** El 2026-09-04 se levantó el `deny` de
+   `scripts/seed-emulator.mjs` **precisamente** para que el implementador pudiera usar `Edit`. Si
+   igual lo edita por shell, el permiso no cambió nada: el archivo se modifica por un canal que el
+   sistema de permisos no mira.
+
+Aplica también a los archivos de `migration/`, que son del director. Estuvo mal hecho hasta el
+2026-09-04 y se corrige desde acá.
+
 ## Aprobación completa vs. aprobación con salvedades
 
 Una auditoría que no llegó a verificar todo **no vale lo mismo** que una completa, y la diferencia
@@ -124,7 +152,7 @@ accept:
 - se actualiza R14 en RISKS.md como mitigado, con la fecha
 
 ### TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
-status: PENDING
+status: DONE
 owner: implementador
 depends: TASK-003
 nota: Gastón **ya levantó** el `deny` de `scripts/seed-emulator.mjs` el 2026-09-04, en el commit
@@ -208,8 +236,29 @@ accept:
 - después del cambio, `pg_get_functiondef('crear_venta')` devuelve la de `functions/`, verificado
 - **los tests de TASK-002 y TASK-003 siguen verdes sin tocarlos**: IVA a 2.1.2 = 648,68, imputación caja/banco→1.1.1, cuentaPorCobrar→1.1.5, pendiente→1.1.2, fecha local estable en varios husos, y la venta sin lista de precios sigue funcionando (P3). Ésa es la prueba de que la mudanza no cambió comportamiento
 - reconstruir la base desde cero con el migrador da el mismo esquema que aplicar las migraciones sobre una base existente
+- **CRLF: hay que normalizar LOS DOS LADOS, no uno (R33).** Medido por el auditor en TASK-019 sobre `delfino_test`: `pg_get_functiondef('crear_venta')` conserva **163 CRLF** adentro, porque `recrearEsquema()` carga las migraciones crudas. Comparar base contra archivo da `true` **hoy por coincidencia**, con los dos lados en CRLF. Normalizando los dos: `true`. **Normalizando solo el archivo —que es la receta de una línea de TASK-019— da `false`.** O sea que copiar ese arreglo a medias **rompe activamente** la comparación en vez de arreglarla. Esta tarea tiene que normalizar el archivo **y** lo desplegado, normalizar también `recrearEsquema()`, y demostrarlo con la matriz LF/CRLF más una mutación de contenido que confirme que sigue discriminando
 - **`recrearEsquema()` en `tests/integration/postgres/_helpers.mjs:22` aplica HOY solo `backend/db/migrations/*.sql`.** Si no se actualiza para aplicar también `backend/db/functions/`, después de esta tarea los tests dejarían viva la copia de 0004 y **la suite quedaría verde probando la función equivocada**. Lo detectó el auditor en TASK-003. Ese archivo es del tester: la tarea NO se cierra sin que esté hecho, y el auditor tiene que verificar que la función que corre en los tests es la de `functions/`, con `pg_get_functiondef()`
 - R28 queda marcado como cerrado en RISKS.md, con la fecha
+
+### TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
+status: DONE
+owner: tester
+depends: TASK-003
+files:
+- tests/integration/postgres/precios_y_costos.test.js
+nota: el `depends` decía TASK-013 y era un error del director — el archivo que arregla es de
+  TASK-003 y no toca nada de TASK-013. Corregido el 2026-09-05, porque con el valor viejo la tarea
+  no podía correr antes que TASK-013, que es justo el orden pedido.
+  Lineaje de ramas: `task/TASK-019` sale de `task/TASK-013` para que el tester de TASK-013 tenga
+  la suite en verde, y **se mergea de vuelta a `task/TASK-013`**, no a `migration/postgresql`. Las
+  dos llegan juntas a la rama base, cada una con su commit y su aprobación por separado.
+accept:
+- los 2 tests en rojo vuelven a verde **normalizando los finales de línea antes de comparar**, no cambiando lo que comparan ni relajando el assert
+- **NO se agrega `.gitattributes`**: cambia el checkout de todo el repositorio y es una decisión global con radio mucho mayor que el problema. Si se quiere igual, es decisión aparte de Gastón
+- el resto de los tests del archivo no se toca
+- **la prueba de que el arreglo sirve**: los tests pasan con el archivo en LF **y** en CRLF. Demostralo convirtiendo una copia y corriéndolos contra las dos, no razonando que debería andar
+- se revisa si hay otras comparaciones de texto de archivos en `tests/` con el mismo problema, y se reportan aunque no se arreglen acá
+- R32 queda cerrado en RISKS.md con la fecha
 
 ### TASK-016 — Invariantes de concurrencia entre operaciones
 status: PENDING

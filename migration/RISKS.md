@@ -170,8 +170,47 @@ filtrar por la clave 5150419, así que otro lock advisory del cluster lo satisfa
 aserciones vecinas (no existe `schema_migrations` mientras espera, existe después de liberar)
 son las que sostienen el caso.
 
-## R16 — [MEDIA] El seed siembra en `demo-delfino` mientras el emulador corre en `delfino-hogar-erp`
-`scripts/seed-emulator.mjs:28` inicializa el Admin SDK con
+## R16 — [MITIGADO 2026-09-04] El seed siembra en `demo-delfino` mientras el emulador corre en `delfino-hogar-erp`
+
+**ESTADO: MITIGADO — 2026-09-04, TASK-013, verificado contra los emuladores por REST.**
+El proyecto ya no está escrito dos veces: `scripts/seed-emulator.mjs` lo lee de
+`js/firebase-config.js`, que es lo que el ERP realmente usa, y si ese archivo dejara de declarar
+exactamente un `projectId` el seed **aborta** en vez de adivinar. El default pasó de
+`demo-delfino` a `delfino-hogar-erp` por esa vía, no por una constante nueva que pueda volver a
+divergir. Si `GCLOUD_PROJECT` o `GOOGLE_CLOUD_PROJECT` fuerzan otro proyecto, el seed aborta con
+exit 1 nombrando **los dos valores** y qué hacer en cada caso. Las barreras de emulador local no
+se tocaron y siguen corriendo antes que el chequeo de proyecto.
+
+Se mitiga y no se elimina porque la clase de falla —el emulador crea cualquier namespace al
+vuelo y no hay API que diga cuál corre— sigue existiendo: lo que se eliminó es que ocurra en
+silencio.
+
+Verificado el 2026-09-04: `npm run seed` con las variables de agente aborta con exit 1;
+con `GCLOUD_PROJECT=delfino-hogar-erp` siembra y deja `admin@delfino.local` (uid
+`HfH7fg2RWwLBI6Lacotphm3rM1H9`) con login 200 contra el emulador de Auth y su perfil
+`usuarios/{uid}` con `rol: administrador` en `delfino-hogar-erp`, leído por REST; dos corridas
+seguidas dejan el inventario byte a byte igual; sin las variables de emulador sigue abortando.
+
+**El agente que corra `npm run seed` va a ver un aborto, y eso es correcto, no un bug.**
+`.claude/settings.json:8-9` fija `GCLOUD_PROJECT=demo-delfino` a propósito (decisión de Gastón
+del 2026-09-04): los agentes no siembran el namespace real. El mensaje de aborto lo dice.
+
+**Limpieza de `demo-delfino`: HECHA el 2026-09-04.** El script incorporó dos modos explícitos,
+`--reporte-demo` y `--limpiar-demo-delfino`, que nunca se disparan al sembrar. El namespace va
+fijo en el código y validado contra una lista de permitidos de un solo elemento, con un chequeo
+extra de que no coincide con el proyecto del ERP; el borrado usa los endpoints `/emulator/v1/`
+—que no existen fuera de un emulador— con el proyecto en la URL, así que su alcance no depende de
+ninguna variable de entorno. Imprime lo que va a borrar antes de borrarlo. Resultado medido por
+REST: `demo-delfino` pasó de 10 colecciones / 35 docs a **0 colecciones / 0 docs**, y
+`delfino-hogar-erp` quedó **idéntico** al inventario previo (10 colecciones, 35 docs, 1 usuario de
+Auth), comparado byte a byte antes y después. Segunda corrida: "Nada que borrar". Queda un flanco
+conocido, no del script: el emulador se levanta con `--import ./emulator-data`, así que si ese
+export todavía contiene `demo-delfino`, el namespace reaparece en el próximo arranque hasta que
+se re-exporte. `emulator-data/` no es de esta tarea.
+
+Lo que sigue es el registro original del riesgo, que se conserva porque explica el modo de falla:
+
+`scripts/seed-emulator.mjs:28` inicializaba el Admin SDK con
 `projectId: process.env.GCLOUD_PROJECT || "demo-delfino"`, pero `npm run emulators` y
 `npm run test:integration` corren con `--project delfino-hogar-erp` (`package.json:9-10`) y
 `js/firebase-config.js` declara ese mismo `projectId`. Si `GCLOUD_PROJECT` no está seteada —el
@@ -215,6 +254,9 @@ Inventario del daño acumulado, medido por REST contra los emuladores el 2026-09
 El perfil `usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9` está duplicado en los dos namespaces; el usuario
 de Auth existe una sola vez, en `delfino-hogar-erp`. La limpieza de `demo-delfino` que autorizó
 Gastón el 2026-09-04 queda pendiente: iba en el mismo script bloqueado.
+
+(Fin del registro original. Los dos bloqueos de arriba están resueltos: Gastón levantó el `deny`
+y TASK-013 se implementó el 2026-09-04; la limpieza está hecha. Ver el encabezado del riesgo.)
 
 ## R17 — [ELIMINADO 2026-09-04] `afterAll` de `safety.test.js` puede borrar el perfil del admin de desarrollo
 
@@ -617,3 +659,243 @@ migración es un control secundario y así la usan los tests.
 **Qué no hacer:** usarla como única garantía, ni convertirla en el chequeo de un hook o de CI que
 "demuestre" que nadie reintrodujo el recálculo. Para eso vale la enumeración de triggers y el
 assert de comportamiento.
+
+## R32 — [RESUELTO 2026-09-05] Tests que comparan texto de archivos se rompen al cambiar de rama, por CRLF
+Registrado por el director el 2026-09-05, a partir de un hallazgo del implementador en TASK-013.
+**Cerrado el 2026-09-05 por TASK-019** (tester). Ver el bloque "Cierre" al final del riesgo.
+
+`tests/integration/postgres/precios_y_costos.test.js` tiene **2 tests en rojo** que comparan el
+texto de `backend/db/migrations/0004_precios_y_costos.sql` contra literales con `\n`. El
+repositorio **no tiene `.gitattributes`**, y en Windows el checkout convierte los finales de línea:
+`file` confirma que hoy los dos archivos están en el árbol con **CRLF**. La comparación falla por
+los `\r`, no por el contenido.
+
+**Lo importante es cuándo apareció.** Esos tests estuvieron **verdes** para el tester y para el
+auditor de TASK-003, que la aprobó. Se pusieron rojos **después**, cuando el árbol pasó por
+`git checkout` y `git merge` al cerrar la tarea y abrir `task/TASK-013`: el agente los escribió con
+LF y git los reescribió con CRLF. O sea que un test puede pasar la auditoría y romperse por una
+operación de git que no toca su contenido.
+
+Por qué MEDIA: no hay riesgo de datos ni de producción, pero **la suite deja de estar verde sin
+que nadie haya cambiado nada**, y eso erosiona la señal igual que un rojo crónico — que es
+exactamente lo que costó cerrar en TASK-011. Además es un modo de falla que **la aprobación no
+puede detectar**, porque en el momento de auditar el problema no existe.
+
+**Condición de cierre — TASK-019.** La salida elegida es normalizar en el test —comparar con los
+finales de línea neutralizados— y **no** agregar `.gitattributes`: ese archivo cambia el checkout
+de todo el repositorio y es una decisión de configuración global con radio de acción mucho mayor
+que el problema. Si más adelante se quiere igual, es una decisión aparte y de Gastón.
+
+Regla que se desprende, para las tareas que vienen: **un test que compara texto de archivos del
+repositorio tiene que ser insensible a los finales de línea.** Vale para TASK-018, que va a
+comparar la definición de `crear_venta()` con la que corre en la base.
+
+### Cierre — 2026-09-05, TASK-019 (tester)
+
+`tests/integration/postgres/precios_y_costos.test.js` pasa a LF el texto que ENTRA, en el único
+punto por donde entra (`sqlDe`, que es de donde salen `SQL_0003` y `SQL_0004` y el SQL de
+`esquemaHasta`). No se tocó ningún assert, ningún literal esperado y ningún otro test del
+archivo. No se agregó `.gitattributes`.
+
+Por qué no es relajar el assert: la comparación sigue siendo igualdad exacta carácter por
+carácter, y lo único que deja de distinguir es el `\r` del checkout. Demostrado con una copia
+del árbol fuera del repositorio, convirtiendo las migraciones a las dos formas y corriendo el
+archivo de tests contra las dos:
+
+| corrida | migraciones | tests | resultado |
+|---|---|---|---|
+| test SIN el arreglo (`git show HEAD:`) | LF | 33 | **33 verde** — así lo aprobó el auditor de TASK-003 |
+| test SIN el arreglo (`git show HEAD:`) | CRLF | 33 | **2 rojo** / 31 verde — el modo de falla del riesgo |
+| test CON el arreglo | LF | 33 | **33 verde** |
+| test CON el arreglo | CRLF | 33 | **33 verde** |
+| test CON el arreglo + cambio REAL de contenido | LF | 33 | **2 rojo** / 31 verde |
+| test CON el arreglo + cambio REAL de contenido | CRLF | 33 | **2 rojo** / 31 verde |
+
+El "cambio real de contenido" son dos ediciones semánticamente neutras del `0004` de la copia
+(`return v_id;` → `return v_id + 0;` en `registrar_costo()`, y
+`iva_l := discriminar_iva(sub, ali);` → `... + 0;` en `crear_venta()`): ningún assert numérico
+las ve, y aun así los dos tests de texto se ponen rojos en las dos formas del archivo. Es decir
+que siguen discriminando contenido y no quedaron apagados (R20).
+
+**Queda vigente la regla, y hay dos lugares más donde aplica** (reportados, no arreglados acá,
+por estar fuera del `files:` de la tarea):
+
+1. `tests/integration/postgres/iva_destino_y_fecha.test.js` → `mutarCrearVenta()` (líneas 68-77)
+   hace `sql.includes(de)` sobre el texto de `0003_iva_y_destino_pago.sql`. **Hoy está verde por
+   casualidad**: sus cuatro literales son de una sola línea, así que no hay `\r` en el medio. El
+   primer literal multilínea que alguien agregue ahí reproduce R32 exacto. Riesgo latente, mismo
+   patrón, misma solución de una línea.
+2. `tests/integration/postgres/_helpers.mjs` → `recrearEsquema()` (línea 26) carga las
+   migraciones **crudas**, con los `\r` incluidos, así que el cuerpo que queda desplegado en
+   PostgreSQL conserva los finales de línea del checkout. **Esto es lo que le importa a
+   TASK-018**: comparar `pg_get_functiondef('crear_venta')` contra el archivo exige normalizar
+   **los dos lados**, no solo el del archivo. En `precios_y_costos.test.js` esa comparación ya
+   sobrevive porque pasa por `normalizar()`, que colapsa `\s+`; una comparación cruda no.
+
+No se revisó nada más porque no hay más: las otras comparaciones de texto de la suite
+(`backend-higiene.test.js`, `migrador.test.js`, `safety.test.js`) son regex de una línea o
+`toContain` sobre stdout de un proceso, y ninguna es sensible a los finales de línea.
+
+### Confirmación del auditor — 2026-09-05, auditoría de TASK-019
+
+El cierre de arriba se verificó de forma independiente y quedó confirmado: la matriz de seis
+corridas se reprodujo entera y los dos lugares que el tester reporta existen y son los que dice.
+Se agrega en R33 la medición que faltaba, que es la que le sirve a TASK-018.
+
+---
+
+## R33 — [MEDIA] Después de TASK-019 el lado ARCHIVO está normalizado y el lado BASE no: TASK-018 no puede copiar la receta de una sola línea
+Registrado por el auditor el 2026-09-05, durante la auditoría de TASK-019. No es un defecto de
+TASK-019 —su arreglo es correcto y está dentro de su `files:`— sino la consecuencia que hereda la
+tarea siguiente.
+
+TASK-019 normaliza a LF el texto que entra por `sqlDe()` en `precios_y_costos.test.js:39`. El
+otro extremo, `tests/integration/postgres/_helpers.mjs:26`, sigue cargando las migraciones
+**crudas** al `pool.query`. Las dos mitades quedaron con criterios distintos.
+
+**Medido, no razonado** (base `delfino_test`, árbol tal como está hoy, con `0003` y `0004` en
+CRLF por `core.autocrlf=true`: `git ls-files --eol` da `i/lf  w/crlf` para los dos):
+
+- `pg_get_functiondef('crear_venta'::regproc)` devuelve el cuerpo **con 163 CRLF adentro**.
+  PostgreSQL guarda `prosrc` tal cual se lo mandaron, finales de línea incluidos.
+- comparación cruda base-contra-archivo, sin normalizar ningún lado: **`true`**. Pasa hoy, pero
+  por coincidencia: los dos lados arrastran el mismo CRLF.
+- normalizando `\r\n` → `\n` en **los dos** lados: **`true`**.
+- normalizando **solo el lado archivo**, que es exactamente lo que hace `sqlDe()` hoy: **`false`**.
+
+O sea: aplicar la receta de TASK-019 a un solo lado no es neutral, **rompe activamente** la
+comparación archivo-contra-base. Y la comparación que ya existe en `precios_y_costos.test.js:692`
+("lo que corre en la BASE es la definición de 0004") sobrevive **solo** porque pasa por
+`normalizar()`, que colapsa `\s+` y se come el `\r` de rebote. Es una protección incidental, no
+deliberada: el día que TASK-018 haga la comparación exacta que le corresponde, deja de haberla.
+
+**Condición de cierre — va al `accept:` de TASK-018 antes de que arranque:**
+
+1. La comparación entre la definición desplegada (`pg_get_functiondef` / `prosrc`) y el archivo de
+   la función normaliza los finales de línea **en los dos lados**, no en uno.
+2. `recrearEsquema()` de `_helpers.mjs` normaliza a LF lo que despliega, para que lo que corre en
+   la base no dependa del checkout de quien lo corrió. Se suma a lo ya pedido en
+   `TASK-003.approved`: que ese helper aplique además las migraciones repetibles.
+3. El test de TASK-018 se demuestra con la misma matriz de TASK-019: verde con el árbol en LF y
+   con el árbol en CRLF, y **rojo** ante un cambio real de contenido en las dos formas.
+
+**Latente, misma familia, sin cerrar:** `tests/integration/postgres/iva_destino_y_fecha.test.js`
+lee `SQL_0003` crudo (línea 26) y `mutarCrearVenta()` hace `sql.includes(de)` (líneas 68-77).
+Verificado por el auditor: sus cuatro literales (214-218 y 395) son de una sola línea, así que hoy
+está verde **por casualidad**. El primer literal multilínea que alguien agregue ahí reproduce R32
+idéntico, con el mismo síntoma engañoso: rojo sin que nadie haya tocado contenido.
+
+---
+
+## R34 — [BAJA] El `testTimeout` de 30 s deja a `migrador.test.js` al borde del flake bajo carga
+Registrado por el auditor el 2026-09-05, durante la auditoría de TASK-019.
+
+`vitest.integration.config.js` fija `testTimeout: 30000` para toda la integración. El test
+`MIGRADOR_IDEMPOTENCIA > contra base limpia aplica las migraciones, sale 0 y las registra con
+nombre y fecha` crea una base nueva y lanza el migrador en un **proceso hijo**: su duración
+depende de la carga de la máquina, no de la lógica. Al tester le cortó una vez por
+`Test timed out in 30000ms`, en una corrida que tardó 89 s contra los 51-52 s habituales.
+
+El auditor **no lo reprodujo**: dos corridas completas seguidas dieron 101/101 en 47,9 s y 49,0 s.
+Queda como flake de infraestructura, no como rojo del repositorio. Lo que lo vuelve un riesgo y no
+una anécdota es que un timeout se lee igual que un fallo de lógica en el log: si aparece en medio
+de una tarea contable, cuesta una iteración distinguirlo. Cierre sugerido: subir el timeout de ese
+archivo, o medir el margen y dejarlo escrito.
+
+## R35 — [MEDIA] `singleProjectMode` hace ilusorio el aislamiento entre namespaces de Firestore
+Registrado por el director el 2026-09-05, a partir de un hallazgo del tester y del implementador en
+TASK-013.
+
+`firebase.json:17` declara `"singleProjectMode": true`. Con esa opción, el emulador de Firestore
+**sirve los documentos del proyecto principal a cualquier namespace virgen**: se le pida el
+proyecto que se le pida, devuelve los mismos datos, y además **reescribe el campo `name`** de cada
+documento con el `projectId` que se pidió. Medido por el implementador en un emulador descartable:
+con `singleProjectMode: false` un namespace virgen devuelve `[]`; con `true`, devuelve los 35
+documentos del ERP.
+
+Auth **no** se comporta así: ahí los usuarios sí están separados por proyecto. Eso explica la
+asimetría que se venía observando sin entenderla —`demo-delfino` con 0 usuarios de Auth pero 35
+documentos de Firestore idénticos a los del ERP—.
+
+**Consecuencia que hay que verificar, no dar por sentada:** el "perfil duplicado en los dos
+namespaces" que se documentó en R16 y que se usó como evidencia del bug **pudo ser un artefacto de
+`singleProjectMode`**, no un documento realmente almacenado dos veces. El bug de R16 en sí —el seed
+apuntando al proyecto equivocado— es real, está verificado por otras vías y Gastón confirmó que el
+login volvió a andar. Lo que queda en duda es **una** de las evidencias que se citaron, no la
+conclusión.
+
+Impacto más amplio: cualquier verificación futura que se apoye en "este dato está en el namespace
+X y no en el Y" **no es válida** mientras `singleProjectMode` esté activo. Afecta al shadow y a
+cualquier prueba de aislamiento por proyecto.
+
+**No se resuelve tocando `firebase.json`**, que es archivo de Gastón, y menos de noche y sin
+medir: esa opción probablemente esté puesta a propósito y cambiarla altera el comportamiento del
+emulador para todo el proyecto. Queda para que Gastón decida si se saca, con esta información
+sobre la mesa.
+
+## R35 — nota del auditor, 2026-09-05 (TASK-013): confirmado, pero enunciado de mas
+Reproducido por el auditor en un emulador descartable propio (puertos 18081/19100, `--project
+delfino-hogar-erp`, `"singleProjectMode": true`, apagado al terminar). El espejo existe, y **solo
+alcanza a los documentos que entraron por `--import`**:
+
+- Emulador SIN `--import`. Se escriben 5 documentos en `delfino-hogar-erp` en vivo. Un namespace
+  virgen (`demo-delfino`, `sonda-virgen-auditor`) devuelve **docs=0**. No hay espejo. Medido dos
+  veces, la segunda con el seed real sembrando sus 35 documentos: `demo-delfino` siguio en 0.
+- Mismo emulador levantado CON `--import` de ese estado. `delfino-hogar-erp` docs=35,
+  `demo-delfino` docs=35, `sonda-virgen-auditor` docs=35, las tres con las mismas 10 colecciones y
+  con el campo `name` reescrito con el projectId pedido
+  (`projects/sonda-virgen-auditor/databases/(default)/documents/categorias/electro`).
+- Auth **no** espeja en ninguno de los dos casos: `auth=1` en el proyecto principal, `auth=0` en
+  los otros dos. Confirma la asimetria que R35 ya describia.
+
+O sea: el mecanismo no es "namespace virgen ve el proyecto principal", es "los datos importados no
+quedan atados a ningun projectId y se sirven a cualquiera que todavia no haya escrito". La
+consecuencia practica de R35 se sostiene entera, porque `npm run emulators` siempre corre con
+`--import ./emulator-data`, pero el enunciado importa para no perseguir el fantasma equivocado
+cuando alguien intente reproducirlo sin import.
+
+**Y el barrido de TASK-013 es seguro incluso con el espejo activo.** Medido en ese mismo emulador
+con `demo-delfino` mostrando los 35 documentos espejados: despues de
+`node scripts/seed-emulator.mjs --limpiar-demo-delfino` (exit 0), `delfino-hogar-erp` quedo en
+docs=35 auth=1 —intacto— y `demo-delfino` en docs=0. El espejo es de lectura y el projectId viaja
+en la URL del DELETE.
+
+### La evidencia del "perfil duplicado" de R16 SE RETIRA
+La sospecha del director era correcta. Tres mediciones independientes:
+
+1. El export que `npm run emulators` importa —`emulator-data/firestore_export/all_namespaces/
+   all_kinds/output-0`— contiene **35 apariciones de `delfino-hogar-erp` y CERO de
+   `demo-delfino`**. No hay ningun documento almacenado bajo el namespace basura.
+2. En el emulador de Gaston, el perfil que se veia en `demo-delfino/usuarios` tenia el **mismo uid**
+   que el de `delfino-hogar-erp` (`HfH7fg2RWwLBI6Lacotphm3rM1H9`). Un sembrado real en otro
+   namespace habria creado un usuario de Auth propio y por lo tanto un uid **distinto**.
+3. `demo-delfino` mostraba 35 documentos con **cero usuarios de Auth**, y Auth no espeja. El seed
+   nunca deja documentos sin dejar tambien el usuario admin. Esa asimetria es incompatible con un
+   sembrado real y es exactamente la firma del espejo.
+
+Se retira la evidencia, como se hizo con la version vieja de R8. **El bug de R16 no se toca**: el
+default `|| "demo-delfino"` estaba en el codigo, es verificable leyendolo, y Gaston confirmo que el
+login volvio a andar. Lo que se cae es una de las evidencias citadas, no la conclusion. Tambien hay
+que releer bajo esta luz la frase de R16 "`demo-delfino` paso de 10 colecciones / 35 docs a 0
+colecciones / 0 docs": el "paso a 0" es real, pero lo que habia antes era el espejo, no residuo; el
+DELETE hizo que el namespace dejara de ser virgen y por eso dejo de espejar.
+
+## R36 — [MEDIA] Un emulador descartable con el mismo `--project` puede ser alcanzado por el hub del que ya corre
+Registrado por el auditor de TASK-013 el 2026-09-05, por algo que le paso a el.
+
+Levante un emulador descartable en puertos propios (18081/19100, config propia fuera del repo) con
+`firebase emulators:exec --project delfino-hogar-erp ... --export-on-exit <carpeta mia>`. El
+emulador arranco bien y aviso `hub unable to start on port 4400, starting on 4401 instead`, porque
+el hub del emulador de Gaston ya tenia el 4400. Al salir, el export que quedo en mi carpeta **no
+era el de mi instancia** —no contenia los 5 documentos que yo habia escrito— sino los 35 del
+emulador de Gaston: `--export-on-exit` resuelve el hub por el **archivo localizador del sistema,
+indexado por projectId**, no por los puertos de la instancia.
+
+En este caso fue inofensivo: un export es de solo lectura y verifique despues que el emulador de
+Gaston seguia con sus 35 documentos y su usuario de Auth. Pero la misma resolucion por projectId
+la usan otros comandos del CLI, y algunos **si** escriben. La leccion es la misma que R16 pero al
+reves: aislarse cambiando de puerto **no alcanza**.
+
+Regla practica para agentes, hasta que alguien la mejore: un emulador descartable se levanta con un
+`--project` **distinto** del de Gaston (por ejemplo `auditor-descartable`), y no se usan
+`--export-on-exit` ni comandos que hablen con el hub mientras haya otro emulador en pie.

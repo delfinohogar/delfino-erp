@@ -26,7 +26,17 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = join(AQUI, "..", "..", "..");
 const DIR_MIGRACIONES = join(RAIZ, "backend", "db", "migrations");
 const ARCHIVOS = readdirSync(DIR_MIGRACIONES).filter((n) => n.toLowerCase().endsWith(".sql")).sort();
-const sqlDe = (n) => readFileSync(join(DIR_MIGRACIONES, n), "utf8");
+
+/** R32 · El repositorio no fija los finales de línea (y no los va a fijar: un `.gitattributes`
+ *  cambia el checkout entero). Así, el mismo `.sql` llega con CRLF en un checkout de Windows y
+ *  con LF en uno de Linux, y las comparaciones de texto de este archivo —que llevan `\n` en sus
+ *  literales— se rompían por los `\r`, sin que el CONTENIDO hubiera cambiado.
+ *  La solución es pasar a LF el texto que ENTRA, antes de compararlo. No es relajar el assert:
+ *  sigue siendo una igualdad exacta carácter por carácter, y lo único que deja de distinguir es
+ *  el final de línea del checkout. Cualquier otra diferencia real de contenido lo pone rojo
+ *  igual, en las dos formas del archivo. */
+const aLF = (t) => t.replace(/\r\n/g, "\n");
+const sqlDe = (n) => aLF(readFileSync(join(DIR_MIGRACIONES, n), "utf8"));
 const SQL_0003 = sqlDe("0003_iva_y_destino_pago.sql");
 const SQL_0004 = sqlDe("0004_precios_y_costos.sql");
 

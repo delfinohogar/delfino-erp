@@ -105,6 +105,36 @@ uso del tester y no se citan en veredictos contables.
 
 ---
 
+## Bloque G — El seed del emulador (TASK-013, R16)
+
+Tampoco son invariantes de negocio: son propiedades de `scripts/seed-emulator.mjs`. La razón de
+que existan es que R16 fue un borrado de datos de hecho —el ERP local dejó de tener con qué
+loguearse porque el seed sembraba en un namespace que el ERP no mira— y porque la tarea agrega un
+modo que **borra**.
+
+Cómo se miden, para que se pueda auditar sin repetir el trabajo: el seed se corre como proceso
+hijo con el entorno armado a mano, y los modos que hablan por REST se corren contra un **emulador
+falso** (`tests/herramientas/emulador-falso.mjs`) que anota cada pedido. Como el projectId viaja
+en la **ruta** de cada llamada, la lista de URLs *es* el alcance de lo que el seed puede tocar: no
+hay que borrar nada para saber qué habría borrado.
+
+| ID | Caso | Resultado esperado | Origen |
+|---|---|---|---|
+| SEED_PROYECTO_UNICO | `js/firebase-config.js` con uno, con ninguno, con dos distintos, con dos iguales, y ausente | con exactamente uno lo usa; con ninguno o con dos aborta nombrando cuántos encontró; con dos iguales no hay ambigüedad; ausente aborta nombrando el archivo. El valor **no** está hardcodeado: con un projectId inventado en una copia, el seed nombra ese | TASK-013 accept |
+| SEED_PROYECTO_COINCIDE | `GCLOUD_PROJECT` o `GOOGLE_CLOUD_PROJECT` fuerzan otro proyecto | aborta con exit 1, nombra **los dos** valores y la variable culpable, explica qué hacer, y no le manda **ni un pedido** al emulador | TASK-013 accept |
+| SEED_BARRERA_EMULADOR | sin variables de emulador, con una sola, y con 13 hosts no locales, en los tres modos | aborta con exit 1 en los 3×15 casos y con cero pedidos. El orden es argumentos → emulador → proyecto, verificado por cuál mensaje sale | TASK-013 accept ("esa barrera no se toca") |
+| SEED_BARRIDO_ACOTADO | 23 intentos de apuntar el barrido a `delfino-hogar-erp`: como argumento, con `=`, con `:`, con espacios, en mayúsculas, con sufijos, con travesía de rutas, con homoglifo cirílico, y por cuatro variables de entorno inventadas | **ninguna** URL emitida menciona `delfino-hogar-erp`; todo `/projects/X` tiene X = `demo-delfino`; los únicos DELETE son los dos endpoints de `demo-delfino`. Si `js/firebase-config.js` dijera `demo-delfino`, la limpieza aborta en vez de borrar | TASK-013 accept, punto crítico |
+| SEED_LIMPIEZA_NO_AUTOMATICA | sembrar y `--reporte-demo` | cero DELETE emitidos; `demo-delfino` queda como estaba | TASK-013 accept ("nunca automática al sembrar") |
+| SEED_REPORTE_DEMO | `demo-delfino` con usuarios de Auth, perfiles y colecciones | informa las tres cosas con su conteo y marca los perfiles sin usuario de Auth, que es el síntoma de R16 | TASK-013 accept |
+| SEED_REPORTE_FIEL | `--reporte-demo` contra un namespace **espejado**: `demo-delfino` devuelve los documentos del ERP y CERO usuarios de Auth, que es exactamente lo que ve el script cuando el emulador espeja | el reporte **advierte** en vez de reclamarlos: sale con 0, dice que esos documentos no se pueden dar por propios, nombra la causa (`singleProjectMode`), señala la firma del espejo (N documentos con cero usuarios de Auth), pone el aviso **después** del conteo y **antes** de cualquier invitación a borrar, y no usa ninguna frase que dé lo listado por propio de `demo-delfino` | TASK-013, reapuntada por decisión del director del 2026-09-05 |
+| SEED_USUARIO_VISIBLE | sembrar un namespace propio y efímero | quedan `admin@delfino.local` en Auth y `/usuarios/{uid}` con el **mismo uid**, rol administrador, más plan de cuentas, maestros y contadores en 0 | TASK-013 accept |
+| SEED_IDEMPOTENTE | dos corridas seguidas | mismo estado, comparado documento por documento salvo el `serverTimestamp` `creadoEn`; mismo uid, sin perfiles duplicados, sin colecciones de más | TASK-013 accept |
+| SEED_LIMPIEZA_REAL | `--limpiar-demo-delfino` contra el emulador de verdad, con marcadores propios en `demo-delfino` | `demo-delfino` queda vacío, `delfino-hogar-erp` queda **byte a byte** igual y el namespace efímero del tester sobrevive | TASK-013 accept |
+| SEED_SALIDA_LIMPIA | una corrida que hizo su trabajo | tiene que salir con 0. **Hoy `--reporte-demo` con contenido sale 3221226505** (12 de 12 en la medición, y reproducido en las 3 corridas de la suite del 2026-09-05), así que `npm run seed -- --reporte-demo` se ve como una falla aunque el reporte sea correcto | TASK-013, hallazgo del tester |
+| SEED_ERP_INTACTO | toda la suite de TASK-013 | la huella completa de `delfino-hogar-erp` —documentos, campos, `createTime`, `updateTime` y usuarios de Auth— es idéntica antes y después | consigna del director |
+
+---
+
 ## Estado por adaptador
 
 | Invariante | Firestore (actual) | Postgres (nuevo) |
@@ -134,14 +164,28 @@ known-failing no es una regresión: es la razón de la migración.
 
 ## Estado actual de la suite
 
-142 tests en el repositorio (actualizado 2026-09-04, TASK-003), todos en verde.
+269 tests en el repositorio (corridos y medidos el 2026-09-05, TASK-013, dos corridas seguidas de
+cada suite). **269 en verde, 0 en rojo.** Los dos rojos anteriores se cerraron: SEED_SALIDA_LIMPIA
+por corrección del implementador (`--reporte-demo` sale 0) y SEED_REPORTE_FIEL por reapuntado de la
+invariante —el enunciado viejo medía una propiedad del emulador (`singleProjectMode`), no del seed;
+ver DECISIONS.md 2026-09-05 y R35—. Ningún rojo de infraestructura: el emulador y Postgres
+respondieron en todas las corridas. Ver TEST_RESULTS.md.
 
-Unitarios (`npm test`): 41 = 13 de `backend-pool-entorno` + 10 de `backend-higiene` +
+Unitarios (`npm test`): 152 = 41 anteriores + **111 de TASK-013** (71 de
+`seed-emulator-barreras`, 31 de `seed-emulator-barrido`, 7 de `seed-emulator-r20` y 2 de
+`seed-emulator-reporte-fiel`). Los 111 no tocan la red ni ningún servicio externo: levantan su
+propio emulador falso en 127.0.0.1 con puerto efímero.
+
+Unitarios anteriores: 41 = 13 de `backend-pool-entorno` + 10 de `backend-higiene` +
 4 de contabilidad + 5 de facturación + **9 de `iva-redondeo`** (aritmética exacta del IVA:
 suma de redondeados contra redondeo al final, y verificación de la identidad
 `Σ round(neto_i) = total − Σ round(iva_i)`).
 
-Integración: 101 = 21 de invariantes contra PostgreSQL
+Integración: 117 = 101 anteriores + **16 de TASK-013** (`tests/integration/seed-emulator.test.js`;
+eran 17 hasta que SEED_REPORTE_FIEL se reapuntó y pasó a los unitarios, donde el espejo se fabrica
+de forma determinista sobre el emulador falso).
+
+Integración anterior: 101 = 21 de invariantes contra PostgreSQL
 (`tests/integration/postgres/invariantes.test.js`), 25 de IVA, destino de pago y fecha local
 (`tests/integration/postgres/iva_destino_y_fecha.test.js`), **33 de listas de precios e historial
 de costos** (`tests/integration/postgres/precios_y_costos.test.js`), 18 del migrador
@@ -164,6 +208,22 @@ suficiente. Con el neto calculado como residuo el asiento cierra igual aunque el
 mal repartido; hay que comparar el importe imputado a **2.1.2** contra el cálculo por línea
 hecho por una vía independiente. Demostrado con la mutación de un centavo de 2.1.2 a 4.1: el
 asiento sigue balanceado y el test se pone rojo igual. Ver TEST_RESULTS.md, TASK-002 punto 1.
+
+**Nota de método, de TASK-013:** para probar el alcance de un borrado no hace falta borrar. El
+seed le habla al emulador por REST y el projectId viaja en la **ruta**, así que la lista de URLs
+que emitió *es* el alcance. Contra un emulador falso que anota los pedidos, "¿puede llegar a
+`delfino-hogar-erp`?" se contesta leyendo, con 23 intentos hostiles y cero riesgo. Lo mismo vale
+para "la barrera corre antes de tocar nada": no se afirma leyendo el orden de las líneas, se mide
+con el contador de pedidos en cero. Ver TEST_RESULTS.md, TASK-013.
+
+**Segunda nota de método, de TASK-013:** un test tiene que medir la unidad que dice medir. El
+enunciado viejo de SEED_REPORTE_FIEL exigía que un namespace virgen del emulador diera vacío: eso
+depende de `firebase.json` (`singleProjectMode`) y **ningún** cambio en el archivo bajo prueba
+—`scripts/seed-emulator.mjs`— podía ponerlo verde ni rojo. Reapuntado a lo que el seed sí controla
+(que ante esa entrada advierta en vez de reclamar los documentos como propios), la invariante se
+prueba de forma determinista y **discrimina**: con la advertencia puesta pasa, sacada se pone roja.
+El comportamiento del emulador no desapareció, se registró como riesgo (R35) en vez de esconderse
+en un test rojo permanente. Ver TEST_RESULTS.md, TASK-013 (corrección del 2026-09-05).
 
 **Nota de método, de TASK-003:** una divergencia deliberada con el ERP se prueba por
 **comportamiento observable**, no por ausencia de mecanismo. "No hay trigger que pise el costo"

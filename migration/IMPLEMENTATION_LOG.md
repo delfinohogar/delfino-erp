@@ -146,3 +146,91 @@ subir el numero le toca al tester: no toco `tests/`.
 Corrido: `node backend/src/db/migrar.js` sobre delfino_dev (aplica 0004, segunda corrida "Sin
 migraciones pendientes"); `npm run check` OK 162 archivos; `npm test` 41/41 verde; integracion
 Postgres 63/64, el unico rojo es el centinela de arriba.
+
+
+## TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
+
+Un solo archivo: `scripts/seed-emulator.mjs`. El `projectId` deja de estar escrito dos veces: se
+lee de `js/firebase-config.js` con la misma tecnica de texto que ya usaba `leerPlanDeCuentas()`
+(el repo no declara `"type": "module"`, asi que ese ESM no se puede importar desde el script). Si
+el archivo no declara exactamente un `projectId`, el seed aborta en vez de adivinar: eso es lo que
+hace que un cambio futuro rompa ruidoso en lugar de volver a divergir en silencio. Si
+`GCLOUD_PROJECT` o `GOOGLE_CLOUD_PROJECT` fuerzan otro proyecto, aborta con exit 1 nombrando los
+dos valores. Las barreras de emulador local no se tocaron y siguen corriendo primero.
+
+Dos modos explicitos mas, que nunca se disparan al sembrar: `--reporte-demo` y
+`--limpiar-demo-delfino`. El namespace va fijo en el codigo, validado contra una lista de
+permitidos de un solo elemento, con dos chequeos extra de que no es el proyecto del ERP; el
+borrado usa `/emulator/v1/...` con el proyecto en la URL, endpoints que no existen fuera de un
+emulador, asi que el alcance no depende de ninguna variable de entorno. Imprime el inventario
+antes de borrar y vuelve a medirlo despues. Un argumento mal tipeado (`--limpiar-demo`) aborta
+con exit 1 y lista los modos validos: nunca cae en el modo que escribe.
+
+Verificado por REST, canal independiente del script. Aborto por desajuste: exit 1 con
+`delfino-hogar-erp` vs `demo-delfino` nombrados. Camino feliz con `GCLOUD_PROJECT` sobrescrita:
+`admin@delfino.local` uid `HfH7fg2RWwLBI6Lacotphm3rM1H9`, login 200 contra Auth y perfil
+`usuarios/{uid}` con `rol: administrador` en `delfino-hogar-erp`. Dos corridas seguidas: inventario
+identico byte a byte en los dos namespaces. Sin variables de emulador y con host no local: sigue
+abortando. Limpieza: `demo-delfino` paso de 10 colecciones / 35 docs (incluido el perfil duplicado
+`usuarios/HfH7fg2RWwLBI6Lacotphm3rM1H9`, y 0 usuarios de Auth) a 0 y 0; `delfino-hogar-erp` quedo
+IDENTICO al snapshot previo (10 cols, 35 docs, 1 usuario de Auth), comparado antes/despues, no
+"no lo toque". Segunda corrida de limpieza: "Nada que borrar".
+
+Decisiones menores: (a) el mensaje de aborto explica el caso del agente y le dice que no lo
+saltee, porque `GCLOUD_PROJECT=demo-delfino` es deliberado y el aborto es el comportamiento
+correcto; (b) la limpieza no pide confirmacion interactiva: el flag largo y exacto ya es la
+confirmacion, y un prompt no aporta contra un script que igual hay que tipear entero; (c) no toque
+`package.json`.
+
+Propuesta para el director, no la aplique: agregar `"seed:reporte-demo": "node
+scripts/seed-emulator.mjs --reporte-demo"` y `"seed:limpiar-demo": "node scripts/seed-emulator.mjs
+--limpiar-demo-delfino"` a `package.json`. Opcional: los dos modos se corren igual con `node`.
+
+Dudas / flancos que quedan, ninguno de esta tarea: (1) el emulador arranca con
+`--import ./emulator-data`, asi que si ese export todavia tiene `demo-delfino`, el namespace
+reaparece en el proximo arranque hasta que se re-exporte; `emulator-data/` no esta en mis files.
+(2) `tests/integration/postgres/precios_y_costos.test.js` tiene 2 rojos que **no son mios**:
+comparan texto de `0004_precios_y_costos.sql` con literales `\n` y el repo guarda CRLF. Reproduje
+los mismos 2 rojos con mi cambio guardado en stash. No toco `tests/`.
+
+Corrido: `npm run check` OK 162 archivos; `npm test` 41/41 verde; integracion 99/101, los 2 rojos
+son los preexistentes de arriba.
+
+## TASK-013 (correccion de los 2 defectos del tester)
+
+Defecto 2 (SEED_SALIDA_LIMPIA) ARREGLADO. `--reporte-demo` y `--limpiar-demo-delfino` ya no llaman
+`process.exit()`: en Node 24/Windows salir con sockets de `fetch` cerrandose dispara la asercion de
+libuv y devolvia 3221226505. Ahora terminan solos (los sockets de undici estan unref: medi 1 ms de
+diferencia sobre 12 pedidos) y el aborto post-fetch de "no quedo vacio" usa `process.exitCode = 1`.
+`process.exit(0)` queda SOLO en el modo sembrado, que no usa fetch y necesita cortar los canales
+gRPC del Admin SDK. Verificado: `--reporte-demo` sale 0, y los 2 tests de SEED_SALIDA_LIMPIA en
+verde en 3 corridas seguidas.
+
+Defecto 1 (SEED_REPORTE_FIEL) ATENDIDO EN LO QUE ME TOCA, PERO EL TEST SIGUE ROJO Y NO LO PUEDO
+CERRAR DESDE MI ARCHIVO. Confirme el diagnostico del tester midiendo contra el emulador: un
+namespace virgen devuelve las 10 colecciones / 35 documentos del ERP. Busque distinguirlo por API y
+no se puede: (a) el emulador REESCRIBE el campo `name` de cada documento con el projectId que uno
+pidio, asi que el documento espejado no se delata; (b) comparar contra un namespace de control
+exigiria emitir una URL con otro proyecto, que es exactamente lo que prohibe SEED_BARRIDO_ACOTADO
+(`verificarBarridoAcotado` falla si alguna URL nombra un proyecto != demo-delfino) y habria roto
+~25 tests verdes. Asi que aplique la salida honesta que autorizo el director: cuando hay documentos,
+el reporte avisa que NO se los puede dar por propios y explica singleProjectMode; y si ademas se da
+la firma del espejo (documentos > 0 con CERO usuarios de Auth, que el seed nunca deja) lo dice
+fuerte. Auth no espeja —lo medi—, por eso el conteo de usuarios si se afirma. El preview de borrado
+aclara que el DELETE va solo contra demo-delfino y que lo espejado es de lectura.
+
+BLOQUEO DE ALCANCE, no de negocio: el test SEED_REPORTE_FIEL no invoca el seed; asserta una
+propiedad del EMULADOR (`inventarioNamespace(sonda_virgen).totalDocs === 0`). Lo unico que la vuelve
+verde es sacar `"singleProjectMode": true` de `firebase.json`, archivo de Gaston. Lo medi en un
+emulador descartable (puertos 8086/9096, config propia fuera del repo, ya apagado): con
+`singleProjectMode: false` el namespace virgen devuelve `[]` y el espejo desaparece. NECESITO
+`firebase.json` para cerrarlo, o que lo cambie Gaston. El test tiene razon; no lo toque.
+
+Decisiones menores: (a) la advertencia se imprime siempre que haya documentos, no solo ante la
+firma, porque desde este script la duda es real en los dos casos y preferi no afirmar de mas;
+(b) no bloquee el borrado ante la firma del espejo: el tester midio que no es destructivo y
+bloquearlo cambiaba comportamiento mas alla del defecto.
+
+Corrido: `npm run check` OK 162 archivos; `npm test` 150/150 verde; integracion (con
+`npx vitest run -c vitest.integration.config.js`, porque el emulador ya estaba levantado y
+`emulators:exec` choca los puertos) 117/118, el unico rojo es SEED_REPORTE_FIEL.
