@@ -1,0 +1,151 @@
+VEREDICTO: APROBADO (con salvedades registradas en RISKS.md: R23, R24, R25)
+Tarea: TASK-002 — Migración 0003: IVA discriminado, destino de pago y fecha local
+Fecha: 2026-09-04
+Rama auditada: task/TASK-002
+Commit auditado: 48bb709 (implementador ece570d; tester 619cf17; status del director a869b7d y 48bb709)
+Diff revisado: bc7877d..48bb709
+Auditor: agente auditor (independiente del implementador y del tester)
+
+Primera tarea con resultado contable. La auditoría no se apoyó en la corrida del tester: se
+reprodujo la aritmética, las mutaciones y la fecha con scripts propios contra `delfino_test`.
+
+## Alcance del cambio (verificado)
+
+`git diff --name-status bc7877d..48bb709`: 10 archivos.
+- Implementador (ece570d): `backend/db/migrations/0003_iva_y_destino_pago.sql` (nuevo) +
+  `migration/IMPLEMENTATION_LOG.md`. Nada más.
+- Tester (619cf17): `tests/` (3 nuevos, 2 modificados) + `TEST_MATRIX.md` + `TEST_RESULTS.md`.
+- Director (a869b7d, 48bb709): sólo `migration/TASKS.md` (accept ampliado y status).
+
+NO se tocaron: `0001_esquema_poc.sql`, `0002_venta_servicio.sql` (ambos byte por byte iguales a
+bc7877d — editarlos habría roto `schema_migrations`), `js/`, `functions/`, `scripts/`,
+`backend/src/`, `firestore.rules`, `firebase.json`, `js/firebase.js`, `js/firebase-config.js`,
+`build.js`, `netlify.toml`, `dist/`, `publicar/`. `git status` limpio salvo `.github/` sin
+seguimiento, que ya estaba antes de esta tarea.
+
+## Invariantes verificadas
+
+- IVA_DISCRIMINADO — VERIFICADA POR VÍA PROPIA. 34.136 comparaciones de `discriminar_iva()` de SQL
+  contra el cuerpo literal de `discriminarIva()` de `js/contabilidad.js:98-102` (alícuotas 0, 0,5,
+  2,5, 5, 10,5, 21, 27, 100 y NULL; montos testigo más ~4.000 pseudoaleatorios hasta $2.000.000):
+  0 divergencias, el mismo centavo en todos los casos. Caso de referencia de la tarea confirmado en
+  las dos vías: 1000,01 al 21 % = 173,56 y 5000,02 al 10,5 % = 475,12, total 648,68 y no 648,67.
+  Se conserva el detalle que decide el centavo: el IVA se redondea sobre el neto SIN redondear.
+- IVA_DISCRIMINADO (criterio de redondeo) — `iva_total = round(SUM(iva_linea))` y
+  `neto_total = round(total − iva_total)` como residuo, tal cual la decisión Nivel 3 del 2026-09-04
+  y `js/ventas.js:412-413`. El neto no se calcula por línea ni se suma (0003, líneas 183-184). El
+  centavo lo absorbe 4.1, no 2.1.2.
+- IMPUTACION_PAGOS — VERIFICADA POR VÍA PROPIA. 400 ventas pseudoaleatorias de 1 a 3 líneas, con
+  alícuotas 0/10,5/21/27 mezcladas, descuentos 0/10/12,5/33,33, hasta 3 pagos con destinos
+  caja/banco/cuentaPorCobrar y saldo pendiente: se comparó el asiento completo de `crear_venta()`
+  contra una réplica en JS de `js/ventas.js:395-420` más `cuentaParaDestinoTesoreria`.
+  0 divergencias, cuenta por cuenta y centavo por centavo. Mapeo confirmado: caja y banco a 1.1.1,
+  cuentaPorCobrar a 1.1.5, pendiente a 1.1.2, neto a 4.1, IVA a 2.1.2, costo 5.1 contra 1.1.3.
+  (El mapeo del enunciado original al tester estaba invertido; el tester lo detectó y probó el
+  correcto. Confirmado contra `js/contabilidad.js:67-71` y DECISIONS.md.)
+- CONTABILIDAD (Debe = Haber) — 0 asientos desbalanceados en las 400 ventas propias y en toda la
+  suite, incluido el caso de alícuotas mixtas 21 % y 10,5 %. Ningún asiento huérfano posible: el
+  asiento se crea dentro de la misma función y por lo tanto de la misma transacción que la venta.
+- FECHA_OPERACION_LOCAL — VERIFICADA POR VÍA PROPIA. `fecha_local()` da la MISMA fecha con la
+  sesión en UTC, Asia/Tokyo, Pacific/Kiritimati, Etc/GMT+12, America/Los_Angeles y
+  America/Argentina/Buenos_Aires, y coincide con la fecha argentina calculada por Node con `Intl`.
+  En la misma corrida `current_date` y `now()::date` daban 2026-09-05 en tres de esas zonas y
+  2026-09-04 en las otras tres: el resultado de `fecha_local()` no depende de la sesión, el de las
+  alternativas sí. Instantes de riesgo evaluados sobre el cuerpo desplegado: 21:00, 21:04, 23:59:59
+  y 00:00:01 ART, día local correcto en todos.
+- HISTORICO_INMUTABLE (parte de IVA) — `iva_pct` e `iva_monto` quedan congelados en `venta_items`;
+  cambiar `productos.iva` después no altera la venta ni su asiento.
+- DOBLE_ENVIO, STOCK, CONCURRENCIA, ORDEN_DE_BLOQUEO, NUMERACION — sin cambios respecto de 0002:
+  0003 no toca el `SELECT ... FOR UPDATE` ordenado por (producto_id, deposito_id), ni la
+  comprobación de disponible previa a escribir, ni `siguiente_numero()`, ni la clave de
+  idempotencia obligatoria. Toda la operación sigue dentro de una sola función y por lo tanto de un
+  solo BEGIN/COMMIT; ninguna escritura quedó afuera.
+- CONTRATO — `crear_venta(bigint,text,date,jsonb,jsonb,text,text,text)`: firma idéntica a 0002 y
+  `create or replace` real. Verificado en `pg_proc`: existe UNA sola `crear_venta`, no se creó una
+  sobrecarga. `js/*.js` intacto, así que ninguna UI (productos/, configuracion/, ventas/) se toca.
+- AISLAMIENTO — nada apunta a producción. Todo se corrió contra `delfino_test`
+  (`DATABASE_URL_TEST`) y el emulador local. `js/firebase.js` y `js/firebase-config.js` intactos.
+- SEGURIDAD — 0003 no arma SQL por concatenación, no usa `EXECUTE` dinámico y no contiene secretos.
+
+## Mutaciones reproducidas por el auditor (no las del tester)
+
+1. R20, mitad A — un centavo de 2.1.2 a 4.1 en los datos. Venta mixta (2.1.2 = 648,68 y
+   4.1 = 5351,35). En UNA transacción: `2.1.2 -= 0.01`, `4.1 += 0.01`. El COMMIT pasa.
+   - Debe = Haber: NO detecta nada (0 asientos desbalanceados). Confirmado.
+   - El assert del tester (2.1.2 igual a 648,68, con 648,68 calculado aparte): ROJO. Confirmado.
+   Las dos mitades se cumplen: el balance es ciego y el test igual discrimina.
+2. R20, mitad B — implementación mutada. Se reinstaló `crear_venta()` leída del archivo con el
+   redondeo del IVA movido al final (acumulador `numeric(20,8)`, sin `discriminar_iva`). Resultado:
+   2.1.2 = 648,67, 4.1 = 5351,36, el asiento CIERRA IGUAL, y el assert del tester en ROJO. Es
+   decir: si el implementador hubiera elegido el otro orden de redondeo, la suite lo caza.
+3. Fecha, mutación `current_date`. Reproducida: la fecha pasa a depender del `TimeZone` de la
+   sesión. La prueba NO depende de la hora: el par Pacific/Kiritimati (+14) y Etc/GMT+12 (−12) está
+   a 26 h, y se comprobó minuto a minuto (1.440 muestras de un día completo) que nunca comparten
+   fecha, así que el assert `Kiritimati !== Etc/GMT+12` falla a cualquier hora. Además
+   `fechaDelCuerpoDesplegado()` exige `now()` en el cuerpo leído del catálogo, control que también
+   es independiente del reloj. Esta auditoría corrió a las 21:33 ART, dentro de la ventana del bug;
+   la independencia de la hora está demostrada por cálculo, no por la corrida.
+
+## Los cinco puntos que marcó el director
+
+1. Aritmética: mismo centavo que el JavaScript, no equivalente. 34.136 casos, 0 divergencias.
+2. R20: reproducida por vía propia; las dos mitades se confirman.
+3. Fecha local: correcta, independiente de la sesión y de la hora de la corrida.
+4. Defecto candidato `destino_contable`: la divergencia es REAL (ejecutados los dos caminos: un
+   pago sin destino informado va a 1.1.1 en SQL y a 1.1.2 en `js/ventas.js:404-405`). Se resuelve
+   como MENOR, no bloqueante, y queda como R23 con condición de cierre. Argumento completo en R23.
+5. `verificar_iva_imputado()`: alcance aceptable, con su límite documentado. Ver R24.
+
+## Calidad de los tests (revisados leyéndolos, no por su resultado)
+
+- `tests/_aritmetica_iva.mjs` es REALMENTE independiente: no reimplementa
+  `monto − monto/(1+a/100)` sobre `numeric`, sino la forma algebraica equivalente
+  `subtotal·a/(100+a)` con BigInt exacto sobre centavos y con su propia función de redondeo
+  medio-hacia-afuera. Además se cruza contra el `discriminarIva()` real de `js/contabilidad.js` y
+  contra una segunda implementación con enteros nativos (200.000 casos). Auditado aparte: coincide
+  con el SQL en las 34.136 comparaciones propias.
+- `mutarCrearVenta()` falla si el texto a sustituir no aparece
+  (`expect(sql.includes(de)).toBe(true)`): una mutación que no se aplicó no puede dar falso verde.
+- Los importes esperados se calculan aparte; nunca se leen de `venta_items` ni de
+  `verificar_iva_imputado()`. Ningún test de esta tanda confirma la implementación contra sí misma.
+- No encontré tests que pasarían igual con el código roto. El más flojo es "el default de la
+  columna también usa la fecha local, con la sesión en UTC", que sólo discrimina en la franja
+  nocturna argentina; queda cubierto por `fechaDelCuerpoDesplegado()`, que sí es hora-independiente.
+
+## Los dos tests preexistentes modificados: legítimos, no es bajar la vara
+
+- `invariantes.test.js:85` — recalculado por el auditor desde los datos del propio test:
+  850000 / 1,21 = 702479,338842975… ⇒ IVA = round(147520,661157…) = 147520,66 (a 2.1.2) y neto
+  residual = 850000 − 147520,66 = 702479,34 (a 4.1). Los dos valores del tester son CORRECTOS. La
+  expectativa vieja (4.1 = 850000, sin movimiento a 2.1.2) asumía IVA en cero, premisa falsa
+  corregida por la decisión "P6 corregida" del 2026-09-04. El cambio es consecuencia de una
+  decisión aprobada. El tester además agregó un assert explícito sobre 2.1.2: el test quedó MÁS
+  estricto que antes, no menos.
+- `migrador.test.js:70` — el `toBe(2)` es un centinela puesto a propósito en TASK-001 para forzar
+  una revisión cuando aparezca una migración nueva. Apareció 0003, la revisión se hizo y quedó
+  documentada, y el centinela sigue vivo en 3. Es el uso previsto, no un ajuste de la vara.
+
+## Suite
+
+- `npm test`: 41/41 en verde, dos corridas seguidas.
+- Integración completa (emulador local más `delfino_test`): 68/68 en verde, dos corridas seguidas.
+  Total 109, que es lo que declara TEST_MATRIX.md.
+- Sin residuos: tras las corridas, el cuerpo desplegado de `fecha_local()` leído de `pg_proc` es el
+  de la migración (`now() at time zone 'America/Argentina/Buenos_Aires'`) y `crear_venta()` no
+  quedó mutada. Ninguna mutación sobrevive a la corrida.
+- El migrador aplica 0003 UNA SOLA VEZ: `MIGRADOR_IDEMPOTENCIA` y `MIGRADOR_CONCURRENCIA` en verde;
+  la segunda corrida no reaplica nada.
+
+## Salvedades registradas (aprobadas, anotadas en RISKS.md)
+
+- R23 [MEDIA] — `destino_contable` con `default 'caja'` más `coalesce(…, 'caja')`: un pago sin
+  destino informado se imputa en silencio a 1.1.1, donde el ERP lo manda a 1.1.2. Divergencia real,
+  confirmada ejecutando los dos caminos. No bloquea por los motivos que están en R23, pero tiene
+  condición de cierre obligatoria antes de que exista el primer llamador en `backend/src/`.
+- R24 [INFORMATIVO] — `verificar_iva_imputado()` no la pedía la tarea y ningún test la usa como
+  assert. Es correcta y de sólo lectura, pero comparte fuente con la implementación.
+- R25 [INFORMATIVO] — `subtotal` de `ventas` y `venta_items` sigue siendo el importe CON IVA y el
+  neto no se persiste; además `crear_venta()` recalcula el subtotal en `numeric` mientras el ERP lo
+  recibe ya calculado en punto flotante desde la UI. Relevante para el shadow.
+
+Firmado: auditor, 2026-09-04.

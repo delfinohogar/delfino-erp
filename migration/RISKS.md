@@ -8,9 +8,10 @@ Numeración: el 2026-09-04 se renumeró R12–R17 → R6–R11. El salto origina
 seis riesgos previos que estaban en un documento que nunca llegó al repositorio: R6–R11 en su
 sentido viejo nunca existieron. R18 tampoco: el commit 9d3c14e dice haberlo agregado y su diff
 sobre este archivo agrega una sola cabecera, R17. Los identificadores actuales corren de R1 a
-R20 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
-auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011 y R20 el director, todos el
-2026-09-04.
+R25 sin huecos y son los definitivos: R1–R12 vienen de FASE -1 y FASE 0, R13–R15 los registró el
+auditor en TASK-001, R16 el director, R17-R19 el auditor en TASK-011, R20 el director, R21-R22 el
+auditor en la confirmación de TASK-011 y R23-R25 el auditor en la aprobación de TASK-002, todos el
+2026-09-04. R21 en adelante se agregan al final por orden de registro, no por severidad.
 
 ---
 
@@ -321,3 +322,95 @@ Por qué INFORMATIVO y no un riesgo real: el uid que llega ahí es siempre propi
 `createUser` de esta corrida, o uno cuyo email ya matcheó el patrón en el barrido), así que la
 re-verificación es una segunda red, no la única. Ninguna cuenta ajena queda al alcance por este
 camino. Se anota para que quede escrito que el `catch` es más ancho que su comentario.
+
+
+## R23 — [MEDIA] Un pago sin destino informado se imputa en silencio a 1.1.1 Caja, no a 1.1.2
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-002. Detectado y reportado antes
+por el tester (TEST_RESULTS.md, observación 1).
+
+`backend/db/migrations/0003_iva_y_destino_pago.sql` define
+`destino_contable text not null default 'caja'` y, dentro de `crear_venta()`,
+`destino := coalesce(pg->>'destino_contable', 'caja')`. Un pago cuyo JSON no trae
+`destino_contable` (o lo trae en `null`) queda como `caja` y su importe se debita a **1.1.1**.
+
+El ERP hace lo contrario y lo dice explícito. `js/contabilidad.js:67-71`:
+
+    return null; // medio sin destino definido — el que llama decide qué hacer, no se asume Caja
+
+y `js/ventas.js:404-405` manda esa plata a **1.1.2 Deudores por Ventas**, además de dejarla
+visible en el aviso de "pago sin ubicar" del Centro de Pendientes.
+
+Verificado por el auditor ejecutando los dos caminos: una venta de $100 pagada con el medio
+"Tarjeta" sin `destino_contable` deja `venta_pagos.destino_contable = 'caja'` y `1.1.1 debe 100`
+en Postgres; el mismo caso en la réplica de `js/ventas.js` imputa a `1.1.2`. La divergencia es
+real, es de imputación contable y es silenciosa.
+
+**Por qué NO bloqueó TASK-002:**
+1. Los criterios de aceptación de TASK-002 y la invariante IMPUTACION_PAGOS de TEST_MATRIX.md
+   definen exactamente tres destinos (`caja`, `banco`, `cuentaPorCobrar`) y qué cuenta le toca a
+   cada uno. El estado "pago sin destino" no existe en el esquema (la columna es NOT NULL con CHECK
+   de tres valores), así que no es el mismo caso que el `ruteado:false` del ERP: no es una
+   imputación distinta para la misma entrada, es una entrada que la PoC no modela.
+2. La decisión Nivel 3 del 2026-09-04 sobre Tesorería dice que `venta_pagos` lleva "el destino
+   contable **resuelto** en el momento de la venta". El ruteo, y por lo tanto la decisión de qué
+   hacer con un medio sin destino configurado, pertenece a la capa que llama, y esa capa todavía
+   no existe: `backend/src/` está vacío y `crear_venta()` no tiene ningún llamador. Hoy no se puede
+   producir una imputación equivocada en ningún lado.
+3. Para los tres destinos que sí son representables, la imputación fue verificada exhaustivamente
+   por el auditor (400 ventas contra la réplica de `js/ventas.js`, 0 divergencias).
+
+**Por qué igual es MEDIA y no informativo:** el default reintroduce, como comportamiento de
+fallback, exactamente el error que el ERP corrigió en su día — "antes de ese cambio, una venta con
+tarjeta sobrestimaba el disponible imputando todo a Caja" (DECISIONS.md, 2026-09-04, Tesorería).
+Cuando exista el endpoint, un campo olvidado en el JSON no va a dar error: va a dar plata en Caja
+que no está en la caja, venta por venta y sin ningún rojo que avise.
+
+**Condición de cierre (obligatoria, no opcional).** La tarea que construya el primer llamador de
+`crear_venta()` en `backend/src/` tiene que resolver esto en la misma tarea, con una de estas dos
+salidas, y su auditor tiene que verificarlo:
+- **Fallar fuerte (preferida):** sacar el `coalesce(…, 'caja')` de `crear_venta()` y levantar
+  `DESTINO_PAGO: falta el destino contable del pago`, y sacar el `default 'caja'` de la columna una
+  vez que no queden filas viejas que rellenar. La información faltante deja de convertirse en
+  plata en Caja.
+- **Replicar el ERP:** admitir un cuarto estado explícito (`sinUbicar`) que impute a 1.1.2, con su
+  test propio. Es un cambio de esquema y de invariante: **decisión Nivel 3**, no la toma un agente.
+Mientras tanto queda el test `OBSERVACIÓN · un pago sin destino explícito cae en 'caja' e imputa a
+1.1.1` en `tests/integration/postgres/iva_destino_y_fecha.test.js`, que documenta el
+comportamiento vigente. Ese test NO es una aprobación del comportamiento: si se cierra R23 por la
+salida preferida, hay que darlo vuelta.
+
+## R24 — [INFORMATIVO] `verificar_iva_imputado()` no la pide nadie, no la usa ningún test y comparte fuente con lo que verifica
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-002.
+
+`0003_iva_y_destino_pago.sql:286` agrega `verificar_iva_imputado()`, que no estaba en los criterios
+de la tarea. Auditada: es de sólo lectura, no escribe nada, su lógica es correcta, y el auditor la
+probó contra las dos mutaciones de R20 (centavo movido en los datos, y redondeo del IVA al final
+en la implementación): devolvió 1 fila en los dos casos, o sea que detecta lo que dice detectar.
+No molesta y sigue el patrón de `verificar_reservas_consistentes()` de 0001.
+
+Lo que hay que tener escrito para que nadie la sobrevalore más adelante:
+- **Ningún test de la suite la usa como assert.** Los importes esperados se calculan aparte, en JS
+  con enteros exactos. Es un control de operación (correrla y esperar cero filas), no una prueba.
+- **No es una vía totalmente independiente.** Compara `2.1.2` contra `SUM(venta_items.iva_monto)`,
+  y las dos cosas las escribe la misma `crear_venta()` a partir del mismo `discriminar_iva()`. Si
+  la fórmula de discriminación estuviera mal, las dos estarían mal igual y la función diría que
+  está todo bien. Detecta un centavo mal repartido **entre 2.1.2 y 4.1**; no detecta un IVA mal
+  calculado. La verificación que sí discrimina eso es la de `tests/_aritmetica_iva.mjs`.
+- Consecuencia práctica: ninguna tarea futura puede citar "verificar_iva_imputado() devuelve cero
+  filas" como demostración de que el IVA está bien calculado.
+
+## R25 — [INFORMATIVO] El neto no se persiste y el subtotal se recalcula en la base: dos detalles para el shadow
+Registrado por el auditor el 2026-09-04, en la aprobación de TASK-002.
+
+1. `ventas.subtotal` y `venta_items.subtotal` siguen siendo el importe CON IVA (coherente con
+   Firestore y con la decisión del residuo), y el neto imputado a 4.1 no se guarda en ninguna
+   columna: se deriva del asiento. Cualquier reporte o comparación de shadow que quiera "ventas
+   netas" tiene que leerlo del asiento, no de `ventas`.
+2. `crear_venta()` recalcula `subtotal = round(cantidad · precio · (1 − desc/100), 2)` en `numeric`
+   exacto, mientras el ERP recibe `it.subtotal` ya calculado por la UI en punto flotante
+   (`js/ventas.js:149`). Como el subtotal alimenta el IVA de la línea, un empate exacto de medio
+   centavo podría dar un centavo distinto entre las dos vías. El auditor buscó el caso: en 400
+   ventas con descuentos 0/10/12,5/33,33 y en las comprobaciones puntuales de empate no apareció
+   ninguna divergencia, y el criterio de redondeo es el mismo (medio hacia afuera del cero). Viene
+   de 0002, no lo introdujo TASK-002. Se anota para que el shadow no atribuya a un bug lo que sea
+   una diferencia de motor aritmético.
