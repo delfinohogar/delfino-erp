@@ -326,7 +326,17 @@ describe("SEED_REPORTE_FIEL — el reporte de demo-delfino tiene que ser de demo
       `el namespace virgen "${sonda}" devuelve ${inv.totalDocs} documentos en ${inv.colecciones.length} colecciones ` +
         `(${inv.colecciones.map((c) => c.nombre).join(", ")}), que son los de "${PROYECTO_PROTEGIDO}" (${erp.totalDocs} documentos). ` +
         `Consecuencia: el reporte y el preview de borrado de "${NAMESPACE_BASURA}" atribuyen a ese namespace datos que no son suyos ` +
-        `cada vez que el emulador se reinicia.`
+        `cada vez que el emulador se reinicia.\n` +
+        `CAUSA: firebase.json declara "singleProjectMode": true. El emulador avisa por stderr ` +
+        `("Multiple projectIds are not recommended in single project mode") y sirve el dataset del ` +
+        `proyecto configurado a cualquier projectId al que todavia no se le haya escrito.\n` +
+        `ALCANCE MEDIDO (emulador DESCARTABLE en 8085/9095, con una copia de ./emulator-data, ` +
+        `TASK-013 2026-09-05): el alias es de LECTURA. Con "${NAMESPACE_BASURA}" virgen, ` +
+        `\`seed --limpiar-demo-delfino\` mostro los 35 documentos del ERP en el preview de borrado ` +
+        `y despues del borrado "${PROYECTO_PROTEGIDO}" seguia con 35 documentos y 1 usuario de Auth, ` +
+        `mientras "${NAMESPACE_BASURA}" quedo en 0. O sea: el defecto es de INFORMACION, no ` +
+        `destructivo. Este rojo es la constancia de que el operador ve datos del ERP bajo el titulo ` +
+        `de otro namespace, justo arriba de un borrado.`
     ).toBe(0);
   }, 60000);
 });

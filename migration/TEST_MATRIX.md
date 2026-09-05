@@ -126,11 +126,11 @@ hay que borrar nada para saber qué habría borrado.
 | SEED_BARRIDO_ACOTADO | 23 intentos de apuntar el barrido a `delfino-hogar-erp`: como argumento, con `=`, con `:`, con espacios, en mayúsculas, con sufijos, con travesía de rutas, con homoglifo cirílico, y por cuatro variables de entorno inventadas | **ninguna** URL emitida menciona `delfino-hogar-erp`; todo `/projects/X` tiene X = `demo-delfino`; los únicos DELETE son los dos endpoints de `demo-delfino`. Si `js/firebase-config.js` dijera `demo-delfino`, la limpieza aborta en vez de borrar | TASK-013 accept, punto crítico |
 | SEED_LIMPIEZA_NO_AUTOMATICA | sembrar y `--reporte-demo` | cero DELETE emitidos; `demo-delfino` queda como estaba | TASK-013 accept ("nunca automática al sembrar") |
 | SEED_REPORTE_DEMO | `demo-delfino` con usuarios de Auth, perfiles y colecciones | informa las tres cosas con su conteo y marca los perfiles sin usuario de Auth, que es el síntoma de R16 | TASK-013 accept |
-| SEED_REPORTE_FIEL | leer un namespace del emulador al que nunca se le escribió | tiene que dar vacío. **Hoy da los 35 documentos de `delfino-hogar-erp`** (el emulador de Firestore con `singleProjectMode` los devuelve para cualquier projectId virgen), así que el reporte de `demo-delfino` atribuye a ese namespace datos que no son suyos cada vez que se reinicia el emulador | TASK-013, hallazgo del tester |
+| SEED_REPORTE_FIEL | leer un namespace del emulador al que nunca se le escribió | tiene que dar vacío. **Hoy da los 35 documentos de `delfino-hogar-erp`** (`firebase.json` declara `"singleProjectMode": true` y el emulador los devuelve para cualquier projectId virgen), así que el reporte y el preview de borrado de `demo-delfino` atribuyen a ese namespace datos que no son suyos cada vez que se reinicia el emulador. **Medido aparte sobre un emulador descartable: el alias es de LECTURA y el borrado NO alcanza al ERP** — es un defecto de información, no destructivo | TASK-013, hallazgo del tester |
 | SEED_USUARIO_VISIBLE | sembrar un namespace propio y efímero | quedan `admin@delfino.local` en Auth y `/usuarios/{uid}` con el **mismo uid**, rol administrador, más plan de cuentas, maestros y contadores en 0 | TASK-013 accept |
 | SEED_IDEMPOTENTE | dos corridas seguidas | mismo estado, comparado documento por documento salvo el `serverTimestamp` `creadoEn`; mismo uid, sin perfiles duplicados, sin colecciones de más | TASK-013 accept |
 | SEED_LIMPIEZA_REAL | `--limpiar-demo-delfino` contra el emulador de verdad, con marcadores propios en `demo-delfino` | `demo-delfino` queda vacío, `delfino-hogar-erp` queda **byte a byte** igual y el namespace efímero del tester sobrevive | TASK-013 accept |
-| SEED_SALIDA_LIMPIA | una corrida que hizo su trabajo | tiene que salir con 0. **Hoy `--reporte-demo` con contenido sale 3221226505** (12 de 12) | TASK-013, hallazgo del tester |
+| SEED_SALIDA_LIMPIA | una corrida que hizo su trabajo | tiene que salir con 0. **Hoy `--reporte-demo` con contenido sale 3221226505** (12 de 12 en la medición, y reproducido en las 3 corridas de la suite del 2026-09-05), así que `npm run seed -- --reporte-demo` se ve como una falla aunque el reporte sea correcto | TASK-013, hallazgo del tester |
 | SEED_ERP_INTACTO | toda la suite de TASK-013 | la huella completa de `delfino-hogar-erp` —documentos, campos, `createTime`, `updateTime` y usuarios de Auth— es idéntica antes y después | consigna del director |
 
 ---
@@ -164,9 +164,10 @@ known-failing no es una regresión: es la razón de la migración.
 
 ## Estado actual de la suite
 
-268 tests en el repositorio (actualizado 2026-09-05, TASK-013). **266 en verde, 2 en rojo**, los
-dos de TASK-013 y los dos por defectos reales del seed: SEED_REPORTE_FIEL y SEED_SALIDA_LIMPIA.
-Ver TEST_RESULTS.md.
+268 tests en el repositorio (corridos y medidos el 2026-09-05, TASK-013). **266 en verde, 2 en
+rojo**. Los dos rojos son de TASK-013 y los dos son **rojo por lógica**, por defectos reales de
+`scripts/seed-emulator.mjs`: SEED_REPORTE_FIEL y SEED_SALIDA_LIMPIA. Ninguno es rojo de
+infraestructura: el emulador y Postgres respondieron en todas las corridas. Ver TEST_RESULTS.md.
 
 Unitarios (`npm test`): 150 = 41 anteriores + **109 de TASK-013** (71 de
 `seed-emulator-barreras`, 31 de `seed-emulator-barrido` y 7 de `seed-emulator-r20`). Los 109 no

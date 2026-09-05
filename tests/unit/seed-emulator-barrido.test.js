@@ -243,15 +243,17 @@ describe("SEED_BARRIDO_ACOTADO — candados internos del barrido", () => {
   });
 
   it("si el emulador no vacia el namespace, el seed lo denuncia en vez de decir que salio bien", async () => {
-    // El seed re-inventaria despues de borrar. Se simula un emulador que ignora los DELETE.
-    const terco = await levantarEmuladorFalso(estadoInicial());
-    const original = terco.estado[NAMESPACE_BASURA];
-    const vigilante = setInterval(() => {
-      // repone lo borrado, como si el DELETE no hubiera hecho efecto
-      if (!Object.keys(terco.estado[NAMESPACE_BASURA].colecciones).length) {
-        terco.estado[NAMESPACE_BASURA] = structuredClone(original);
-      }
-    }, 5);
+    // El seed re-inventaria despues de borrar. Se simula un emulador que ACEPTA el DELETE (200)
+    // pero no lo aplica: el estado se repone dentro del mismo pedido, antes de que el seed reciba
+    // la respuesta. Determinista a proposito: reponerlo desde afuera con un temporizador es una
+    // carrera contra el re-inventario del seed y ponia el test en rojo 2 de cada 6 corridas.
+    let original;
+    const terco = await levantarEmuladorFalso(estadoInicial(), {
+      despuesDeResponder: (metodo, url, estado) => {
+        if (metodo === "DELETE") estado[NAMESPACE_BASURA] = structuredClone(original);
+      },
+    });
+    original = structuredClone(terco.estado[NAMESPACE_BASURA]);
     try {
       const r = await correrSeed({
         args: ["--limpiar-demo-delfino"],
@@ -266,7 +268,6 @@ describe("SEED_BARRIDO_ACOTADO — candados internos del barrido", () => {
       expect(r.error).toContain("no quedo vacio");
       expect(r.salida).not.toContain("Listo:");
     } finally {
-      clearInterval(vigilante);
       await terco.cerrar();
     }
   });

@@ -22,10 +22,19 @@ export function namespaceFalso({ colecciones = {}, usuarios = [] } = {}) {
 
 /**
  * Levanta el emulador falso.
+ *
+ * `opciones.despuesDeResponder(metodo, url, estado)` se invoca DENTRO del mismo pedido, despues de
+ * calcular la respuesta y antes de mandarla. Sirve para simular emuladores que se portan mal —por
+ * ejemplo uno que acepta el DELETE pero no lo aplica— de forma DETERMINISTA. Simular eso con un
+ * `setInterval` que repone el estado por afuera es una carrera: si el temporizador no llega a
+ * dispararse entre el borrado y el re-inventario del seed, el test pasa por casualidad. Medido en
+ * TASK-013: con temporizador, 2 de 6 corridas en rojo; con este gancho, 0 de N.
+ *
  * @param {Record<string, {colecciones: Record<string, Array<{id: string, fields?: object}>>, usuarios: Array<object>}>} estadoInicial
+ * @param {{despuesDeResponder?: (metodo: string, url: string, estado: object) => void}} opciones
  * @returns {Promise<{host: string, peticiones: Array<{metodo: string, url: string}>, estado: object, cerrar: () => Promise<void>}>}
  */
-export async function levantarEmuladorFalso(estadoInicial = {}) {
+export async function levantarEmuladorFalso(estadoInicial = {}, { despuesDeResponder } = {}) {
   const estado = structuredClone(estadoInicial);
   /** @type {Array<{metodo: string, url: string}>} */
   const peticiones = [];
@@ -35,6 +44,7 @@ export async function levantarEmuladorFalso(estadoInicial = {}) {
     req.resume();
     req.on("end", () => {
       const { status, cuerpo } = responder(req.method, req.url, estado);
+      if (despuesDeResponder) despuesDeResponder(req.method, req.url, estado);
       // `Connection: close` a proposito. Con keep-alive, el pool de undici del proceso hijo se
       // queda con sockets vivos contra este servidor y el `process.exit(0)` del seed dispara en
       // Windows/Node 24 la asercion de libuv `!(handle->flags & UV_HANDLE_CLOSING)`, que
