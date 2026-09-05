@@ -1145,3 +1145,52 @@ Para la migración importa por dos motivos: el circuito Remito → Factura está
 futura en DECISIONS.md y va a tener que contemplarlo; y **cualquier reconciliación del shadow que
 compare posición de IVA va a arrastrar esta diferencia** — se clasifica como tipo B, inconsistencia
 preexistente de Firestore, igual que R1.
+
+## R41 — [MEDIA] `CREATE OR REPLACE` no cambia la firma: una repetible que cambie parámetros crea una sobrecarga, no un reemplazo
+Detectado por el auditor en TASK-018, 2026-09-05. Es un riesgo **de TASK-007**, no de TASK-018:
+la mudanza de `crear_venta()` está verificada y no cambia comportamiento (ver
+`migration/approvals/TASK-018.approved`).
+
+`backend/db/repetibles/crear_venta.sql` empieza con `create or replace function crear_venta(...)`
+y nada más. PostgreSQL **no** permite que `CREATE OR REPLACE` cambie la lista de parámetros de
+entrada: si cambia, lo que hace es crear una función **nueva sobrecargada** y dejar la vieja
+viva. TASK-007 (`facturar_pedido`) es la primera tarea que vuelve a tocar la función y es
+plausible que quiera un parámetro más.
+
+Qué pasaría exactamente, y por qué no se nota solo:
+- quedan **dos** `crear_venta` en `pg_proc`. Cualquier llamador con la aridad vieja sigue
+  ejecutando el **cuerpo viejo**, sin error y sin aviso;
+- el chequeo de R37 (`repetiblesNoDesplegadas`) pregunta `bool_or(p.pronargs = N)` para la
+  aridad **declarada en el archivo**: encuentra la nueva y da la repetible por desplegada. No ve
+  la vieja, que es justamente la que sigue corriendo;
+- el `comment on function crear_venta(bigint, text, date, jsonb, jsonb, text, text, text)` de
+  `0006_crear_venta_repetible.sql` queda anclado a la firma de 8 argumentos: la constancia del
+  corte se pierde y `obj_description('crear_venta'::regproc, ...)` pasa a ser ambiguo;
+- lo único que se pone rojo, y por accidente, es `crear_venta_canonica.test.js`, porque
+  `'crear_venta'::regproc` no resuelve con dos candidatas y porque el test exige **exactamente
+  una** fila en `pg_proc`. Que la red la ataje no quiere decir que esté tendida a propósito.
+
+Mitigación, cuando haga falta (no antes): que el archivo repetible arranque con un
+`drop function if exists crear_venta(<firma vieja completa>);` explícito y versionado, o que el
+cambio de firma vaya en una migración numerada de corte —como hizo `0006`— con el `DROP` a la
+vista. `backend/README.md → Migraciones repetibles` pide hoy que la repetible sea "idempotente
+por sí misma" pero no cubre este caso; conviene agregarlo ahí.
+
+## R42 — [BAJA] Nada automatizado impide que una migración numerada vuelva a declarar `crear_venta()`
+Detectado por el auditor en TASK-018, 2026-09-05.
+
+R28 se cerró bien: hoy la definición vigente es `backend/db/repetibles/crear_venta.sql`, hay una
+sola copia canónica y está verificado byte a byte. Pero la regla "ninguna migración numerada
+vuelve a declarar `crear_venta()`" vive **solo en comentarios**: en `0006_crear_venta_repetible.sql`,
+en el encabezado del archivo canónico y en `backend/README.md`. Un comentario no frena a nadie.
+
+Por qué importa: si una numerada futura la redefine, se aplica **después** que la repetible en
+esa corrida (el migrador hace numeradas → repetibles, pero la repetible no se reaplica porque su
+hash no cambió), así que **gana la copia numerada** y el repo entero dice que gana la otra. Es la
+regresión exacta que R28 vino a cerrar, y volvería en silencio.
+
+Costo de cerrarlo: un test de una línea que recorra `backend/db/migrations/*.sql` y falle si
+alguno declara `create ... function crear_venta(`, salvo `0002`, `0003` y `0004`, que son
+historia aplicada y no se tocan. `funcionesDeclaradas()` de `migrar.js` ya hace el parsing y
+está exportada. Se propone hacerlo en TASK-007, que es la primera tentación real de sumar la
+cuarta copia.
