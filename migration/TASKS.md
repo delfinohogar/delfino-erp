@@ -123,7 +123,7 @@ accept:
 - `ventas.fecha_operacion` es `date` en hora local, nunca derivada de `toISOString()`: una venta registrada a las 21:00 hora Argentina queda con la fecha de ese día y no con la del día siguiente (cambio 8 de ARCHITECTURE §2.3, P8 + bug de UTC)
 
 ### TASK-003 — Migración 0004: lista de precios en la venta e historial de costos
-status: PENDING
+status: IN_PROGRESS
 owner: implementador
 depends: TASK-002
 files:
