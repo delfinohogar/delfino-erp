@@ -147,7 +147,28 @@ no interpreta el formato `key=value` y la conexión falla. Ningún test cubre la
 No es defensa contra un atacante; sirve contra el error de configuración, que es para lo que
 está.
 
-## R14 — [BAJA] Un flag mal tipeado del migrador cae en el modo que aplica
+## R14 — [MITIGADO 2026-09-05] Un flag mal tipeado del migrador cae en el modo que aplica
+
+**ESTADO: MITIGADO — 2026-09-05, TASK-012, verificado contra Postgres local.**
+`migrar.js` valida los argumentos en `interpretarArgumentos()` **antes de crear el pool**: un
+argumento que no este en `FLAGS_VALIDOS` aborta con exit 1, lista los flags validos y no abre
+conexion. Verificado en base limpia con todo pendiente: `node backend/src/db/migrar.js --estad`
+sale 1 y deja la base con **0 tablas** —ni siquiera `schema_migrations`—. Probado igual con
+`--marcar-aplicada`, `--estado=1`, `-e`, `--ayuda` y un argumento posicional suelto. `--estado` y
+`--marcar-aplicadas` juntos tambien abortan. `--marcar-aplicadas` sigue exigiendo el string
+exacto y no tiene abreviatura.
+
+La contradiccion del README se resolvio **del lado de la documentacion**, no del codigo:
+`--estado` sigue creando las tablas de control con `create table if not exists` y las deja
+vacias, y `backend/README.md` ahora lo dice textualmente en "Que escribe cada modo". Se eligio
+asi porque `tests/integration/postgres/migrador.test.js:485` consulta `schema_migrations`
+despues de `--estado` sobre una base limpia y espera 0 filas: si el flag dejara de crear la
+tabla, esa consulta fallaria y el test —que es del tester, no del implementador— se pondria
+rojo. Crear una tabla de control vacia no es aplicar esquema de la aplicacion, que es lo que el
+riesgo pedia evitar; los 18 tests del migrador de TASK-001 siguen en verde sin tocarlos.
+
+Texto original del riesgo:
+
 `backend/src/db/migrar.js:131-132` decide el modo con `argv.includes()` y no valida los
 argumentos desconocidos. `node backend/src/db/migrar.js --estad` no informa: aplica las
 migraciones de verdad. En la dirección peligrosa el riesgo es nulo (`--marcar-aplicada`, mal

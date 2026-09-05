@@ -10,7 +10,8 @@ un cliente `pg` y el migrador que las aplica.
 - **No hay HTTP.** No hay servidor, no hay rutas, no escucha ningun puerto. Nada de lo que hay
   en `src/` abre un socket de entrada.
 - **No hay logica de negocio en Node.** Los servicios de dominio de la PoC viven en la base
-  (`crear_venta()` y las que la acompanian, en `db/migrations/`), no en JavaScript.
+  (`crear_venta()` y las que la acompanian, en `db/migrations/` y `db/functions/`), no en
+  JavaScript.
 - **No toca Firebase.** Ningun archivo de `backend/` importa el SDK de Firebase ni habla con
   Firestore. `functions/` es produccion desplegada y es otra cosa.
 - **No es Cloud SQL.** Postgres local en Docker, decision P12.
@@ -62,26 +63,86 @@ La PoC corre siempre contra el Postgres local. El escape es explicito: `DELFINO_
 ## Migrador
 
     node backend/src/db/migrar.js                     # aplica las pendientes
-    node backend/src/db/migrar.js --estado            # informa, no escribe esquema
+    node backend/src/db/migrar.js --estado            # informa; no ejecuta ninguna migracion
     node backend/src/db/migrar.js --marcar-aplicadas  # baseline explicito, ver abajo
+
+Esos son **todos** los flags, y hay que escribirlos exactos. Cualquier otro argumento —un typo
+como `--estad`, una abreviatura como `--marcar-aplicada`, un flag inventado— **aborta con exit 1
+y lista los validos, antes de conectarse a la base**. Nunca cae en el modo que aplica
+migraciones: un `--estado` mal tipeado no ejecuta SQL (R14). `--estado` y `--marcar-aplicadas`
+juntos tambien abortan, porque uno solo informa y el otro escribe.
+
+Hay **dos clases de migracion**, y el migrador aplica siempre las numeradas primero:
+
+| clase | directorio | cuando se aplica | donde se registra |
+|---|---|---|---|
+| numeradas | `db/migrations/*.sql` | una sola vez, para siempre | `schema_migrations` |
+| repetibles | `db/functions/*.sql` | cada vez que cambia su hash | `schema_repetibles` |
 
 Que hace:
 
-1. toma un `pg_advisory_lock` de sesion, para que dos corridas simultaneas no apliquen la misma
-   migracion dos veces (la segunda espera y despues no encuentra nada pendiente);
-2. crea `schema_migrations (nombre text primary key, aplicada_en timestamptz)` si no existe;
-3. lee `backend/db/migrations/*.sql` **en orden alfabetico** — por eso el prefijo `0001_`,
+1. valida los argumentos. Si hay uno desconocido, corta ahi y no abre conexion;
+2. toma un `pg_advisory_lock` de sesion, para que dos corridas simultaneas no apliquen la misma
+   migracion dos veces (la segunda espera y despues no encuentra nada pendiente). **Las
+   repetibles corren bajo ese mismo lock**;
+3. crea `schema_migrations (nombre text primary key, aplicada_en timestamptz)` y
+   `schema_repetibles (nombre text primary key, hash text, aplicada_en timestamptz)` si no
+   existen;
+4. lee `backend/db/migrations/*.sql` **en orden alfabetico** — por eso el prefijo `0001_`,
    `0002_`, … — y aplica las que no esten registradas;
-4. **cada migracion corre en su propia transaccion, y el `insert` en `schema_migrations` va en
-   esa misma transaccion**: si la migracion falla, se revierte entera y no queda marcada como
-   aplicada. Nunca hay una migracion "a medias" registrada como buena;
-5. libera el lock y cierra el pool. Sale con codigo 0 si no hubo error, 1 si lo hubo.
+5. **despues** lee `backend/db/functions/*.sql`, tambien en orden alfabetico, y aplica las que
+   no esten registradas o cuyo hash haya cambiado;
+6. **cada migracion corre en su propia transaccion, y su registro va en esa misma
+   transaccion** — el `insert` en `schema_migrations`, el `upsert` en `schema_repetibles`—: si
+   la migracion falla, se revierte entera y no queda marcada como aplicada. Nunca hay una
+   migracion "a medias" registrada como buena. Vale igual para las repetibles: una repetible que
+   falla no se registra, no deja efectos, y la corrida siguiente la vuelve a intentar;
+7. libera el lock y cierra el pool. Sale con codigo 0 si no hubo error, 1 si lo hubo.
 
 Es idempotente: correrlo dos veces seguidas no reaplica nada e imprime
-`Sin migraciones pendientes.`
+`Sin migraciones pendientes.` y `Repetibles: sin cambios.`
 
 Requisito de toda migracion nueva: tiene que poder correr dentro de una transaccion. Nada de
-`CREATE INDEX CONCURRENTLY` ni `VACUUM`. Y una migracion ya aplicada no se edita: se agrega otra.
+`CREATE INDEX CONCURRENTLY` ni `VACUUM`. Y una migracion numerada ya aplicada no se edita: se
+agrega otra.
+
+### Que escribe cada modo
+
+`--estado` **no ejecuta ninguna migracion** y no cambia el esquema de la aplicacion. Lo unico
+que escribe son las dos tablas de control, con `create table if not exists`, y las deja vacias
+si no existian. Se dice explicito porque antes el README afirmaba "no escribe esquema" mientras
+el codigo si creaba `schema_migrations`, y esa contradiccion era parte de R14. Si hace falta
+consultar el estado sin escribir absolutamente nada, la consulta directa a las dos tablas es el
+camino; el flag no lo hace.
+
+### Migraciones repetibles (`db/functions/`)
+
+Son las definiciones que se reemplazan enteras: `CREATE OR REPLACE FUNCTION` y companina. En vez
+de copiar el cuerpo de la funcion en cada migracion numerada que la toca —que fue lo que dejo
+tres copias de `crear_venta()` mantenidas a mano, R28— la funcion vive en **un solo archivo** y
+se edita ahi. El migrador la reaplica cuando cambia.
+
+Reglas:
+
+- una repetible tiene que ser **idempotente por si misma**: se va a correr muchas veces.
+  `CREATE OR REPLACE FUNCTION` si; `CREATE TABLE` no —eso es una numerada—;
+- se aplican **siempre despues** de todas las numeradas, asi pueden apoyarse en el esquema;
+- si el archivo se borra, su fila queda en `schema_repetibles` y `--estado` la reporta como
+  `registrada pero NO esta en disco`. El migrador no borra funciones de la base: si hay que
+  eliminar una, va un `DROP FUNCTION` en una migracion numerada;
+- el directorio puede **no existir o estar vacio**: no es un error.
+
+**Que se hashea, y por que importa.** El hash es un SHA-256 del contenido **normalizado a LF**,
+no del byte crudo del archivo, y lo que se le manda a PostgreSQL es ese mismo texto normalizado.
+El repositorio no tiene `.gitattributes` y en Windows `core.autocrlf` deja los `.sql` del arbol
+de trabajo en CRLF (`git ls-files --eol` da `i/lf w/crlf`). Si se hasheara el byte crudo, un
+`git checkout` o un clon en otra plataforma —que no cambian una sola letra de SQL— cambiarian el
+hash de **todas** las funciones y dispararian una reaplicacion espuria. Normalizar tambien lo que
+se ejecuta cierra la otra mitad (R33): `pg_get_functiondef()` devuelve el cuerpo tal cual se lo
+mandaron, asi que desplegar CRLF haria que lo que corre en la base dependiera del checkout de
+quien migro, y comparar la definicion desplegada contra el archivo daria `false`. Con LF en los
+dos lados, el hash depende del contenido y de nada mas. Verificado: pasar las repetibles de LF a
+CRLF **no** dispara reaplicacion, y `prosrc` queda sin `\r`.
 
 ### Si la base ya tiene el esquema por otra via
 
@@ -104,15 +165,19 @@ una migracion que no ejecuto. Dos salidas, las dos explicitas:
 
       node backend/src/db/migrar.js --marcar-aplicadas
 
-  Registra las pendientes **sin ejecutarlas** y lo dice en pantalla. Si el esquema real no
-  coincide con los `.sql`, esto deja la base mintiendo sobre su estado. Usarlo a conciencia.
+  Registra las pendientes **sin ejecutarlas** y lo dice en pantalla. Alcanza tambien a las
+  repetibles: registra su nombre y su hash sin correr el SQL, por el mismo criterio —si el
+  operador declara que la base ya esta en el estado de los archivos, tambien lo esta el de las
+  funciones—. Si el esquema real no coincide con los `.sql`, esto deja la base mintiendo sobre
+  su estado. Usarlo a conciencia.
 
 ## Estructura
 
     backend/
       docker-compose.yml     Postgres 16 local, solo loopback
       db/init/               se ejecuta una vez, al crear el volumen (crea delfino_test)
-      db/migrations/         el esquema, en archivos numerados
+      db/migrations/         el esquema, en archivos numerados: se aplican una sola vez
+      db/functions/          migraciones repetibles: se reaplican cuando cambia su hash
       src/db/pool.js         cliente pg: urlConexion, crearPool, obtenerPool, cerrarPool, conTransaccion
       src/db/migrar.js       el migrador (CLI e importable)
       package.json           `type: module`. Declara pg en la misma version que la raiz.
