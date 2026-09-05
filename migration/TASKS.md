@@ -238,19 +238,16 @@ accept:
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
 ### TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
-status: BLOCKED_TECNICO
-bloqueo: espera **una edición de Gastón** en `.claude/settings.json`. Las líneas 75-76 deniegan
-  `Edit(functions/**)` y `Write(functions/**)`, pensadas para la carpeta de Cloud Functions de la
-  raíz, pero el glob **también matchea `backend/db/functions/**`**, que es donde vive el mecanismo
-  de repetibles de TASK-012. Arreglo: **anclar los dos a la raíz** — `Edit(./functions/**)` y
-  `Write(./functions/**)`. Es la misma familia de falsos positivos que se corrigió en `f418870`.
-  El implementador reportó el bloqueo y **no lo esquivó por shell**, que era la salida fácil y la
-  equivocada: el `deny` existe para proteger `functions/`, y saltearlo con otra herramienta lo
-  vaciaría igual que en TASK-013.
+status: IN_PROGRESS
+desbloqueo: el directorio de repetibles se renombra de `backend/db/functions/` a
+  **`backend/db/repetibles/`** (decisión de Gastón, 2026-09-05). El `deny` de `functions/**` matchea
+  en cualquier nivel y `./` no ancla —ver R39—, así que en vez de agujerear la barrera se sale de
+  su alcance. Además el nombre viejo era ambiguo entre funciones de Postgres y Cloud Functions, y
+  esa ambigüedad fue la causa del bloqueo. **No revertir a `functions/`.**
 owner: implementador
 depends: TASK-012
 files:
-- backend/db/functions/crear_venta.sql
+- backend/db/repetibles/crear_venta.sql
 - backend/db/migrations/0006_crear_venta_repetible.sql
 - backend/src/db/migrar.js
 - backend/README.md
