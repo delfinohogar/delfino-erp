@@ -34,9 +34,18 @@ real, no razonado sobre el diseño.
 **1 y 2** —la segunda bloquea hasta el commit de la primera—, así que la exclusión tampoco depende
 de la suerte del scheduling.
 
-**Estado de la evidencia:** medida por el implementador, **pendiente de fijarse como test** y de
-verificación independiente del auditor. Hasta que eso ocurra es una medición, no una invariante.
-Se actualiza esta entrada cuando cierre TASK-004.
+**Estado de la evidencia (actualizado 2026-09-05): FIJADA COMO TEST.** Ya no es una medición suelta
+en el reporte de un agente: vive en `tests/integration/postgres/numeracion_corte.test.js` y la suite
+la sostiene. Cubre los tres casos —`ventas`/`asientos` (1 → rollback → 0 → 1), comprobantes, y
+post-corte 1500 → 1501 → rollback → 1501— más "dos sesiones dan 1 y 2, la segunda bloqueada".
+
+**Queda pendiente lo último: la verificación independiente del auditor.** Hasta que la reproduzca
+por su cuenta, esta entrada tiene salvedad y **no entra al `POC_REPORT.md` sin ella**.
+
+**Sobrevivió a un arreglo que tocaba su mismo mecanismo**, y eso vale la pena anotarlo: al cerrar
+la carrera de H1 —`insert … on conflict do nothing` antes del lock— el riesgo real era romper el
+rollback sin que nadie lo notara. Se verificó explícitamente que no pasó. Una evidencia que no se
+revisa cuando se toca lo que la sostiene deja de ser evidencia.
 
 **Por qué importa más de lo que parece:** la correlatividad de comprobantes es una obligación
 fiscal. Un hueco no es una molestia estética, hay que justificarlo. Que el mecanismo lo impida

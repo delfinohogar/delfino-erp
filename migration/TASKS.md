@@ -420,7 +420,7 @@ accept:
 - `arcaActivo` no se toca, y el ambiente `produccion` no aparece en el guion ni como ejemplo
 
 ### TASK-004 — Migración 0007: contadores del corte
-status: IN_PROGRESS
+status: IN_REVIEW
 owner: implementador
 depends: TASK-003
 files:
