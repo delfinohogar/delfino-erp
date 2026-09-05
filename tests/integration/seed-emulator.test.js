@@ -165,16 +165,33 @@ describe("SEED_USUARIO_VISIBLE — sembrar deja el admin donde el ERP lo mira", 
     for (const c of porNombre.contadores) expect(Number(c.fields.ultimo.integerValue)).toBe(0);
   });
 
-  it("el emulador de Gaston ya tiene el admin sembrado en delfino-hogar-erp (sintoma que originó R16)", async () => {
-    // SOLO LECTURA. Si esto falla es, casi seguro, que nadie corrió `npm run seed` contra este
-    // emulador: es un rojo de entorno, no de logica. Se deja porque es la evidencia directa de
-    // que R16 quedó mitigado en la maquina donde se rompió.
-    const inv = await inventarioNamespace(F, A, PROYECTO_PROTEGIDO);
-    const usuario = inv.usuariosAuth.find((u) => u.email === "admin@delfino.local");
-    exigirEntorno(usuario, `no hay usuario admin@delfino.local en "${PROYECTO_PROTEGIDO}". Corré: npm run seed (lo corre Gastón, no un agente)`);
-    const perfiles = inv.colecciones.find((c) => c.nombre === "usuarios")?.docs ?? [];
-    expect(perfiles.map((d) => d.id)).toContain(usuario.localId);
-  }, 60000);
+  // RETIRADO EN TASK-020 (R43). Aca vivia un `it` titulado "el emulador de Gaston ya tiene el
+  // admin sembrado en delfino-hogar-erp": leia `delfino-hogar-erp` y exigia que
+  // `admin@delfino.local` YA estuviera ahi. En la maquina de Gaston pasaba porque el habia
+  // corrido `npm run seed`; en CI el emulador arranca vacio y el seed no se corre nunca —desde
+  // TASK-013 un agente que lo intente aborta a proposito—, asi que ese `it` no podia pasar
+  // jamas en una maquina limpia. Medido en TASK-020: contra un emulador vacio era el UNICO
+  // rojo de toda la suite de integracion (1 de 152).
+  //
+  // No se auto-siembra, se borra, por tres razones:
+  //   1. sembrar `admin@delfino.local` en `delfino-hogar-erp` es exactamente lo que prohibe la
+  //      regla de oro de este archivo;
+  //   2. sembrarlo en un namespace efimero YA lo hace SEED_USUARIO_VISIBLE, veinte lineas mas
+  //      arriba, contra el emulador de verdad: seria un duplicado;
+  //   3. lo que afirmaba no era una propiedad del codigo sino un dato sobre una maquina.
+  //
+  // La propiedad que parecia cubrir —"el seed deja el admin en el namespace que mira el ERP"—
+  // no se pierde: sale de la conjuncion de tres tests deterministas que no dependen de nadie.
+  //   - `it` de arriba: el seed siembra en el namespace que declara js/firebase-config.js
+  //     (se corre sobre una copia del arbol con un projectId distinto y se verifica que sea ESE);
+  //   - el `it` que le sigue: ahi quedan admin@delfino.local en Auth y /usuarios/{uid} con rol;
+  //   - tests/unit/seed-emulator-barreras.test.js: js/firebase-config.js declara exactamente un
+  //     projectId y es `delfino-hogar-erp` (y safety.test.js lo reafirma).
+  // Seed(config.projectId) ∧ config.projectId = delfino-hogar-erp ⇒ seed(delfino-hogar-erp).
+  //
+  // La evidencia de que R16 quedo mitigado en la maquina donde se rompio sigue siendo cierta y
+  // esta verificada, pero es el registro de una corrida manual: va a MIGRATION_STATUS.md, no a
+  // la suite.
 });
 
 // ---------------------------------------------------------------------------------------------

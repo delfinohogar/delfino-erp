@@ -1195,7 +1195,46 @@ historia aplicada y no se tocan. `funcionesDeclaradas()` de `migrar.js` ya hace 
 está exportada. Se propone hacerlo en TASK-007, que es la primera tentación real de sumar la
 cuarta copia.
 
-## R43 — [MEDIA] Tests que pasan por el estado del emulador de Gastón, no por lo que dicen probar
+## R43 — [CERRADO 2026-09-05] Tests que pasan por el estado del emulador de Gastón, no por lo que dicen probar
+
+**ESTADO: CERRADO — 2026-09-05, TASK-020, verificado contra un emulador vacío.**
+El `it` de `seed-emulator.test.js:168` **se retiró**. No se auto-siembra: sembrar
+`admin@delfino.local` en `delfino-hogar-erp` es justo lo que prohíbe la regla de oro de ese
+archivo, y sembrarlo en un namespace efímero ya lo hace `SEED_USUARIO_VISIBLE` veinte líneas más
+arriba, así que la versión auto-sembrada habría sido un duplicado. La regla de oro no se tocó: el
+seed sigue sin correrse nunca sobre `delfino-hogar-erp`, que solo se lee, y las dos huellas se
+siguen comparando enteras (`SEED_ERP_INTACTO`, verde).
+
+No se pierde cobertura. La propiedad "el seed deja el admin en el namespace que mira el ERP" sale
+de la conjunción de tres tests deterministas que no dependen de que nadie haya sembrado antes:
+(a) el seed siembra en el namespace que declara `js/firebase-config.js` —se corre sobre una copia
+del árbol con un projectId propio y se verifica que sea **ése**—; (b) ahí quedan
+`admin@delfino.local` en Auth y `/usuarios/{uid}` con el mismo uid y rol administrador; (c)
+`js/firebase-config.js` declara exactamente un projectId y es `delfino-hogar-erp`
+(`tests/unit/seed-emulator-barreras.test.js`, y `safety.test.js` lo reafirma).
+
+**Verificación (lo que decide el cierre).** Se levantó un segundo emulador **vacío** en puertos
+propios (firestore 8181, auth 9191, `--project delfino-hogar-erp`, **sin** `--import`), sobre el
+que nunca se corrió `npm run seed` — inventario confirmado en 0 documentos y 0 usuarios de Auth
+antes de empezar. Contra ese emulador: **antes** del arreglo, 1 rojo de 152, con el mensaje
+literal de CI (`[INFRAESTRUCTURA] no hay usuario admin@delfino.local en "delfino-hogar-erp"`) y
+**ningún otro rojo**; **después**, 151 de 151 en verde, dos corridas seguidas. Contra el emulador
+de trabajo de Gastón, 151 de 151 en verde, dos corridas seguidas, y la huella de
+`delfino-hogar-erp` idéntica antes y después (sha256 `8ba6f8ab…c6ad6a` en las dos puntas).
+
+**El barrido del resto de `tests/` no encontró nada más**, y la corrida contra el emulador vacío
+es la evidencia: cualquier otro test que dependiera de datos previos habría salido rojo ahí mismo.
+Los tests de Postgres recrean el esquema (`recrearEsquema` + `seed`) o se crean bases temporales
+propias; `safety.test.js` crea su propio usuario efímero desde TASK-011. Queda **anotada, y no se
+toca**, una precondición de estado previo en el mismo archivo que es deliberada y de dirección
+segura: `SEED_LIMPIEZA_REAL` exige que `demo-delfino` esté **vacío** al empezar, y si no lo está
+aborta como problema de entorno **sin borrar nada**. Exige ausencia de datos, no presencia, así que
+en una máquina limpia siempre se cumple y CI no la puede ver en rojo; y la alternativa —limpiar
+automáticamente lo ajeno— es exactamente el borrado que R16 y `SEED_BARRIDO_ACOTADO` existen para
+impedir. Se deja como está, a propósito.
+
+Lo que sigue es el registro original del hallazgo.
+
 Detectado por **CI** el 2026-09-05, en la primera corrida sobre una máquina limpia después del push
 del lote de cuatro. Unitarios verdes, integración roja.
 
@@ -1223,3 +1262,55 @@ defecto**, mejor que cualquier revisión a ojo: un barrido manual busca los que 
 encuentra los que hay.
 
 Puede haber más de uno. Se cierra en **TASK-020**, que además barre el resto de `tests/`.
+*(Cerrado: era uno solo. Ver la cabecera de esta entrada.)*
+
+## R44 — [BAJA] El emulador descartable tiene que usar el MISMO `--project` que el ERP, no uno distinto
+Registrado por el auditor de TASK-020 el 2026-09-05, medido en esta maquina. **Acota R36.**
+
+R36 dice, como regla practica, que un emulador descartable se levante con un `--project` distinto
+del de Gaston. Para correr la suite de integracion **eso no funciona**: levante un emulador vacio
+propio (8383/9393, `firebase.json` fuera del repo, sin `--import`) con `--project auditor-t020` y
+`tests/integration/safety.test.js` **fallo entero en el `beforeAll`** con
+`FirebaseError: Firebase: Error (auth/user-not-found)` en `signInWithEmailAndPassword`
+(safety.test.js:181): `Test Files 1 failed | 7 passed (8)`, `Tests 147 passed | 4 skipped (151)`.
+
+La causa no es estado previo: el Admin SDK crea el usuario efimero en `firebaseConfig.projectId`
+(safety.test.js:154, explicito), mientras que el SDK cliente se autentica por API key y el emulador
+de Auth resuelve esa peticion contra el proyecto **por defecto** de la instancia, el del
+`--project`. Si no coinciden, el usuario existe en un namespace y se lo busca en el otro.
+
+Consecuencia practica: `--project delfino-hogar-erp` es **obligatorio** para correr la suite, y el
+aislamiento hay que darlo por otro lado —puertos propios, `firebase.json` propio fuera del repo,
+sin `--import` ni `--export-on-exit`, y `TMP`/`TEMP`/`TMPDIR` apuntados a una carpeta propia para
+que el localizador del hub no se cruce con el de Gaston. Verificado que asi **no** hay
+contaminacion: con el emulador de Gaston en pie y los dos con el mismo projectId, mi instancia
+leyo `delfino-hogar-erp` en 0 documentos y 0 usuarios de Auth mientras la de Gaston tenia 35 y 1,
+en el mismo momento. Es tambien la confirmacion de que la medicion del tester de TASK-020 no
+quedo contaminada.
+
+## R45 — [BAJA] El guard de SEED_LIMPIEZA_REAL puede quedar rojo en un emulador de larga vida
+Registrado por el auditor de TASK-020 el 2026-09-05. Se deja **como esta, a proposito**; queda
+anotado para que el rojo se reconozca rapido si aparece.
+
+`tests/integration/seed-emulator.test.js` pone marcadores en `demo-delfino` en el `beforeAll` solo
+si ese namespace esta vacio, y el test de la linea 269 exige `marcadoresPuestos`. Es una
+precondicion sobre el estado previo, pero de **direccion segura**: exige ausencia de datos, no
+presencia, asi que en una maquina limpia siempre se cumple y CI no la puede ver en rojo. Se
+comparte el criterio del tester de no tocarla: la alternativa —limpiar automaticamente lo ajeno—
+es el borrado que R16 y `SEED_BARRIDO_ACOTADO` existen para impedir.
+
+El borde que si existe: si una corrida muere **entre** el `beforeAll` que pone los marcadores y el
+test que limpia `demo-delfino` (Ctrl-C, crash, timeout), el marcador queda, y la corrida siguiente
+**sobre ese mismo emulador de larga vida** falla con `[INFRAESTRUCTURA]`. En CI no puede pasar
+—emulador nuevo por job—, en la maquina de Gaston si. Salida cuando pase: mirar con
+`node scripts/seed-emulator.mjs --reporte-demo` y limpiar a mano; **no** relajar el guard.
+
+## R46 — [BAJA] Residuo: arbol temporal `task013-copia-*` huerfano en el TEMP del sistema
+Registrado por el auditor de TASK-020 el 2026-09-05. Higiene, sin consecuencias de correccion.
+
+Quedo `C:\Users\gasto\AppData\Local\Temp\task013-copia-soWKCs` (fecha 2026-09-05 02:07, anterior a
+la sesion del auditor), con `js/`, `scripts/` y un **junction a `node_modules`** del repo. Lo crea
+`crearCopia()` de `tests/herramientas/seed-proceso.mjs` y lo borra el `afterAll`; si el proceso
+muere antes, el arbol sobrevive. Es inofensivo —esta fuera del repo y no lo lee nadie— pero
+conviene borrarlo a mano sacando **primero** el junction (`rmdir` sobre el enlace, no `rm -r`, para
+no seguirlo hasta el `node_modules` real, que es lo que hace `destruirCopia()`).
