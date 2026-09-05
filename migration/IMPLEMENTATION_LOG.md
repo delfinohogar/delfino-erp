@@ -110,3 +110,39 @@ los emuladores (`Bearer owner`, canal independiente del Admin SDK). Estado al 20
 No commiteo codigo porque no hay codigo. No toque `package.json`, `.claude/` ni ningun otro
 archivo. La limpieza de `demo-delfino` queda sin hacer: iba en el mismo script.
 
+
+## TASK-003 — Migracion 0004: lista de precios en la venta e historial de costos
+
+Un solo archivo nuevo: `backend/db/migrations/0004_precios_y_costos.sql`. Contiene
+`listas_precios` (nombre unico, regla_margen, regla_redondeo, activa), `venta_items.lista_precio_id`
+nullable con FK, `historial_costos` con los nueve campos de P5, tres triggers BEFORE que rechazan
+UPDATE, DELETE y TRUNCATE sobre el historial, `registrar_costo()` y `verificar_sin_recalculo_de_costo()`.
+`crear_venta()` se redeclara completa (0003 esta aplicada y no se edita) y solo suma tres lineas
+marcadas «0004» para llevar `lista_precio_id`; el resto es identico.
+
+DIVERGENCIA P5, verificada con numeros: `registrar_costo(producto 1, 715000, origen factura_compra)`
+dejo `productos.costo_referencia` en 600000 antes y 600000 despues, con la fila en `historial_costos`
+(anterior 600000, nuevo 715000, metodo `ultimo`, compra 987). `js/compras.js:103-119` en cambio pisa
+`costoReferencia` en cada compra sin que nadie lo acepte. Gana P5: en 0004 no hay un solo
+`update productos ... costo_referencia`, y `verificar_sin_recalculo_de_costo()` lo comprueba contra
+el catalogo de PostgreSQL (probe que puede fallar: plante una funcion que pisa el maestro y la delato).
+
+Decisiones menores: (a) donde la tarea dice `productos.costo`, el esquema dice
+`productos.costo_referencia`, la columna de 0001; no renombre nada. (b) `regla_margen` y
+`regla_redondeo` quedan nullables y sin CHECK de dominio: sus valores validos son una regla
+comercial que no esta decidida y no la invento. (c) `historial_costos.compra_id` sin FK porque la
+tabla `compras` no existe en la PoC (ARCHITECTURE §2.3), con CHECK de que solo `factura_compra`
+puede traerla. (d) NO implemente la aceptacion explicita que mueve el maestro: para
+`costo_modo='promedio'` necesita las cantidades de la compra para ponderar y eso es el servicio de
+compras, fuera de alcance.
+
+Dudas para el director, ninguna bloqueante: (1) `historial_costos` registra tanto "esta compra
+costo otra cosa" como, el dia que exista, "el usuario acepto el costo nuevo", y con los campos que
+pide P5 las dos filas se ven iguales; si hay que distinguirlas hace falta un campo mas, decidido por
+Gaston. (2) `tests/integration/postgres/migrador.test.js:72` tiene un centinela `expect(filas.length).toBe(3)`
+que falla al aparecer la cuarta migracion — es lo que el centinela dice que tiene que pasar, y
+subir el numero le toca al tester: no toco `tests/`.
+
+Corrido: `node backend/src/db/migrar.js` sobre delfino_dev (aplica 0004, segunda corrida "Sin
+migraciones pendientes"); `npm run check` OK 162 archivos; `npm test` 41/41 verde; integracion
+Postgres 63/64, el unico rojo es el centinela de arriba.
