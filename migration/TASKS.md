@@ -130,7 +130,7 @@ accept:
 - no se toca ningún otro test ni código de aplicación
 
 ### TASK-012 — Validación de flags del migrador (R14) y migraciones repetibles (R28)
-status: PENDING
+status: IN_PROGRESS
 owner: implementador
 depends: TASK-011
 files:
