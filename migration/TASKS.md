@@ -20,6 +20,13 @@ Vale para **todos** los roles, incluido el director. Nada de `python -c`, `sed -
 redirecciones ni heredocs para modificar archivos del repositorio. Si el archivo existe, se edita
 con **Edit**; si es nuevo, con **Write**.
 
+**Excepción por herramientas, no por criterio:** el rol **auditor** no tiene `Edit` en su conjunto
+de herramientas — solo `Read`, `Grep`, `Glob`, `Bash` y `Write`. Para archivos nuevos usa `Write`;
+para agregar al final de uno existente, la shell es su única vía. Eso es aceptable **solo para
+agregar**, nunca para reescribir líneas previas, y el commit tiene que mostrarlo (`N insertions,
+0 deletions`). Detectado el 2026-09-05: la regla se había escrito para todos los roles sin
+verificar que todos pudieran cumplirla.
+
 Tres motivos, y los tres son consecuencia de cosas que ya pasaron acá:
 
 1. **Le saca al guard su única señal.** Una escritura por shell sobre una ruta protegida no se
@@ -229,11 +236,12 @@ accept:
 - después del cambio, `pg_get_functiondef('crear_venta')` devuelve la de `functions/`, verificado
 - **los tests de TASK-002 y TASK-003 siguen verdes sin tocarlos**: IVA a 2.1.2 = 648,68, imputación caja/banco→1.1.1, cuentaPorCobrar→1.1.5, pendiente→1.1.2, fecha local estable en varios husos, y la venta sin lista de precios sigue funcionando (P3). Ésa es la prueba de que la mudanza no cambió comportamiento
 - reconstruir la base desde cero con el migrador da el mismo esquema que aplicar las migraciones sobre una base existente
+- **CRLF: hay que normalizar LOS DOS LADOS, no uno (R33).** Medido por el auditor en TASK-019 sobre `delfino_test`: `pg_get_functiondef('crear_venta')` conserva **163 CRLF** adentro, porque `recrearEsquema()` carga las migraciones crudas. Comparar base contra archivo da `true` **hoy por coincidencia**, con los dos lados en CRLF. Normalizando los dos: `true`. **Normalizando solo el archivo —que es la receta de una línea de TASK-019— da `false`.** O sea que copiar ese arreglo a medias **rompe activamente** la comparación en vez de arreglarla. Esta tarea tiene que normalizar el archivo **y** lo desplegado, normalizar también `recrearEsquema()`, y demostrarlo con la matriz LF/CRLF más una mutación de contenido que confirme que sigue discriminando
 - **`recrearEsquema()` en `tests/integration/postgres/_helpers.mjs:22` aplica HOY solo `backend/db/migrations/*.sql`.** Si no se actualiza para aplicar también `backend/db/functions/`, después de esta tarea los tests dejarían viva la copia de 0004 y **la suite quedaría verde probando la función equivocada**. Lo detectó el auditor en TASK-003. Ese archivo es del tester: la tarea NO se cierra sin que esté hecho, y el auditor tiene que verificar que la función que corre en los tests es la de `functions/`, con `pg_get_functiondef()`
 - R28 queda marcado como cerrado en RISKS.md, con la fecha
 
 ### TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
-status: IN_REVIEW
+status: DONE
 owner: tester
 depends: TASK-003
 files:
