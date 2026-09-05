@@ -1070,3 +1070,59 @@ solo `CREATE OR REPLACE FUNCTION`— que la repetible no contenga `begin`, `comm
 fuera del cuerpo de la función. Si en algún momento hay más de un archivo en
 `backend/db/functions/`, conviene que el migrador rechace de entrada una repetible que traiga esas
 palabras como sentencia de nivel superior.
+
+## R39 — [MEDIA] Los patrones de `permissions` matchean en cualquier nivel del árbol, y `./` no ancla
+Hallazgo sobre las **herramientas**, no sobre el ERP. Registrado por el director el 2026-09-05 a
+pedido de Gastón, con evidencia de dos bloqueos reales.
+
+`.claude/settings.json` deniega `Edit(functions/**)` y `Write(functions/**)` para proteger la
+carpeta de Cloud Functions de la raíz. Ese patrón **también matchea `backend/db/functions/**`**, a
+cualquier profundidad. Gastón intentó anclarlo con `./functions/**` y **no funcionó**.
+
+Control empírico del implementador, que es lo que cierra el diagnóstico: `Write` sobre
+`backend/db/probe_task018.tmp` —mismo árbol, sin el componente `functions`— **sí funciona**; sobre
+`backend/db/functions/crear_venta.sql`, no. El componente del path es lo que dispara, sin importar
+dónde esté.
+
+**Por qué importa más allá del caso:** `.claude/settings.json` tiene **127 reglas**. Todas se
+evalúan con la misma semántica, así que puede haber otras con el mismo problema, en las dos
+direcciones:
+- en `deny`, una regla más amplia de lo pensado **bloquea trabajo legítimo** — ya pasó dos veces,
+  y las dos costaron un ciclo de implementador;
+- en `allow`, una regla más amplia de lo pensado **habilita más de lo previsto**, que es la
+  dirección peligrosa. Ejemplo del tipo a revisar: cualquier `allow` que nombre un directorio
+  esperando que sea el de la raíz.
+
+**Qué hacer, y no se hace ahora:** revisar las 127 reglas con esta semántica en la cabeza, en
+particular las de `allow` que nombren rutas. Es trabajo sobre `.claude/`, así que **lo hace
+Gastón**; ningún agente puede tocar ese archivo. Se registra para que la revisión exista como
+tarea suya y no como una intuición perdida.
+
+Mitigación aplicada al caso concreto: no se agujereó el `deny` —sigue protegiendo cualquier
+carpeta `functions/` a cualquier profundidad— sino que **se renombró lo nuestro** a
+`backend/db/repetibles/`. Ver DECISIONS.md, 2026-09-05.
+
+## R40 — [ALTA] Los remitos generan asiento de compra con IVA crédito fiscal, y no lo dan
+Riesgo **contable y fiscal del sistema en producción**, no de la migración. Informado por Gastón el
+2026-09-05 desde un caso real de todos los días, y **verificado contra el código por el director**.
+
+`productos/compras-nueva.js:57` ofrece `<option>Remito</option>` como tipo de comprobante, así que
+un remito se puede cargar como compra y el stock entra. Pero `js/compras.js → crearCompra()` llama
+a `generarAsiento` **sin mirar `tipoComprobante` en ningún momento**: el asiento se arma siempre
+igual, con `CUENTA.IVA_CREDITO_FISCAL` al debe (`js/compras.js:163`). No hay ni un condicional por
+tipo antes de esa llamada.
+
+Consecuencias, en orden de gravedad:
+1. **Un remito no da crédito fiscal**, pero el ERP lo computa igual. Si se cargaron remitos como
+   compras, **la posición de IVA está sobrestimada** por comprobantes que no habilitan el cómputo.
+2. **Doble conteo si después llega la factura**: se carga de nuevo, entra el stock **dos veces** y
+   se genera el asiento **dos veces**. Hoy nada vincula un remito con su factura posterior.
+
+**Esto NO lo arregla un agente ni la PoC.** Es del ERP en producción y toca criterio fiscal.
+Gastón lo va a revisar **con su contador**, que es lo correcto: la parte de "qué se hace con lo ya
+registrado" es una decisión contable, no técnica.
+
+Para la migración importa por dos motivos: el circuito Remito → Factura está anotado como idea
+futura en DECISIONS.md y va a tener que contemplarlo; y **cualquier reconciliación del shadow que
+compare posición de IVA va a arrastrar esta diferencia** — se clasifica como tipo B, inconsistencia
+preexistente de Firestore, igual que R1.

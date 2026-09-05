@@ -167,6 +167,43 @@ Consecuencia que conviene tener presente: antes había código fiscal a un flag 
 hay código fiscal a un flag de distancia **con credenciales cargadas y la función en línea**. La
 barrera sigue siendo la misma —`arcaActivo`— pero lo que hay del otro lado es más real.
 
+## 2026-09-05 — [GASTÓN] Las repetibles viven en `backend/db/repetibles/`, no en `db/functions/`
+Cambia la ubicación decidida el 2026-09-04 al crear TASK-012 y TASK-018.
+
+**Por qué se cambia.** `.claude/settings.json` deniega `Edit(functions/**)` y `Write(functions/**)`
+para proteger la carpeta de Cloud Functions de la raíz, y **ese glob matchea en cualquier nivel**:
+también `backend/db/functions/**`. El implementador quedó bloqueado dos veces. Gastón intentó
+anclarlo con `./functions/**` y **no funcionó**: el patrón se sigue evaluando en cualquier nivel.
+Control empírico del implementador, que es lo que cierra el diagnóstico: `Write` sobre
+`backend/db/probe_task018.tmp` —mismo árbol, sin el componente `functions`— **sí funciona**.
+
+**Por qué renombrar y no seguir peleando con el glob:**
+1. **No depende de acertar una sintaxis incierta.** Ya se gastó un intento fallido; el segundo
+   habría costado otro ciclo del implementador si tampoco andaba.
+2. **El `deny` amplio queda intacto.** Sigue protegiendo cualquier carpeta llamada `functions/`, a
+   cualquier profundidad. Renombrar lo nuestro nos saca de la zona de riesgo en vez de agujerear
+   la barrera — que es la dirección correcta, y la misma lógica por la que no se tocó
+   `firestore.rules` para que pasara un test.
+3. **`repetibles` describe mejor el contenido, y la ambigüedad del nombre viejo es lo que causó el
+   bloqueo.** Formulación de Gastón: **`functions/` dentro de un directorio de base de datos es
+   ambiguo entre funciones de Postgres y Cloud Functions**, y esa ambigüedad es exactamente lo que
+   disparó el problema. No fue mala suerte con un glob: fue un nombre que significaba dos cosas en
+   el mismo repositorio. `repetibles` dice qué son —migraciones que se reaplican— y no colisiona
+   con nada.
+
+**SI ALGUIEN QUIERE "CORREGIRLO" DE VUELTA A `functions/` POR PROLIJIDAD: no.** El nombre viejo era
+ambiguo y estaba dentro del alcance de un `deny` que protege las Cloud Functions. Volver atrás
+rompe el trabajo y reabre el bloqueo.
+
+**Costo, medido antes de decidir:** ~12 referencias en 5 archivos — `backend/src/db/migrar.js` (una
+constante y comentarios), `backend/README.md` (7 menciones), `0006_crear_venta_repetible.sql` (2
+comentarios), y **`migrador_repetibles.test.js` y `_repetibles_helpers.mjs`, que son tests de
+TASK-012 ya aprobados**, así que necesitan una pasada del tester. Se aceptó ese costo a cambio de
+no depender de la sintaxis del glob.
+
+Nota de método: el director midió el costo **antes** de plantear la opción, en vez de proponer el
+renombre en abstracto. Sin ese número la comparación no se podía hacer.
+
 ## 2026-09-05 — [GASTÓN] Las tareas de test transversales NO se encadenan a las de operación
 **PENDIENTE DE ESCRIBIR EN TASKS.md**: se redacta cuando cierre TASK-018 y **antes de arrancar
 TASK-004**. Se anota acá para no perderlo en el intervalo.
@@ -220,6 +257,38 @@ búsqueda— **por una mejora que no lo justifica**.
 
 Queda escrito para que quien planifique esa tarea no vuelva a evaluar la opción desde cero, y para
 que se note que el costo del renombre fue medido y no supuesto.
+
+## 2026-09-05 — [IDEA FUTURA · GASTÓN] Circuito Remito → Factura en compras
+**No es decisión ni tarea.** Idea de negocio, sin planificar, salida de un caso real de todos los
+días: llega mercadería con remito, entra al stock, y la factura llega después.
+
+**Estado actual, verificado contra el código por el director:** `productos/compras-nueva.js:57`
+ofrece `<option>Remito</option>`, pero `js/compras.js → crearCompra()` llama a `generarAsiento`
+**sin mirar `tipoComprobante`**, con `IVA_CREDITO_FISCAL` al debe en la línea 163. No hay ningún
+condicional por tipo. Eso está registrado aparte como **R40 [ALTA]**, porque no es una carencia
+funcional: es IVA crédito fiscal computado sobre comprobantes que no lo dan, en producción.
+
+**Lo que el circuito debería hacer:**
+- El remito **ingresa stock sin generar el asiento de compra**, o lo genera contra una cuenta
+  transitoria de "Mercadería recibida a facturar". **Cuál de las dos es decisión contable de
+  Gastón**, y no la toma un agente.
+- La factura posterior **se vincula al remito y lo convierte**: cancela la transitoria, imputa IVA
+  crédito fiscal y la deuda real, y **no vuelve a tocar el stock**.
+- **La conversión es una reconciliación, no un cambio de estado.** La factura puede traer otro
+  costo unitario, percepciones, retenciones, o cantidades distintas si el proveedor facturó de
+  menos. Tiene que permitir ajustar todo eso y que el resultado **cierre exacto**.
+- **Choca con P5** si el costo cambia respecto del remito: el costo maestro no se actualiza solo.
+  Hay que definir si la conversión **propone** la actualización o la **exige explícita**. Otra
+  decisión de Gastón.
+- Falta una **pantalla de remitos pendientes de facturar**, que hoy no existe.
+
+**Precedente en el repo, y conviene aprovecharlo:** `js/ordenes-compra.js` ya implementa
+pendiente → recibida con vínculo a la compra real. Es el mismo patrón, así que quien lo planifique
+tiene de dónde copiar la forma en vez de inventarla.
+
+Aparte del sistema: si se vinieron cargando remitos como compras, **la contabilidad ya tiene IVA
+crédito fiscal computado de más**. Gastón lo revisa con su contador. Qué hacer con lo ya
+registrado es criterio contable, no técnico, y no lo decide nadie de este proyecto.
 
 ## 2026-09-05 — [IDEA FUTURA · GASTÓN] Traer descripciones y medidas de Tiendanube al ERP
 **No es una decisión ni una tarea.** Es relevamiento, para que quien la planifique no arranque de
