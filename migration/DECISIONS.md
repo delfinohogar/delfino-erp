@@ -32,8 +32,18 @@ agentes con una barrera física, no con una instrucción.
 ## PENDIENTE DE GASTÓN
 (el director escribe acá las preguntas de Nivel 3 antes de hacerlas)
 
-### 2026-09-04 — TASK-013 bloqueada por `.claude/settings.json` (dos líneas)
-PREGUNTADO. `.claude/` solo lo modifica Gastón y dos cosas de ahí trancan la tarea:
+### 2026-09-04 — TASK-013 espera UNA edición de Gastón: sacar `.claude/settings.json:88`
+RESPONDIDO el 2026-09-04. Gastón elige **levantar solo el `deny`** y dejar
+`GCLOUD_PROJECT=demo-delfino` como está. La separación es deliberada: los agentes siembran —o
+más bien, no siembran— en el namespace de juguete, y `delfino-hogar-erp` queda para Gastón. Con
+el chequeo que va a poner TASK-013, un agente que intente sembrar **aborta ruidosamente** en vez
+de ensuciar en silencio, que es exactamente el comportamiento buscado.
+
+ACCIÓN PENDIENTE, la hace Gastón: borrar la línea 88 de `.claude/settings.json`,
+`"Edit(scripts/seed-emulator.mjs)",`. Ningún agente puede tocar ese archivo. Apenas esté hecho,
+TASK-013 sale de BLOCKED_TECNICO y se retoma con el implementador desde donde quedó.
+
+El detalle del bloqueo, que se conserva porque explica el porqué:
 
 1. **`.claude/settings.json:88`** tiene `"Edit(scripts/seed-emulator.mjs)"` en `deny`. Es el único
    archivo de TASK-013, así que la tarea no se puede implementar. El implementador lo reportó y

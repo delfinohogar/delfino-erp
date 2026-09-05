@@ -85,10 +85,11 @@ accept:
 
 ### TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
 status: BLOCKED_TECNICO
-bloqueo: `.claude/settings.json` solo lo modifica Gastón. Dos cosas la trancan: la línea 88
-  `"Edit(scripts/seed-emulator.mjs)"` en `deny`, que impide tocar el único archivo de la tarea; y
-  las líneas 8-9, que fuerzan `GCLOUD_PROJECT=demo-delfino` en toda sesión de agente. Sin lo
-  primero no se puede implementar; lo segundo es un segundo vector del mismo bug.
+bloqueo: espera UNA edición de Gastón — borrar la línea 88 de `.claude/settings.json`,
+  `"Edit(scripts/seed-emulator.mjs)",`. Ningún agente puede tocar ese archivo. Decidido el
+  2026-09-04: `GCLOUD_PROJECT=demo-delfino` (líneas 8-9) **se deja como está**, la separación es
+  deliberada; con el chequeo de esta tarea un agente que intente sembrar aborta ruidosamente.
+  Apenas esté hecha la edición, se retoma con el implementador desde donde quedó.
 owner: implementador
 depends: TASK-011
 files:
