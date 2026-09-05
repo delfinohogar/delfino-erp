@@ -166,7 +166,7 @@ accept:
 - `ventas.fecha_operacion` es `date` en hora local, nunca derivada de `toISOString()`: una venta registrada a las 21:00 hora Argentina queda con la fecha de ese día y no con la del día siguiente (cambio 8 de ARCHITECTURE §2.3, P8 + bug de UTC)
 
 ### TASK-003 — Migración 0004: lista de precios en la venta e historial de costos
-status: IN_REVIEW
+status: DONE
 nota para el auditor: el diff de esta rama incluye **dos commits de Gastón** sobre archivos que
   los agentes tienen prohibido tocar, y **no** son violación de alcance: `14c234d`
   (`.claude/settings.json`, levanta el `deny` de `seed-emulator.mjs` para desbloquear TASK-013) y
@@ -208,6 +208,7 @@ accept:
 - después del cambio, `pg_get_functiondef('crear_venta')` devuelve la de `functions/`, verificado
 - **los tests de TASK-002 y TASK-003 siguen verdes sin tocarlos**: IVA a 2.1.2 = 648,68, imputación caja/banco→1.1.1, cuentaPorCobrar→1.1.5, pendiente→1.1.2, fecha local estable en varios husos, y la venta sin lista de precios sigue funcionando (P3). Ésa es la prueba de que la mudanza no cambió comportamiento
 - reconstruir la base desde cero con el migrador da el mismo esquema que aplicar las migraciones sobre una base existente
+- **`recrearEsquema()` en `tests/integration/postgres/_helpers.mjs:22` aplica HOY solo `backend/db/migrations/*.sql`.** Si no se actualiza para aplicar también `backend/db/functions/`, después de esta tarea los tests dejarían viva la copia de 0004 y **la suite quedaría verde probando la función equivocada**. Lo detectó el auditor en TASK-003. Ese archivo es del tester: la tarea NO se cierra sin que esté hecho, y el auditor tiene que verificar que la función que corre en los tests es la de `functions/`, con `pg_get_functiondef()`
 - R28 queda marcado como cerrado en RISKS.md, con la fecha
 
 ### TASK-016 — Invariantes de concurrencia entre operaciones
