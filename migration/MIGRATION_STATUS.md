@@ -1,8 +1,8 @@
 # Estado de la migración
 
-Fase actual: **1 en curso. 8 tareas cerradas, la suite en verde.**
+Fase actual: **1 en curso. 9 tareas cerradas, la suite en verde y CI también.**
 Rama de trabajo: `migration/postgresql`
-Última tarea cerrada: **TASK-018**, aprobada y mergeada el 2026-09-05
+Última tarea cerrada: **TASK-020**, aprobada y mergeada el 2026-09-05
 Tareas bloqueadas: —
 Pendientes de Gastón: 2, en DECISIONS.md § PENDIENTE DE GASTÓN
 
@@ -128,6 +128,22 @@ Dos cosas que valen más que las tareas:
 El directorio se llama `repetibles/` y **no `functions/`**: el `deny` de `functions/**` matchea en
 cualquier nivel (R39) y el nombre viejo era ambiguo entre funciones de Postgres y Cloud Functions.
 **No revertir.**
+
+**TASK-020 cerrada** el 2026-09-05: **CI vuelve a verde**. Estuvo rojo desde el push del lote de
+cuatro, en su primera corrida sobre una máquina limpia, y encontró algo que la suite **no podía
+detectar corriendo siempre contra el emulador de Gastón**: un `it` que exigía que
+`admin@delfino.local` ya estuviera sembrado. No probaba una propiedad del código, **afirmaba un
+dato sobre una máquina** — y encima uno que ningún agente podía producir, porque desde TASK-013 el
+seed aborta si lo corre un agente.
+
+Se borró en vez de auto-sembrarlo: la versión auto-sembrada habría duplicado el test vecino o
+violado la regla de oro del archivo. El auditor verificó **eslabón por eslabón** que las tres
+pruebas deterministas que quedan cubren lo mismo, y no encontró ninguna propiedad huérfana.
+
+**La lección quedó como R43**, y vale para todo lo que viene: **CI es el oráculo de esta clase de
+defecto.** Un barrido a ojo encuentra los que uno imagina; CI encuentra los que hay. Tester y
+auditor lo confirmaron por separado sobre emuladores vacíos propios: 151/151, con
+`delfino-hogar-erp` en 0 documentos y 0 usuarios después de toda la suite.
 
 ## Qué sigue
 
