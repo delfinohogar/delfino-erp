@@ -1,8 +1,8 @@
 # Estado de la migración
 
-Fase actual: **1 en curso. 2 tareas cerradas, la suite en verde.**
+Fase actual: **1 en curso. 3 tareas cerradas, la suite en verde.**
 Rama de trabajo: `migration/postgresql`
-Última tarea cerrada: **TASK-011**, aprobada y mergeada el 2026-09-04
+Última tarea cerrada: **TASK-002**, aprobada y mergeada el 2026-09-04
 Tareas bloqueadas: —
 Pendientes de Gastón: 3, en DECISIONS.md § PENDIENTE DE GASTÓN
 
@@ -54,18 +54,31 @@ tocó. Dejó tres cosas que valen más que el fix:
   tener test**. Toda tarea con tests exige demostrar que el test puede fallar, y el auditor lo
   reproduce por su cuenta.
 
+**TASK-002 cerrada** el 2026-09-04, la primera con resultado contable. La migración 0003 discrimina
+el IVA por línea a 2.1.2, imputa el destino contable del pago y arregla la fecha local. Da **el
+mismo centavo que el ERP**, no uno equivalente: el auditor comparó 34.136 casos contra el cuerpo
+literal de `discriminarIva()` y 400 asientos completos contra una réplica de `js/ventas.js`, con
+cero divergencias.
+
+Dos cosas que conviene no olvidar:
+
+- **Dónde estaba el centavo.** No en "neto por línea vs residuo" —eso es demostrablemente
+  imposible con 21 % y 10,5 %— sino en el **orden de redondeo del IVA**: redondear por línea y
+  sumar da 648,68; sumar y redondear al final da 648,67. Las dos cierran Debe = Haber.
+- **R20 en acción, con evidencia.** Con el centavo movido de 2.1.2 a 4.1, `asientosDesbalanceados()`
+  devolvió `[]`: el balance no detecta nada. El test lo caza igual porque verifica el monto
+  imputado a la cuenta fiscal. Un test que solo mirara Debe = Haber habría aprobado un peso mal
+  imputado.
+
 ## Qué sigue
 
-**TASK-002**: migración 0003 — IVA discriminado por línea imputado a 2.1.2, destino
-contable del pago (1.1.1 / 1.1.5 / 1.1.2) y `fecha_operacion` como fecha local. Es la primera
-tarea que toca reglas de negocio, y la primera cuyo resultado es contable: el asiento tiene que
-cerrar Debe = Haber también con alícuotas mixtas de 21 % y 10,5 %.
+**TASK-012** cierra R14: un flag mal tipeado del migrador aplica migraciones en vez de avisar.
+**TASK-013** cierra R16: el seed usa `demo-delfino` por defecto mientras el emulador corre en
+`delfino-hogar-erp`, así que siembra en un namespace que el ERP no mira — ya rompió un login
+local. Son independientes entre sí y ninguna bloquea el esquema.
 
-Dos correcciones más, ninguna bloqueante del esquema. **TASK-012** cierra R14: un flag mal
-tipeado del migrador aplica migraciones en vez de avisar. **TASK-013** cierra R16: el seed usa
-`demo-delfino` por defecto mientras el emulador corre en `delfino-hogar-erp`, así que siembra en
-un namespace que el ERP no mira — ya rompió un login local. Ninguno de los dos se acepta como
-riesgo residual.
+Después sigue la cadena del esquema: **TASK-003** (listas de precios e historial de costos) hasta
+TASK-010.
 
 El lote cubre los pasos 1 a 3 del plan maestro. Las tareas de API, adaptador y shadow se escriben
 cuando este lote esté aprobado, para no planificar sobre un esquema que todavía puede cambiar.
@@ -90,8 +103,8 @@ Netlify no lo lee).
 
 83 módulos en `js/` (10.719 LOC), 75 pantallas (12.403 LOC), 74 páginas HTML. 41 colecciones raíz
 y 6 subcolecciones. 32 módulos escriben en Firestore, con 140 call-sites, y **cero escrituras
-fuera de `js/`**. 47 decisiones, 22 riesgos, 43 invariantes de negocio más 7 propiedades de
-infraestructura, **75 tests** (32 unitarios y 43 de integración), **todos en verde**.
+fuera de `js/`**. 48 decisiones, 25 riesgos, 43 invariantes de negocio más 7 propiedades de
+infraestructura, **109 tests** (41 unitarios y 68 de integración), **todos en verde**.
 
 ## Cómo leer esto
 Resumen de una pantalla. El detalle está en TASKS.md (qué falta), DECISIONS.md (qué se decidió y
