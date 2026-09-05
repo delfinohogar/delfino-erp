@@ -660,8 +660,9 @@ migración es un control secundario y así la usan los tests.
 "demuestre" que nadie reintrodujo el recálculo. Para eso vale la enumeración de triggers y el
 assert de comportamiento.
 
-## R32 — [MEDIA] Tests que comparan texto de archivos se rompen al cambiar de rama, por CRLF
+## R32 — [RESUELTO 2026-09-05] Tests que comparan texto de archivos se rompen al cambiar de rama, por CRLF
 Registrado por el director el 2026-09-05, a partir de un hallazgo del implementador en TASK-013.
+**Cerrado el 2026-09-05 por TASK-019** (tester). Ver el bloque "Cierre" al final del riesgo.
 
 `tests/integration/postgres/precios_y_costos.test.js` tiene **2 tests en rojo** que comparan el
 texto de `backend/db/migrations/0004_precios_y_costos.sql` contra literales con `\n`. El
@@ -688,3 +689,115 @@ que el problema. Si más adelante se quiere igual, es una decisión aparte y de 
 Regla que se desprende, para las tareas que vienen: **un test que compara texto de archivos del
 repositorio tiene que ser insensible a los finales de línea.** Vale para TASK-018, que va a
 comparar la definición de `crear_venta()` con la que corre en la base.
+
+### Cierre — 2026-09-05, TASK-019 (tester)
+
+`tests/integration/postgres/precios_y_costos.test.js` pasa a LF el texto que ENTRA, en el único
+punto por donde entra (`sqlDe`, que es de donde salen `SQL_0003` y `SQL_0004` y el SQL de
+`esquemaHasta`). No se tocó ningún assert, ningún literal esperado y ningún otro test del
+archivo. No se agregó `.gitattributes`.
+
+Por qué no es relajar el assert: la comparación sigue siendo igualdad exacta carácter por
+carácter, y lo único que deja de distinguir es el `\r` del checkout. Demostrado con una copia
+del árbol fuera del repositorio, convirtiendo las migraciones a las dos formas y corriendo el
+archivo de tests contra las dos:
+
+| corrida | migraciones | tests | resultado |
+|---|---|---|---|
+| test SIN el arreglo (`git show HEAD:`) | LF | 33 | **33 verde** — así lo aprobó el auditor de TASK-003 |
+| test SIN el arreglo (`git show HEAD:`) | CRLF | 33 | **2 rojo** / 31 verde — el modo de falla del riesgo |
+| test CON el arreglo | LF | 33 | **33 verde** |
+| test CON el arreglo | CRLF | 33 | **33 verde** |
+| test CON el arreglo + cambio REAL de contenido | LF | 33 | **2 rojo** / 31 verde |
+| test CON el arreglo + cambio REAL de contenido | CRLF | 33 | **2 rojo** / 31 verde |
+
+El "cambio real de contenido" son dos ediciones semánticamente neutras del `0004` de la copia
+(`return v_id;` → `return v_id + 0;` en `registrar_costo()`, y
+`iva_l := discriminar_iva(sub, ali);` → `... + 0;` en `crear_venta()`): ningún assert numérico
+las ve, y aun así los dos tests de texto se ponen rojos en las dos formas del archivo. Es decir
+que siguen discriminando contenido y no quedaron apagados (R20).
+
+**Queda vigente la regla, y hay dos lugares más donde aplica** (reportados, no arreglados acá,
+por estar fuera del `files:` de la tarea):
+
+1. `tests/integration/postgres/iva_destino_y_fecha.test.js` → `mutarCrearVenta()` (líneas 68-77)
+   hace `sql.includes(de)` sobre el texto de `0003_iva_y_destino_pago.sql`. **Hoy está verde por
+   casualidad**: sus cuatro literales son de una sola línea, así que no hay `\r` en el medio. El
+   primer literal multilínea que alguien agregue ahí reproduce R32 exacto. Riesgo latente, mismo
+   patrón, misma solución de una línea.
+2. `tests/integration/postgres/_helpers.mjs` → `recrearEsquema()` (línea 26) carga las
+   migraciones **crudas**, con los `\r` incluidos, así que el cuerpo que queda desplegado en
+   PostgreSQL conserva los finales de línea del checkout. **Esto es lo que le importa a
+   TASK-018**: comparar `pg_get_functiondef('crear_venta')` contra el archivo exige normalizar
+   **los dos lados**, no solo el del archivo. En `precios_y_costos.test.js` esa comparación ya
+   sobrevive porque pasa por `normalizar()`, que colapsa `\s+`; una comparación cruda no.
+
+No se revisó nada más porque no hay más: las otras comparaciones de texto de la suite
+(`backend-higiene.test.js`, `migrador.test.js`, `safety.test.js`) son regex de una línea o
+`toContain` sobre stdout de un proceso, y ninguna es sensible a los finales de línea.
+
+### Confirmación del auditor — 2026-09-05, auditoría de TASK-019
+
+El cierre de arriba se verificó de forma independiente y quedó confirmado: la matriz de seis
+corridas se reprodujo entera y los dos lugares que el tester reporta existen y son los que dice.
+Se agrega en R33 la medición que faltaba, que es la que le sirve a TASK-018.
+
+---
+
+## R33 — [MEDIA] Después de TASK-019 el lado ARCHIVO está normalizado y el lado BASE no: TASK-018 no puede copiar la receta de una sola línea
+Registrado por el auditor el 2026-09-05, durante la auditoría de TASK-019. No es un defecto de
+TASK-019 —su arreglo es correcto y está dentro de su `files:`— sino la consecuencia que hereda la
+tarea siguiente.
+
+TASK-019 normaliza a LF el texto que entra por `sqlDe()` en `precios_y_costos.test.js:39`. El
+otro extremo, `tests/integration/postgres/_helpers.mjs:26`, sigue cargando las migraciones
+**crudas** al `pool.query`. Las dos mitades quedaron con criterios distintos.
+
+**Medido, no razonado** (base `delfino_test`, árbol tal como está hoy, con `0003` y `0004` en
+CRLF por `core.autocrlf=true`: `git ls-files --eol` da `i/lf  w/crlf` para los dos):
+
+- `pg_get_functiondef('crear_venta'::regproc)` devuelve el cuerpo **con 163 CRLF adentro**.
+  PostgreSQL guarda `prosrc` tal cual se lo mandaron, finales de línea incluidos.
+- comparación cruda base-contra-archivo, sin normalizar ningún lado: **`true`**. Pasa hoy, pero
+  por coincidencia: los dos lados arrastran el mismo CRLF.
+- normalizando `\r\n` → `\n` en **los dos** lados: **`true`**.
+- normalizando **solo el lado archivo**, que es exactamente lo que hace `sqlDe()` hoy: **`false`**.
+
+O sea: aplicar la receta de TASK-019 a un solo lado no es neutral, **rompe activamente** la
+comparación archivo-contra-base. Y la comparación que ya existe en `precios_y_costos.test.js:692`
+("lo que corre en la BASE es la definición de 0004") sobrevive **solo** porque pasa por
+`normalizar()`, que colapsa `\s+` y se come el `\r` de rebote. Es una protección incidental, no
+deliberada: el día que TASK-018 haga la comparación exacta que le corresponde, deja de haberla.
+
+**Condición de cierre — va al `accept:` de TASK-018 antes de que arranque:**
+
+1. La comparación entre la definición desplegada (`pg_get_functiondef` / `prosrc`) y el archivo de
+   la función normaliza los finales de línea **en los dos lados**, no en uno.
+2. `recrearEsquema()` de `_helpers.mjs` normaliza a LF lo que despliega, para que lo que corre en
+   la base no dependa del checkout de quien lo corrió. Se suma a lo ya pedido en
+   `TASK-003.approved`: que ese helper aplique además las migraciones repetibles.
+3. El test de TASK-018 se demuestra con la misma matriz de TASK-019: verde con el árbol en LF y
+   con el árbol en CRLF, y **rojo** ante un cambio real de contenido en las dos formas.
+
+**Latente, misma familia, sin cerrar:** `tests/integration/postgres/iva_destino_y_fecha.test.js`
+lee `SQL_0003` crudo (línea 26) y `mutarCrearVenta()` hace `sql.includes(de)` (líneas 68-77).
+Verificado por el auditor: sus cuatro literales (214-218 y 395) son de una sola línea, así que hoy
+está verde **por casualidad**. El primer literal multilínea que alguien agregue ahí reproduce R32
+idéntico, con el mismo síntoma engañoso: rojo sin que nadie haya tocado contenido.
+
+---
+
+## R34 — [BAJA] El `testTimeout` de 30 s deja a `migrador.test.js` al borde del flake bajo carga
+Registrado por el auditor el 2026-09-05, durante la auditoría de TASK-019.
+
+`vitest.integration.config.js` fija `testTimeout: 30000` para toda la integración. El test
+`MIGRADOR_IDEMPOTENCIA > contra base limpia aplica las migraciones, sale 0 y las registra con
+nombre y fecha` crea una base nueva y lanza el migrador en un **proceso hijo**: su duración
+depende de la carga de la máquina, no de la lógica. Al tester le cortó una vez por
+`Test timed out in 30000ms`, en una corrida que tardó 89 s contra los 51-52 s habituales.
+
+El auditor **no lo reprodujo**: dos corridas completas seguidas dieron 101/101 en 47,9 s y 49,0 s.
+Queda como flake de infraestructura, no como rojo del repositorio. Lo que lo vuelve un riesgo y no
+una anécdota es que un timeout se lee igual que un fallo de lógica en el log: si aparece en medio
+de una tarea contable, cuesta una iteración distinguirlo. Cierre sugerido: subir el timeout de ese
+archivo, o medir el margen y dejarlo escrito.

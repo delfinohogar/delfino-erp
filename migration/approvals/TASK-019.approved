@@ -1,0 +1,143 @@
+VEREDICTO: APROBADO
+Tarea: TASK-019 — Los tests que comparan texto son insensibles a CRLF (R32)
+Fecha: 2026-09-05
+Rama auditada: task/TASK-019
+Commit auditado: 4ee33f5 (diff fbf2414..4ee33f5)
+  · tester: 48edbd5 (el arreglo + RISKS.md + TEST_RESULTS.md), 4ee33f5 (status IN_REVIEW)
+Auditor: independiente del implementador y del tester. Solo lectura sobre código y tests.
+Base usada: delfino_test (127.0.0.1:5432). delfino_dev y producción no se tocaron.
+Entorno: árbol de trabajo con `0003`/`0004` en CRLF (`git ls-files --eol` → `i/lf  w/crlf`,
+  `core.autocrlf=true`), es decir el estado que rompía los tests. Emulador de Firestore/Auth ya
+  levantado por fuera. Todas las conversiones de finales de línea se hicieron sobre una COPIA del
+  árbol fuera del repositorio; el repositorio quedó como se lo encontró (`git status` limpio antes
+  y después de las ocho corridas).
+
+
+## Lo que decidía el veredicto: ¿el test sigue discriminando contenido?
+
+Sí. Reproducido por el auditor, ocho corridas propias del archivo completo, no dos.
+
+La contraprueba **A** es la del tester, repetida tal cual: dos ediciones semánticamente neutras de
+`0004_precios_y_costos.sql` que ningún assert numérico puede ver (`return v_id;` → `return v_id
++ 0;` en `registrar_costo()`, e `iva_l := discriminar_iva(sub, ali);` → `... + 0;` en
+`crear_venta()`). La contraprueba **B** es del auditor, elegida sin mirar la del tester y con la
+forma de un "refactor prolijo" que alguien podría escribir de buena fe: `perform 1;` insertado
+antes del `return v_id;` de `registrar_costo()`, y `iva_l := round(discriminar_iva(sub, ali), 2);`
+en `crear_venta()` (redondeo a 2 sobre un `numeric(14,2)`: rigurosamente un no-op).
+
+| # | archivo de test | migraciones | contenido | resultado |
+|---|---|---|---|---|
+| 1 | SIN el arreglo (`git show fbf2414:`) | LF (CRLF=0) | prístino | `Tests  33 passed (33)` |
+| 2 | SIN el arreglo (`git show fbf2414:`) | CRLF (CRLF=408) | prístino | `Tests  2 failed | 31 passed (33)` |
+| 3 | CON el arreglo | LF (CRLF=0) | prístino | `Tests  33 passed (33)` |
+| 4 | CON el arreglo | CRLF (CRLF=408) | prístino | `Tests  33 passed (33)` |
+| 5 | CON el arreglo | CRLF | mutación A | `Tests  2 failed | 31 passed (33)` |
+| 6 | CON el arreglo | LF | mutación A | `Tests  2 failed | 31 passed (33)` |
+| 7 | CON el arreglo | CRLF | mutación B (auditor) | `Tests  2 failed | 31 passed (33)` |
+| 8 | CON el arreglo | LF | mutación B (auditor) | `Tests  2 failed | 31 passed (33)` |
+
+Las corridas 1 y 2 son el control que fija la causa: mismo archivo de test, mismo contenido de
+migración, dos resultados según el final de línea. Las 5 a 8 son la contraprueba que decide: con
+el arreglo puesto, un cambio real de contenido pone en rojo **los mismos dos tests y solo esos
+dos**, en las dos formas del archivo y con dos mutaciones independientes entre sí.
+
+Los dos rojos son siempre, literalmente:
+
+    × COSTO_MAESTRO_NO_AUTOMATICO > MUTACIÓN R20 · registrar_costo() con el UPDATE de
+      js/compras.js adentro también se caza
+    × CREAR_VENTA_0004 · TASK-002 sigue en pie sobre la redeclaración > la de 0004 es idéntica
+      a la de 0003 salvo los tres agregados de la lista de precios
+
+y los mensajes son de diferencia de contenido, no de formato: `no está el texto "  -- P5: …\n
+return v_id;"` y `0004 diverge de 0003 en algo más que la lista de precios`. Que los otros 31
+sigan verdes bajo las mutaciones es parte del resultado: confirma que estos dos son el único
+centinela de esas dos funciones y que la normalización no los apagó (R20).
+
+
+## Invariantes verificadas — una línea por invariante
+
+- NO SE APAGÓ EL TEST (R20) — verificado con dos juegos de mutaciones independientes, en LF y en
+  CRLF: 4 de 4 corridas mutadas dan rojo. El arreglo no relaja nada.
+- LA COMPARACIÓN SIGUE SIENDO EXACTA — `reemplazar()`, `cuerpoDe()` y `normalizar()` quedaron
+  intactos, igual que los literales esperados; sigue siendo igualdad carácter por carácter y lo
+  único que deja de distinguir es el `\r` del checkout.
+- ALCANCE DEL DIFF — `git diff fbf2414..4ee33f5` toca cuatro archivos: el test, `RISKS.md`,
+  `TEST_RESULTS.md` y una línea de `TASKS.md` (`IN_PROGRESS` → `IN_REVIEW`). El diff del test es
+  **una línea de código más su comentario**, verificado con un diff literal contra la versión de
+  `fbf2414`: `const sqlDe = (n) => readFileSync(...)` pasa a `const aLF = (t) =>
+  t.replace(/\r\n/g, "\n"); const sqlDe = (n) => aLF(readFileSync(...))`. Nada más.
+- NO SE AGREGÓ `.gitattributes` — no existe en el árbol ni en ningún commit del repositorio
+  (`git log --all --diff-filter=A -- .gitattributes` vacío). Criterio de aceptación cumplido.
+- EL RESTO DEL ARCHIVO NO SE TOCÓ — ningún otro assert, ningún otro test, ninguna otra utilidad.
+- FUERA DE ALCANCE, INTACTO — `git diff` sobre `backend/`, `js/`, `functions/`, `scripts/`,
+  `package.json`, `vitest.config.js`, `vitest.integration.config.js`, `build.js`,
+  `firestore.rules`, `firebase.json` y `netlify.toml` es VACÍO. `js/firebase.js` y
+  `js/firebase-config.js` no se tocaron.
+- CONTRATO DE `js/*.js` — ninguna firma ni semántica cambió: la tarea no toca código de
+  aplicación. Sin regresión posible en la UI de `productos/`, `configuracion/` ni ninguna otra.
+- AISLAMIENTO — nada apunta a producción. `_helpers.mjs` sigue con `DATABASE_URL_TEST` y
+  `delfino_test` por defecto, y `tests/integration/setup.mjs` sigue abortando si
+  `FIRESTORE_EMULATOR_HOST` falta o no es local. Ninguna de las dos cosas se modificó.
+- SUITE, CORRIDA POR EL AUDITOR — unitarios `41 passed (41)`. Integración completa **dos veces
+  seguidas**, contra el árbol tal como está (con CRLF): `Test Files 5 passed (5)` /
+  `Tests 101 passed (101)` en 47,9 s y 49,0 s. Sin un solo rojo en ninguna de las dos.
+- INVENTARIO DE OTROS LUGARES, VERIFICADO Y COMPLETO — barrido propio de `readFileSync`,
+  `pg_get_functiondef` y `prosrc` en todo `tests/`. Los dos lugares que reporta el tester existen
+  y son los que dice (ver R33). El resto es EOL-insensible de verdad: `backend-higiene.test.js`
+  usa regex de una línea, `iva_destino_y_fecha.test.js:108` extrae con regex y `.trim()`,
+  `migrador.test.js` y `safety.test.js` hacen `toContain` sobre stdout de un proceso hijo.
+- R32 CERRADO EN RISKS.md CON FECHA — sí, `## R32 — [RESUELTO 2026-09-05]`, con el bloque de
+  cierre fechado y firmado por el tester.
+
+
+## Los dos rojos que el tester atribuye a infraestructura: confirmados, ninguno de lógica
+
+1. `npm run test:integration` no arranca con el emulador ya levantado. **Reproducido por el
+   auditor**: `Port 9099 is not open on 127.0.0.1, could not start Authentication Emulator`, lo
+   mismo en 8080 y 9199, `hub: unable to start on port 4400, starting on 4401`, y termina con
+   `Error: Could not start Authentication Emulator, port taken`. El fallo ocurre **antes** de que
+   vitest se ejecute: no hay un solo test involucrado. Es el arranque del emulador chocando con el
+   emulador que ya estaba en pie, el mismo rojo reportado desde TASK-001. Correr vitest con la
+   misma config contra el emulador ya levantado da verde, que es lo que se hizo.
+2. `migrador.test.js` cortando por `Test timed out in 30000ms`. **No reproducido**: dos corridas
+   completas seguidas, 101/101 las dos veces. Es timing de un test que lanza un proceso hijo y
+   crea una base, no lógica; nada de lo que cambió TASK-019 lo roza. Queda anotado como R34.
+
+
+## Calidad de los tests, no solo su resultado
+
+Leí los dos tests, no su resultado. El del bloque `COSTO_MAESTRO_NO_AUTOMATICO` instala en la base
+una `registrar_costo()` mutada y exige que `assertCompraNoPisaElMaestro()` se ponga roja **y** que
+el costo maestro quede en 715000: es un test de mutación real, no una comprobación de que exista
+un mecanismo. El de `CREAR_VENTA_0004` revierte los tres agregados de la lista de precios sobre el
+texto de 0004 y exige igualdad con 0003, con `reemplazar()` fallando ruidosamente si algún literal
+no está — una sustitución que no se aplica no puede dar falso verde. El arreglo de TASK-019 no
+toca ninguna de esas dos mecánicas: entra antes, en el `readFileSync`.
+
+Una observación sobre el alcance de lo que estos dos tests protegen, que conviene tener presente y
+no es un defecto de esta tarea: al comparar texto crudo con `includes`, el primero también se pone
+rojo si alguien reescribe el **comentario** `-- P5: el costo maestro queda como estaba…` sin tocar
+una línea de código. Es el precio de un centinela textual y ya está registrado como R31.
+
+
+## Observaciones registradas en RISKS.md, ninguna bloqueante
+
+- R33 [MEDIA] Después de TASK-019 el lado archivo está normalizado y el lado base no. Es el aporte
+  principal de esta auditoría y **es una condición de cierre para TASK-018**. Confirmado con
+  medición sobre `delfino_test`, no con razonamiento: `pg_get_functiondef('crear_venta')` devuelve
+  el cuerpo con **163 CRLF adentro** (PostgreSQL guarda `prosrc` tal cual se lo mandan); la
+  comparación cruda base-contra-archivo da `true` hoy **por coincidencia**, porque los dos lados
+  arrastran el mismo CRLF; normalizando los dos lados da `true`; y normalizando **solo el lado
+  archivo** —que es exactamente lo que hace `sqlDe()` después de este arreglo— da **`false`**.
+  TASK-018 no puede copiar la receta de una línea de TASK-019: aplicada a un solo lado no es
+  neutral, rompe activamente la comparación. R33 deja los tres puntos que van a su `accept:`.
+- R34 [BAJA] `testTimeout: 30000` deja a `migrador.test.js` al borde del flake bajo carga. No
+  reproducido por el auditor; queda escrito para que un timeout no se confunda con lógica en
+  medio de una tarea contable.
+
+
+## Nota de método
+
+`Edit` estaba deshabilitado en esta sesión. `migration/RISKS.md` se extendió agregando bytes al
+final, sin reescribir ni una línea previa y respetando su CRLF: `git diff --stat` da
+`66 insertions(+), 0 deletions(-)` sobre un solo archivo. Este `.approved` es un archivo nuevo.
