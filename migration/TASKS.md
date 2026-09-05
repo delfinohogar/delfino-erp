@@ -84,7 +84,11 @@ accept:
 - se actualiza R14 en RISKS.md como mitigado, con la fecha
 
 ### TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
-status: IN_PROGRESS
+status: BLOCKED_TECNICO
+bloqueo: `.claude/settings.json` solo lo modifica Gastón. Dos cosas la trancan: la línea 88
+  `"Edit(scripts/seed-emulator.mjs)"` en `deny`, que impide tocar el único archivo de la tarea; y
+  las líneas 8-9, que fuerzan `GCLOUD_PROJECT=demo-delfino` en toda sesión de agente. Sin lo
+  primero no se puede implementar; lo segundo es un segundo vector del mismo bug.
 owner: implementador
 depends: TASK-011
 files:
