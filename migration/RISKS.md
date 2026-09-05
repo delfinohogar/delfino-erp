@@ -566,7 +566,7 @@ la librería, en 26 funciones a la vez.
 Igual que R26: fuera del alcance de la PoC, `functions/` no la toca ningún agente, y se registra
 para que las dos cosas se planifiquen juntas y con tiempo, no bajo presión.
 
-## R28 — [MEDIA] Tres copias de `crear_venta()` mantenidas a mano, y una cuarta en camino
+## R28 — [RESUELTO 2026-09-05] Tres copias de `crear_venta()` mantenidas a mano, y una cuarta en camino
 Detectado por el tester en TASK-003 y elevado por Gastón el 2026-09-04.
 
 `crear_venta()` está definida con `CREATE OR REPLACE` en `0002_venta_servicio.sql:46`,
@@ -589,27 +589,42 @@ nombre y esa firma no cambia—, así que no hay una cuarta copia inminente. La 
 a tocar es **TASK-007** (`facturar_pedido`, que convierte el pedido en venta).
 
 **Condición de cierre (obligatoria, no opcional): antes de TASK-007.** Se cierra con
-**migraciones repetibles** — TASK-012 agrega soporte en el migrador para un directorio
-`backend/db/functions/` cuyos archivos se reaplican cuando cambia su hash, y TASK-018 mueve
-`crear_venta()` ahí. A partir de entonces la función tiene **una sola copia canónica** y las
-migraciones numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.
+**migraciones repetibles** — TASK-012 agrega soporte en el migrador para un directorio de
+repetibles cuyos archivos se reaplican cuando cambia su hash, y TASK-018 mueve `crear_venta()`
+ahí. A partir de entonces la función tiene **una sola copia canónica** y las migraciones
+numeradas dejan de redefinirla. Detalle y alternativas descartadas en DECISIONS.md.
 
-**SIGUE ABIERTO al 2026-09-05.** No por el contenido: la mudanza está medida y es
-comportamentalmente neutra, pero `backend/db/functions/crear_venta.sql` **no se pudo crear**. El
-`deny` de `.claude/settings.json` sigue alcanzando ese directorio incluso después de anclarlo a
-`./functions/**`, y el implementador **no lo esquivó por shell** por segunda vez. Lo que ya está
-medido, sobre una base desechable y con el archivo candidato fuera del repositorio:
+**CERRADO el 2026-09-05, en TASK-018.** `backend/db/repetibles/crear_venta.sql` existe y es la
+definición vigente. La migración `0006_crear_venta_repetible.sql` deja constancia del corte con un
+`comment on function` y **no redefine** la función; `0002`, `0003` y `0004` quedan intactas como
+historia aplicada.
 
-- el cuerpo candidato es **byte a byte idéntico** a `0004_precios_y_costos.sql:241-408`
-  (168 líneas, mismo SHA-256 tras normalizar a LF);
-- desplegado como repetible, `pg_get_functiondef('crear_venta')` **antes y después** de la mudanza
-  es idéntico normalizando los dos lados, y el `prosrc` también;
-- la mudanza sí cambia los **bytes** de lo desplegado: 163 CRLF antes —la numerada se aplica
-  cruda—, 0 después, porque las repetibles se despliegan normalizadas a LF. Es lo que R33 pedía y
-  no cambia una letra del SQL.
+El directorio es `backend/db/repetibles/` y **no** `backend/db/functions/`: el nombre viejo era
+ambiguo entre funciones de PostgreSQL y las Cloud Functions de `functions/`, y esa ambigüedad
+bloqueó la tarea dos veces (ver R39). Gastón decidió sacar el directorio del alcance de la barrera
+en vez de agujerearla. No revertir el nombre.
 
-R28 se cierra en el commit que finalmente cree el archivo. Sigue siendo condición previa a
-TASK-007.
+Medido sobre el árbol real y una base desechable, con las migraciones numeradas aplicadas primero
+y la repetible después:
+
+- la transcripción es **byte a byte idéntica** a `0004_precios_y_costos.sql:241-408`: `diff`
+  vacío, 168 líneas, mismo SHA-256 `0aaf8736…` normalizando a LF. La tarea **mudó, no
+  refactorizó**;
+- **proveniencia**: una variante marcada aplicada desde `repetibles/` pisa la copia que dejó 0004,
+  y reaplicar el archivo real borra la marca. O sea que lo que corre en la base sale del archivo
+  nuevo y no de la migración numerada;
+- **V2** — el cuerpo desplegado coincide con el archivo **normalizando los dos lados** (R33):
+  `true`, con el archivo en LF y también convertido a CRLF. Mutar un solo carácter da `false`, así
+  que la comparación sigue discriminando;
+- **V3** — `pg_get_functiondef('crear_venta')` **antes y después** de la mudanza es idéntico
+  normalizando los dos lados, y el `prosrc` también. El único cambio es de **bytes** y es
+  deliberado: 163 CRLF antes —la numerada se aplica cruda— y 0 después, porque las repetibles se
+  despliegan normalizadas a LF. No cambia una letra del SQL.
+
+Queda para el tester, y es condición previa a TASK-007: `recrearEsquema()` en
+`tests/integration/postgres/_helpers.mjs` tiene que aplicar también `backend/db/repetibles/`.
+Mientras no lo haga, la suite corre contra la copia que dejó 0004 —hoy idéntica, así que no miente
+todavía— pero dejaría de detectar una divergencia futura.
 
 ## R29 — [MEDIA] `historial_costos` no distingue "compra registrada" de "aceptación del maestro"
 Registrado por el auditor el 2026-09-04, en la aprobación de TASK-003. Detectado antes por el

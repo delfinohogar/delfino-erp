@@ -9,7 +9,7 @@
 // Dos clases de migracion:
 //   - NUMERADAS, backend/db/migrations/*.sql: se aplican UNA vez, en orden alfabetico, y quedan
 //     registradas en schema_migrations. Una vez aplicadas no se editan nunca.
-//   - REPETIBLES, backend/db/functions/*.sql: definiciones que se reemplazan enteras
+//   - REPETIBLES, backend/db/repetibles/*.sql: definiciones que se reemplazan enteras
 //     (CREATE OR REPLACE FUNCTION y companina). Se aplican SIEMPRE DESPUES de las numeradas y
 //     se REAPLICAN solo cuando cambia el hash del archivo. Se registran en schema_repetibles.
 //     Es el patron que Flyway llama R__; cierra R28 (tres copias de crear_venta() a mano).
@@ -66,7 +66,14 @@ import { crearPool } from "./pool.js";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const DIR_MIGRACIONES = join(AQUI, "..", "..", "db", "migrations");
-export const DIR_REPETIBLES = join(AQUI, "..", "..", "db", "functions");
+// El directorio se llama "repetibles", NO "functions", y no es cuestion de gusto: dentro de un
+// directorio de base de datos "functions/" es ambiguo entre funciones de PostgreSQL y las Cloud
+// Functions de functions/, que son produccion desplegada y ningun agente toca. Esa ambiguedad
+// nos costo un bloqueo real (R39): la barrera que protege las Cloud Functions matchea el
+// componente "functions" a cualquier profundidad del arbol, asi que tambien alcanzaba a
+// backend/db/functions/ y no dejaba crear la definicion canonica de crear_venta(). Renombrar
+// esto a "functions/" por prolijidad reabre el bloqueo. Decision de Gaston, 2026-09-05.
+export const DIR_REPETIBLES = join(AQUI, "..", "..", "db", "repetibles");
 
 // Clave arbitraria pero fija del lock de sesion. Cualquier proceso que migre esta base usa
 // esta misma clave; nadie mas la usa.

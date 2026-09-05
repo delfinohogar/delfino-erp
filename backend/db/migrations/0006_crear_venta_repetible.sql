@@ -4,7 +4,7 @@
 -- Esta migración NO redefine crear_venta(). Deja constancia del corte y nada más.
 --
 -- Qué cambia a partir de acá:
---   - la definición vigente de crear_venta() es backend/db/functions/crear_venta.sql, una
+--   - la definición vigente de crear_venta() es backend/db/repetibles/crear_venta.sql, una
 --     MIGRACIÓN REPETIBLE que el migrador reaplica cuando cambia su hash, siempre después de
 --     las numeradas;
 --   - ninguna migración numerada vuelve a declarar crear_venta(). La próxima tarea que la
@@ -25,4 +25,4 @@
 -- crear_venta() no existe, que es exactamente lo que queremos que pase.
 -- ===========================================================================
 comment on function crear_venta(bigint, text, date, jsonb, jsonb, text, text, text) is
-  'Definicion canonica en backend/db/functions/crear_venta.sql (migracion repetible, R28/TASK-018). No redefinir en migraciones numeradas.';
+  'Definicion canonica en backend/db/repetibles/crear_venta.sql (migracion repetible, R28/TASK-018). No redefinir en migraciones numeradas.';

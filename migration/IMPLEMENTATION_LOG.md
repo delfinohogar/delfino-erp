@@ -377,3 +377,63 @@ Corrido: `npm run check` OK 162 archivos; `npm test` 152/152 verde; integracion 
 rojos de arriba. Los tests de TASK-002 y TASK-003 (`iva_y_destino_pago`, `precios_y_costos`) en
 verde y sin tocar. `npm run test:integration` completo no lo pude correr: los emuladores de Gaston
 ya ocupan 8080/9099/9199 y `firebase emulators:exec` intenta levantar los suyos; no los baje.
+
+## TASK-018 (cierre) — 2026-09-05 — implementador
+
+Desbloqueada por renombre, no por excepcion: el directorio de repetibles pasa de
+`backend/db/functions/` a **`backend/db/repetibles/`** (decision de Gaston). El `deny` que protege
+las Cloud Functions matchea el componente `functions` a cualquier profundidad (R39) y queda
+intacto; lo nuestro sale de su alcance. Ademas el nombre viejo era ambiguo entre funciones de
+PostgreSQL y Cloud Functions, que fue la causa real del bloqueo. Dejo el motivo escrito en
+`migrar.js` y en el README para que nadie lo revierta "por prolijidad".
+
+Renombrado: la constante `DIR_REPETIBLES` y su comentario en `backend/src/db/migrar.js`; las **6**
+menciones de `db/functions/` en `backend/README.md` (el director conto 7: la septima es
+`` `functions/` es produccion desplegada ``, que se refiere a las Cloud Functions de verdad y
+**no** se toca); y los 2 comentarios de `0006_crear_venta_repetible.sql`, incluido el texto del
+`comment on function`.
+
+Creado `backend/db/repetibles/crear_venta.sql`. Transcripcion verificada **sobre el arbol real**:
+`diff` vacio contra `0004_precios_y_costos.sql:241-408`, 168 lineas, mismo SHA-256
+`0aaf87367c29a13a…`. El archivo completo es byte a byte el candidato ya validado (10558 bytes).
+No hay un solo cambio de comportamiento: la tarea muda, no refactoriza.
+
+V2 y V3 rehechas sobre el arbol real (base desechable `delfino_task018_arbol`, creada y borrada;
+no toque `delfino_dev` ni `delfino_test`). Proveniencia: una variante marcada aplicada desde
+`repetibles/` pisa la copia de 0004 (`true`) y reaplicar el archivo real borra la marca (`true`).
+V2 cuerpo desplegado == archivo normalizando **los dos lados**: `true`; con el archivo en LF y en
+CRLF: `true` en los dos; mutando un caracter: `false`, o sea que sigue discriminando. V3
+`pg_get_functiondef` antes vs despues normalizando los dos lados: `true`, y el `prosrc` tambien;
+sin normalizar: `false`, porque los CRLF de lo desplegado pasan de **163 a 0** — unico cambio,
+deliberado, las repetibles se despliegan en LF. El `comment on function` de 0006 se lee desde la
+base y ya nombra `backend/db/repetibles/crear_venta.sql`.
+
+R28 cerrado en RISKS.md con fecha 2026-09-05 y con las mediciones. R37 ya estaba cerrado.
+
+Tests rojos, **todos del tester y ninguno tocado**: 23 rojos, 101 verdes de 124. Dos en
+`migrador.test.js` — el centinela `toBe(4)` (:73, hoy hay 5 numeradas) y `--marcar-aplicadas
+registra sin ejecutar` (:445, que se puso rojo justamente porque ahora `crear_venta.sql` existe y
+el chequeo de R37 aborta el baseline). Los otros **21 en `migrador_repetibles.test.js`** son caida
+del renombre: `_repetibles_helpers.mjs:64` arma el arbol de prueba con
+`join(raiz, "backend", "db", "functions")` y el migrador ya resuelve `repetibles`, asi que cada
+test ve un directorio vacio. El arreglo del tester es esa linea mas los comentarios de las lineas
+4, 8, 55 y 105. Uno de esos 21 es el `:925` esperado, que afirma la convencion vieja de
+`--marcar-aplicadas`. Los tres archivos de comportamiento —`invariantes`, `iva_destino_y_fecha` y
+`precios_y_costos`, o sea TASK-002 y TASK-003— quedan **en verde y sin tocar**: esa es la prueba
+de que la mudanza es neutra.
+
+Corrido: `npm run check` OK 162 archivos; `npm test` 152/152 verde; integracion de Postgres con
+`npx vitest run -c vitest.integration.config.js tests/integration/postgres`. `npm run
+test:integration` completo sigue sin poder correr: los emuladores ya ocupan 8080/9099/9199 y
+`firebase emulators:exec` intenta levantar los suyos; no los baje.
+
+Dudas para el director / auditor:
+1. Queda en disco `backend/db/functions/` **vacio y sin trackear**. No lo borre: sigue cayendo en
+   el `deny` y no pienso tocarlo por shell. Git no versiona directorios vacios, asi que el arbol
+   commiteado solo tiene `repetibles/`; es solo ruido local.
+2. `RISKS.md:994` (bullet de por que R37 no bloqueo TASK-012) dice "hoy no hay ni una repetible en
+   el repo (`backend/db/functions/` ni existe)". Es contexto historico de TASK-012 y quedo
+   desactualizado; no lo edite porque no es R28. Lo decide el director.
+3. `recrearEsquema()` en `_helpers.mjs` sigue aplicando solo `db/migrations/`. Ahora que
+   `crear_venta.sql` existe, sin ese cambio la suite prueba la copia de 0004 —hoy identica, asi
+   que no miente todavia—. Es del tester y es condicion previa a TASK-007.
