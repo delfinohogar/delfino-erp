@@ -75,13 +75,28 @@ Los tests los escribe el tester en `tests/`, así que `tests/` no aparece en nin
 Excepciones: TASK-011, TASK-016 y TASK-017, cuyo entregable **es** un test y por eso sí lo
 declaran.
 
-**Por qué TASK-016 y TASK-017 están separadas de la tarea del servicio que prueban** (decisión
+**Por qué TASK-016A/B/C y TASK-017 están separadas de la tarea del servicio que prueban** (decisión
 Nivel 2 del 2026-09-04, argumento completo en DECISIONS.md): sus invariantes se prueban **entre**
-operaciones, no dentro de una. `FACTURAR_VS_MODIFICAR` no se puede escribir hasta que existan
-`facturar_pedido` **y** `modificar_pedido`; `INTEGRIDAD_GLOBAL` no existe hasta que existan todas
-las operaciones. Por eso dependen de TASK-008 y TASK-010 respectivamente. **No las juntes con la
-tarea del servicio**: la obligación de implementar el orden de bloqueo y el guard sigue estando en
-TASK-005 y TASK-007; lo que se movió es dónde se prueba que funcionan bajo concurrencia.
+operaciones, no dentro de una. **No las juntes con la tarea del servicio**: la obligación de
+implementar el orden de bloqueo y el guard sigue estando en TASK-005 y TASK-007; lo que se movió es
+dónde se prueba que funcionan bajo concurrencia.
+
+**Y por qué sus `depends:` no van todos al final de la cadena** (corrección de Gastón, 2026-09-05):
+una tarea de test transversal depende de **las tareas cuyo cruce prueba**, no de la última que
+roza. Por eso TASK-016 se partió en tres, cada una con su dependencia real: **016A con TASK-005**,
+**016B con TASK-006 y TASK-007**, **016C con TASK-008**. La versión anterior las colgaba a todas de
+TASK-008, que era inercia del director y no una restricción: la cadena lineal es correcta para las
+**migraciones numeradas**, porque cada una necesita el esquema de la anterior, y no para los tests
+transversales.
+
+**Las dependencias dicen qué es posible; el orden de ejecución dice qué se elige.** Gastón decidió
+el 2026-09-05 **ejecutar en serie igual**, aunque 016B pueda correr en paralelo con TASK-008. Su
+motivo no es técnico: dos agentes a la vez son dos ciclos de tester y auditor superpuestos y dos
+merges en paralelo para aprobar — más superficie para que algo se pase, en las tareas más
+delicadas del proyecto. El `git worktree` queda como **opción disponible, no activada**; se
+enciende si el ritmo lo justifica. Que las dependencias sean verdaderas sirve igual sin
+paralelizar: dicen qué se puede reordenar si una tarea se traba, y qué queda libre si una se
+bloquea.
 
 **Orden de ejecución:** TASK-011 va antes que TASK-002. La suite tiene que estar en verde antes
 de tocar reglas de negocio: un rojo crónico entrena a ignorar los rojos, y TASK-002 es la primera
@@ -223,13 +238,28 @@ accept:
 - el test tiene que demostrar la divergencia, no solo la ausencia de trigger: registrar una compra con un costo distinto y verificar que `productos.costo` **no cambió** y que quedó la fila en `historial_costos`
 
 ### TASK-018 — `crear_venta()` pasa a tener una sola copia canónica (R28)
-status: IN_PROGRESS
+status: BLOCKED_TECNICO
+bloqueo: espera **una edición de Gastón** en `.claude/settings.json`. Las líneas 75-76 deniegan
+  `Edit(functions/**)` y `Write(functions/**)`, pensadas para la carpeta de Cloud Functions de la
+  raíz, pero el glob **también matchea `backend/db/functions/**`**, que es donde vive el mecanismo
+  de repetibles de TASK-012. Arreglo: **anclar los dos a la raíz** — `Edit(./functions/**)` y
+  `Write(./functions/**)`. Es la misma familia de falsos positivos que se corrigió en `f418870`.
+  El implementador reportó el bloqueo y **no lo esquivó por shell**, que era la salida fácil y la
+  equivocada: el `deny` existe para proteger `functions/`, y saltearlo con otra herramienta lo
+  vaciaría igual que en TASK-013.
 owner: implementador
 depends: TASK-012
 files:
 - backend/db/functions/crear_venta.sql
 - backend/db/migrations/0006_crear_venta_repetible.sql
 - backend/src/db/migrar.js
+- backend/README.md
+tres tests que va a haber que actualizar, y son del TESTER, no del implementador: `migrador.test.js:73`
+  (centinela `toBe(4)`, sube a 5 con la migración 0006), `migrador.test.js:445` (se va a poner rojo
+  en cuanto exista `crear_venta.sql`) y `migrador_repetibles.test.js:925` (afirma la convención
+  vieja de `--marcar-aplicadas`, que el endurecimiento de R37 revierte a propósito). El
+  implementador los detectó y **no los tocó**, que es lo correcto. El tercero es el más delicado:
+  no es un test que se rompe, es un test que **afirmaba lo contrario de lo que ahora se exige**.
 nota sobre `files:`: `migrar.js` estaba declarado en TASK-012 y se agrega acá porque el cierre de
   R37 —que `--marcar-aplicadas` falle si lo baselineado no está en la base— vive en ese archivo.
   **No hay conflicto**: TASK-012 está DONE y mergeada, así que las dos tareas no lo tocan a la vez.
@@ -267,19 +297,42 @@ accept:
 - se revisa si hay otras comparaciones de texto de archivos en `tests/` con el mismo problema, y se reportan aunque no se arreglen acá
 - R32 queda cerrado en RISKS.md con la fecha
 
-### TASK-016 — Invariantes de concurrencia entre operaciones
+### TASK-016A — ORDEN_DE_BLOQUEO: dos transacciones cruzadas sin deadlock
+status: PENDING
+owner: tester
+depends: TASK-005
+files:
+- tests/integration/postgres/concurrencia_orden_bloqueo.test.js
+accept:
+- dos transacciones cruzadas sobre dos productos no producen deadlock, porque ambas bloquean `stock` por `(producto_id, deposito_id)` ascendente
+- **mutación (R20)**: invertir el orden de bloqueo en una de las dos **tiene que producir deadlock**. Si el test pasa con el orden bien y con el orden mal, no prueba nada
+- la corrida es determinista o se repite N veces: un test de concurrencia que pasa por timing no prueba nada, y es la forma más traicionera de R20 porque el verde parece ganado
+- no modifica `backend/`: si la invariante falla, es bug del servicio y se reporta
+
+### TASK-016B — FACTURAR_VS_MODIFICAR: el lock solo no alcanza, hace falta el guard
+status: PENDING
+owner: tester
+depends: TASK-006, TASK-007
+files:
+- tests/integration/postgres/concurrencia_facturar_modificar.test.js
+accept:
+- facturar y modificar el mismo pedido en paralelo: la modificación sobre un pedido ya facturado se rechaza
+- **el test distingue el lock del guard**: con el lock puesto y el guard sacado, la modificación tiene que pasar y el test ponerse rojo. Ésa es la única forma de probar que el guard hace falta, y está verificado empíricamente que el lock solo no alcanza
+- **mutación (R20)**: quitar el guard deja pasar la modificación y el test lo caza
+- determinista o repetida N veces
+- no modifica `backend/`
+
+### TASK-016C — Concurrencia de entregas: no consumir más de lo reservado
 status: PENDING
 owner: tester
 depends: TASK-008
 files:
-- tests/integration/postgres/concurrencia_pedidos.test.js
+- tests/integration/postgres/concurrencia_entregas.test.js
 accept:
-- ORDEN_DE_BLOQUEO: dos transacciones cruzadas sobre dos productos, sin deadlock, porque ambas bloquean `stock` por `(producto_id, deposito_id)` ascendente
-- FACTURAR_VS_MODIFICAR: facturar y modificar el mismo pedido en paralelo; la modificación sobre un pedido ya facturado se rechaza. El lock solo NO alcanza: hace falta el guard, y el test tiene que distinguir los dos
-- concurrencia de reservas y entregas: dos entregas simultáneas no consumen más de lo reservado
-- **cada propiedad con su mutación (R20)**: quitar el orden de bloqueo tiene que producir deadlock; quitar el guard tiene que dejar pasar la modificación. Un test de concurrencia que no se puede hacer fallar es decorativo
-- las corridas concurrentes son deterministas o se repiten N veces: un test que pasa por timing no prueba nada
-- no modifica `backend/`: si una invariante falla, es bug del servicio y se reporta
+- dos entregas simultáneas sobre la misma reserva no consumen más de lo reservado
+- **mutación (R20)**: sacar el bloqueo de la reserva permite el sobreconsumo y el test lo caza
+- determinista o repetida N veces
+- no modifica `backend/`
 
 ### TASK-017 — Integridad global tras operaciones exitosas y fallidas
 status: PENDING
