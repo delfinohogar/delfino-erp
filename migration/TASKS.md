@@ -152,7 +152,7 @@ accept:
 - se actualiza R14 en RISKS.md como mitigado, con la fecha
 
 ### TASK-013 — El seed apunta al proyecto del emulador, o falla claro (R16)
-status: IN_PROGRESS
+status: IN_REVIEW
 owner: implementador
 depends: TASK-003
 nota: Gastón **ya levantó** el `deny` de `scripts/seed-emulator.mjs` el 2026-09-04, en el commit
