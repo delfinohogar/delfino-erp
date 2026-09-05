@@ -1195,7 +1195,46 @@ historia aplicada y no se tocan. `funcionesDeclaradas()` de `migrar.js` ya hace 
 está exportada. Se propone hacerlo en TASK-007, que es la primera tentación real de sumar la
 cuarta copia.
 
-## R43 — [MEDIA] Tests que pasan por el estado del emulador de Gastón, no por lo que dicen probar
+## R43 — [CERRADO 2026-09-05] Tests que pasan por el estado del emulador de Gastón, no por lo que dicen probar
+
+**ESTADO: CERRADO — 2026-09-05, TASK-020, verificado contra un emulador vacío.**
+El `it` de `seed-emulator.test.js:168` **se retiró**. No se auto-siembra: sembrar
+`admin@delfino.local` en `delfino-hogar-erp` es justo lo que prohíbe la regla de oro de ese
+archivo, y sembrarlo en un namespace efímero ya lo hace `SEED_USUARIO_VISIBLE` veinte líneas más
+arriba, así que la versión auto-sembrada habría sido un duplicado. La regla de oro no se tocó: el
+seed sigue sin correrse nunca sobre `delfino-hogar-erp`, que solo se lee, y las dos huellas se
+siguen comparando enteras (`SEED_ERP_INTACTO`, verde).
+
+No se pierde cobertura. La propiedad "el seed deja el admin en el namespace que mira el ERP" sale
+de la conjunción de tres tests deterministas que no dependen de que nadie haya sembrado antes:
+(a) el seed siembra en el namespace que declara `js/firebase-config.js` —se corre sobre una copia
+del árbol con un projectId propio y se verifica que sea **ése**—; (b) ahí quedan
+`admin@delfino.local` en Auth y `/usuarios/{uid}` con el mismo uid y rol administrador; (c)
+`js/firebase-config.js` declara exactamente un projectId y es `delfino-hogar-erp`
+(`tests/unit/seed-emulator-barreras.test.js`, y `safety.test.js` lo reafirma).
+
+**Verificación (lo que decide el cierre).** Se levantó un segundo emulador **vacío** en puertos
+propios (firestore 8181, auth 9191, `--project delfino-hogar-erp`, **sin** `--import`), sobre el
+que nunca se corrió `npm run seed` — inventario confirmado en 0 documentos y 0 usuarios de Auth
+antes de empezar. Contra ese emulador: **antes** del arreglo, 1 rojo de 152, con el mensaje
+literal de CI (`[INFRAESTRUCTURA] no hay usuario admin@delfino.local en "delfino-hogar-erp"`) y
+**ningún otro rojo**; **después**, 151 de 151 en verde, dos corridas seguidas. Contra el emulador
+de trabajo de Gastón, 151 de 151 en verde, dos corridas seguidas, y la huella de
+`delfino-hogar-erp` idéntica antes y después (sha256 `8ba6f8ab…c6ad6a` en las dos puntas).
+
+**El barrido del resto de `tests/` no encontró nada más**, y la corrida contra el emulador vacío
+es la evidencia: cualquier otro test que dependiera de datos previos habría salido rojo ahí mismo.
+Los tests de Postgres recrean el esquema (`recrearEsquema` + `seed`) o se crean bases temporales
+propias; `safety.test.js` crea su propio usuario efímero desde TASK-011. Queda **anotada, y no se
+toca**, una precondición de estado previo en el mismo archivo que es deliberada y de dirección
+segura: `SEED_LIMPIEZA_REAL` exige que `demo-delfino` esté **vacío** al empezar, y si no lo está
+aborta como problema de entorno **sin borrar nada**. Exige ausencia de datos, no presencia, así que
+en una máquina limpia siempre se cumple y CI no la puede ver en rojo; y la alternativa —limpiar
+automáticamente lo ajeno— es exactamente el borrado que R16 y `SEED_BARRIDO_ACOTADO` existen para
+impedir. Se deja como está, a propósito.
+
+Lo que sigue es el registro original del hallazgo.
+
 Detectado por **CI** el 2026-09-05, en la primera corrida sobre una máquina limpia después del push
 del lote de cuatro. Unitarios verdes, integración roja.
 
@@ -1223,3 +1262,4 @@ defecto**, mejor que cualquier revisión a ojo: un barrido manual busca los que 
 encuentra los que hay.
 
 Puede haber más de uno. Se cierra en **TASK-020**, que además barre el resto de `tests/`.
+*(Cerrado: era uno solo. Ver la cabecera de esta entrada.)*

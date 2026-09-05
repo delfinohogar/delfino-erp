@@ -1613,4 +1613,155 @@ los archivos por shell (`sed`, heredocs) en vez de con la herramienta de edició
 texto inyectado, contradice la consigna explícita de la tarea, y ya le pasó a otros agentes.
 Todos los archivos de esta tarea se editaron con la herramienta de edición.
 
+---
+
+# TASK-020 — La suite no depende del estado del emulador de Gastón (R43)
+
+**Fecha:** 2026-09-05 · **Rama:** `task/TASK-020` · **Owner:** tester
+
+## Comandos
+
+`npm run test:integration` **no arranca** en esta máquina: el emulador de trabajo de Gastón está en
+pie y los puertos están tomados (`Could not start ... port taken`). Es el problema conocido que el
+director anticipó. Se corrió, como él indicó:
+
+    npm test
+    npx vitest run -c vitest.integration.config.js     # con FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST apuntados a mano
+
+Para la verificación del criterio de la tarea se levantó un **segundo emulador, vacío**, con un
+`firebase.json` propio **fuera del repo** (en el temporal del sistema) que solo cambia los puertos:
+firestore 8181, auth 9191, hub 4411, logging 4511, UI apagada, `singleProjectMode: true` igual que
+el del repo, `--project delfino-hogar-erp` y **sin `--import`**. No se tocó `firebase.json` ni
+`package.json`. Ese emulador se apagó al terminar y sus puertos quedaron libres.
+
+## Qué se hizo con el `it` de la línea 168
+
+**Se borró**, con la salida que recomendaba el director, y sin desacuerdo. Se deja en su lugar un
+comentario que explica por qué se retira y dónde vive ahora la cobertura.
+
+Se evaluó la alternativa que prefería Gastón —que el test se siembre a sí mismo, como TASK-011 con
+el usuario efímero— y el criterio de Gastón es el correcto **en general**; lo que no cierra es
+**acá**: sembrar `admin@delfino.local` en `delfino-hogar-erp` es exactamente lo que prohíbe la
+regla de oro del archivo, y sembrarlo en un namespace efímero ya lo hace `SEED_USUARIO_VISIBLE`
+veinte líneas más arriba, contra el emulador de verdad. La versión auto-sembrada habría sido un
+duplicado literal del `it` vecino.
+
+**Se buscó una propiedad propia que se perdiera, y no hay ninguna.** El `it` afirmaba dos cosas:
+que `admin@delfino.local` está en Auth de `delfino-hogar-erp`, y que su uid tiene perfil en
+`/usuarios`. Las dos se deducen de tres tests que no dependen de que nadie haya sembrado antes:
+
+1. el seed siembra en el namespace que declara `js/firebase-config.js` — se lo corre sobre una
+   **copia del árbol** con un projectId propio y se verifica que la salida nombre **ése**;
+2. en ese namespace quedan `admin@delfino.local` en Auth y `/usuarios/{uid}` con el mismo uid y
+   `rol: administrador` (el `it` que le sigue, contra el emulador de verdad);
+3. `js/firebase-config.js` declara exactamente un projectId y es `delfino-hogar-erp`
+   (`tests/unit/seed-emulator-barreras.test.js`; `safety.test.js:247` lo reafirma).
+
+Seed(config.projectId) ∧ config.projectId = `delfino-hogar-erp` ⇒ seed(`delfino-hogar-erp`). Lo
+que el `it` agregaba por encima de eso no era una propiedad del código: era el dato de que en la
+máquina de Gastón el seed ya se había corrido. Eso es cierto y está verificado —él recuperó el
+login—, pero es evidencia de una corrida manual y va a `MIGRATION_STATUS.md`, no a la suite.
+
+La **regla de oro no se tocó**: el seed sigue sin correrse nunca sobre `delfino-hogar-erp`, ese
+namespace solo se lee, y las dos huellas se siguen comparando enteras, con `createTime` y
+`updateTime` adentro (`SEED_ERP_INTACTO`, verde en las cuatro corridas).
+
+## Verificación 2 — la suite pasa sin el admin sembrado (resultado literal)
+
+Contra el emulador **vacío** de 8181/9191, inventario confirmado en **0 documentos y 0 usuarios de
+Auth** en `delfino-hogar-erp` y en `demo-delfino` antes de empezar:
+
+| Corrida | Estado del archivo | Resultado |
+|---|---|---|
+| control (antes del arreglo) | `it` presente | `Test Files 1 failed \| 7 passed (8)` · `Tests 1 failed \| 151 passed (152)` |
+| 1 (después) | `it` retirado | `Test Files 8 passed (8)` · `Tests 151 passed (151)` |
+| 2 (después) | `it` retirado | `Test Files 8 passed (8)` · `Tests 151 passed (151)` |
+
+El único rojo del control fue, literalmente, el de CI:
+
+    FAIL tests/integration/seed-emulator.test.js > SEED_USUARIO_VISIBLE — sembrar deja el admin
+    donde el ERP lo mira > el emulador de Gaston ya tiene el admin sembrado en delfino-hogar-erp
+    (sintoma que originó R16)
+    [INFRAESTRUCTURA] no hay usuario admin@delfino.local en "delfino-hogar-erp".
+    Corré: npm run seed (lo corre Gastón, no un agente)
+
+**El control importa tanto como el verde**: prueba que el emulador vacío era de verdad vacío y que
+el arreglo es el que cambia el resultado, no la forma de correrlo.
+
+Contra el emulador de trabajo de Gastón (8080/9099), después del arreglo: `Tests 151 passed (151)`,
+dos corridas seguidas. Unitarios: `Tests 152 passed (152)`. Total **303 en verde**.
+
+## Higiene del emulador de Gastón
+
+Huella completa de `delfino-hogar-erp` (documentos, campos, `createTime`, `updateTime` y usuarios de
+Auth) medida antes de la primera corrida y después de la última:
+
+    sha256 ANTES:   8ba6f8abec93f57ceeeff41ab1a30916e41f656ee69cb16d82de6cdf84c6ad6a
+    sha256 DESPUES: 8ba6f8abec93f57ceeeff41ab1a30916e41f656ee69cb16d82de6cdf84c6ad6a   (idéntica: true)
+
+35 documentos, 1 usuario de Auth, sin cambios. `demo-delfino` quedó en 0/0. Los namespaces
+efímeros `tester-task013-<uuid>` los borra el `afterAll` del propio archivo. El
+segundo emulador se apagó y 8181/9191/4411 quedaron libres; el de Gastón siguió en pie.
+
+## El barrido del resto de `tests/`
+
+**No hay ningún otro test que dependa del estado previo del emulador o de Postgres.**
+
+La evidencia no es una lectura a ojo: es la corrida de control contra el emulador vacío, donde
+**el único rojo de los 152 fue el `it` de la 168**. Cualquier otro test que dependiera de datos
+sembrados por alguien más habría salido rojo en esa misma corrida. Un barrido manual encuentra los
+que uno imagina; el emulador vacío encuentra los que hay. Revisado además archivo por archivo:
+
+| Archivo | Estado | Por qué |
+|---|---|---|
+| `tests/integration/safety.test.js` | limpio | crea su propio usuario efímero `safety-<uuid>@test.local` y su propio doc en `/clientes`, y los borra. Autosuficiente desde TASK-011. Sus dos `exigirEntorno` son sobre **variables de entorno**, que es infraestructura legítima |
+| `tests/integration/postgres/invariantes.test.js` | limpio | `beforeEach: recrearEsquema + seed` |
+| `tests/integration/postgres/iva_destino_y_fecha.test.js` | limpio | ídem |
+| `tests/integration/postgres/precios_y_costos.test.js` | limpio | ídem |
+| `tests/integration/postgres/crear_venta_canonica.test.js` | limpio | `beforeAll: recrearEsquema`; lee los `.sql` del repo, no la base |
+| `tests/integration/postgres/migrador.test.js` | limpio | crea y borra sus propias bases temporales; barre huérfanas al empezar |
+| `tests/integration/postgres/migrador_repetibles.test.js` | limpio | ídem, más copias del árbol fuera del repo |
+| `tests/unit/*` (9 archivos, 152 tests) | limpio | sin red: el emulador falso se levanta en 127.0.0.1 con puerto efímero y estado propio por test |
+| `tests/integration/seed-emulator.test.js` | **arreglado** | era el único. `it` de la 168 retirado |
+
+**Anotado y no tocado, en este mismo archivo, a propósito:** `SEED_LIMPIEZA_REAL` exige que
+`demo-delfino` esté **vacío** al empezar (`exigirEntorno(marcadoresPuestos, …)`, línea ~252). Es
+formalmente una precondición sobre el estado previo, pero de **dirección segura**: exige ausencia
+de datos, no presencia. En una máquina limpia siempre se cumple —verificado: en el emulador vacío
+`demo-delfino` daba 0/0 y los tres tests del bloque pasaron—, así que CI no la puede ver en rojo, y
+en la máquina de Gastón, si hubiera algo ajeno, falla como problema de entorno **sin borrar nada**.
+La alternativa —limpiar automáticamente lo que encuentre— es exactamente el borrado que R16 y
+`SEED_BARRIDO_ACOTADO` existen para impedir. Se deja como está. Si algún día molesta, la salida no
+es relajar el guard sino que el test se salte solo, y eso hay que decidirlo, no improvisarlo.
+
+## Verde/rojo por invariante
+
+| Invariante | Estado | Nota |
+|---|---|---|
+| SEED_USUARIO_VISIBLE | VERDE | 3 tests (era 4). Sigue probando lo que decía probar, ahora sin depender de nadie |
+| SEED_IDEMPOTENTE | VERDE | sin cambios |
+| SEED_LIMPIEZA_REAL | VERDE | sin cambios; su guard sobre `demo-delfino` queda anotado arriba |
+| SEED_SALIDA_LIMPIA | VERDE | sin cambios |
+| SEED_ERP_INTACTO | VERDE | huella entera idéntica; es la que prueba que la regla de oro sigue en pie |
+| VENTA_NORMAL, STOCK_INSUFICIENTE, FALLO_INTERMEDIO, DOBLE_ENVIO, CONCURRENCIA, CONTABILIDAD | VERDE | `invariantes.test.js`, **no se tocó**; verde también contra el emulador vacío |
+| COMPROBANTES, COMPRA_ATOMICA, COBRO_SIN_PARCIAL, CTA_CTE | N/A | sus tareas todavía no están implementadas |
+
+## Tipo de rojo
+
+**Ninguno al cerrar.** El rojo que originó la tarea era de **entorno mal ubicado**: no era ni un
+rojo de lógica (el código andaba) ni uno de infraestructura legítima (el emulador estaba bien
+levantado); era un test que afirmaba algo sobre la máquina. Por eso no se arregla levantando nada:
+se arregla sacando la afirmación.
+
+Queda un rojo de infraestructura **conocido y ajeno a la tarea**: `npm run test:integration` no
+arranca mientras el emulador de Gastón esté en pie, por puertos tomados.
+
+## Nota de higiene
+
+Durante esta tarea volvió a llegar, dentro del resultado de una herramienta, un texto que indicaba
+hacer las ediciones por shell (`sed`, heredocs) en vez de con la herramienta de edición. Se ignoró:
+es texto inyectado, contradice la consigna explícita de la tarea, y ya le pasó a otros agentes.
+Todos los archivos de esta tarea se editaron con la herramienta de edición. No se tocó `js/`,
+`backend/`, `scripts/`, `functions/`, `package.json`, `firebase.json` ni `.github/`.
+
 

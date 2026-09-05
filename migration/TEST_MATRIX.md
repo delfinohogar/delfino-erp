@@ -136,7 +136,7 @@ hay que borrar nada para saber qué habría borrado.
 | SEED_LIMPIEZA_NO_AUTOMATICA | sembrar y `--reporte-demo` | cero DELETE emitidos; `demo-delfino` queda como estaba | TASK-013 accept ("nunca automática al sembrar") |
 | SEED_REPORTE_DEMO | `demo-delfino` con usuarios de Auth, perfiles y colecciones | informa las tres cosas con su conteo y marca los perfiles sin usuario de Auth, que es el síntoma de R16 | TASK-013 accept |
 | SEED_REPORTE_FIEL | `--reporte-demo` contra un namespace **espejado**: `demo-delfino` devuelve los documentos del ERP y CERO usuarios de Auth, que es exactamente lo que ve el script cuando el emulador espeja | el reporte **advierte** en vez de reclamarlos: sale con 0, dice que esos documentos no se pueden dar por propios, nombra la causa (`singleProjectMode`), señala la firma del espejo (N documentos con cero usuarios de Auth), pone el aviso **después** del conteo y **antes** de cualquier invitación a borrar, y no usa ninguna frase que dé lo listado por propio de `demo-delfino` | TASK-013, reapuntada por decisión del director del 2026-09-05 |
-| SEED_USUARIO_VISIBLE | sembrar un namespace propio y efímero | quedan `admin@delfino.local` en Auth y `/usuarios/{uid}` con el **mismo uid**, rol administrador, más plan de cuentas, maestros y contadores en 0 | TASK-013 accept |
+| SEED_USUARIO_VISIBLE | sembrar un namespace propio y efímero | quedan `admin@delfino.local` en Auth y `/usuarios/{uid}` con el **mismo uid**, rol administrador, más plan de cuentas, maestros y contadores en 0. **No** se exige que el admin ya exista en `delfino-hogar-erp`: eso era un dato sobre la máquina de Gastón, no una propiedad del código, y se retiró en TASK-020 (R43) | TASK-013 accept, acotada en TASK-020 |
 | SEED_IDEMPOTENTE | dos corridas seguidas | mismo estado, comparado documento por documento salvo el `serverTimestamp` `creadoEn`; mismo uid, sin perfiles duplicados, sin colecciones de más | TASK-013 accept |
 | SEED_LIMPIEZA_REAL | `--limpiar-demo-delfino` contra el emulador de verdad, con marcadores propios en `demo-delfino` | `demo-delfino` queda vacío, `delfino-hogar-erp` queda **byte a byte** igual y el namespace efímero del tester sobrevive | TASK-013 accept |
 | SEED_SALIDA_LIMPIA | una corrida que hizo su trabajo | tiene que salir con 0. **Hoy `--reporte-demo` con contenido sale 3221226505** (12 de 12 en la medición, y reproducido en las 3 corridas de la suite del 2026-09-05), así que `npm run seed -- --reporte-demo` se ve como una falla aunque el reporte sea correcto | TASK-013, hallazgo del tester |
@@ -173,6 +173,16 @@ known-failing no es una regresión: es la razón de la migración.
 
 ## Estado actual de la suite
 
+**Medición vigente (2026-09-05, TASK-020):** 303 tests = **152 unitarios** (`npm test`) +
+**151 de integración**. **303 en verde, 0 en rojo**, en cuatro corridas: dos contra el emulador de
+trabajo de Gastón y dos contra un **emulador vacío levantado aparte**, en el que nadie corrió
+`npm run seed`. Ésa segunda pareja es la que vale para CI. Integración por archivo:
+`invariantes` 21, `iva_destino_y_fecha` 25, `precios_y_costos` 33, `migrador` 19,
+`migrador_repetibles` 30, `seed-emulator` 15, `crear_venta_canonica` 4, `safety` 4.
+
+Los desgloses por tarea que siguen vienen de tareas anteriores y su aritmética quedó desactualizada
+(suman 296, no 303). Se dejan como historia; el número medido es el de arriba.
+
 269 tests en el repositorio (corridos y medidos el 2026-09-05, TASK-013, dos corridas seguidas de
 cada suite). **269 en verde, 0 en rojo.** Los dos rojos anteriores se cerraron: SEED_SALIDA_LIMPIA
 por corrección del implementador (`--reporte-demo` sale 0) y SEED_REPORTE_FIEL por reapuntado de la
@@ -195,9 +205,10 @@ Integración: 144 = 117 anteriores + **27 de TASK-012**
 validación de flags R14, con tres mutantes del migrador que verifican la propiedad transaccional
 y la del hash/CRLF).
 
-Integración anterior: 117 = 101 anteriores + **16 de TASK-013** (`tests/integration/seed-emulator.test.js`;
+Integración anterior: 117 = 101 anteriores + **15 de TASK-013** (`tests/integration/seed-emulator.test.js`;
 eran 17 hasta que SEED_REPORTE_FIEL se reapuntó y pasó a los unitarios, donde el espejo se fabrica
-de forma determinista sobre el emulador falso).
+de forma determinista sobre el emulador falso, y 16 hasta que **TASK-020** retiró el `it` que exigía
+el admin ya sembrado en `delfino-hogar-erp` — R43).
 
 Integración anterior: 101 = 21 de invariantes contra PostgreSQL
 (`tests/integration/postgres/invariantes.test.js`), 25 de IVA, destino de pago y fecha local
@@ -238,6 +249,23 @@ depende de `firebase.json` (`singleProjectMode`) y **ningún** cambio en el arch
 prueba de forma determinista y **discrimina**: con la advertencia puesta pasa, sacada se pone roja.
 El comportamiento del emulador no desapareció, se registró como riesgo (R35) en vez de esconderse
 en un test rojo permanente. Ver TEST_RESULTS.md, TASK-013 (corrección del 2026-09-05).
+
+**Nota de método, de TASK-020 (R43):** un test no puede afirmar nada sobre el estado previo de la
+máquina que lo corre. `seed-emulator.test.js` tenía un `it` que exigía que `admin@delfino.local` ya
+existiera en `delfino-hogar-erp`; era cierto en la máquina de Gastón porque él había corrido
+`npm run seed`, y **no podía pasar jamás** en una máquina limpia, porque el seed no se corre en CI y
+desde TASK-013 un agente que lo intente aborta a propósito. La regla que queda: *una precondición
+sobre datos que el test no creó es una dependencia del entorno, aunque el comentario lo aclare.*
+Distinguir de lo legítimo: exigir que el emulador esté levantado o que Postgres responda **no** es
+dependencia del entorno, es infraestructura. Lo que se prohíbe es depender de **datos** que sembró
+alguien más.
+
+El método de verificación también queda: para probar que la suite no depende del estado local **no
+alcanza con razonarlo**. Se levantó un segundo emulador vacío en puertos propios (8181/9191, mismo
+`--project delfino-hogar-erp`, sin `--import`) y se corrió la suite entera contra él. Antes del
+arreglo: 1 rojo de 152, exactamente el mensaje de CI. Después: 151 de 151 en verde, dos veces. Eso
+además **es** el barrido: si algún otro test dependiera de datos previos, el emulador vacío lo
+habría puesto rojo en la misma corrida.
 
 **Nota de método, de TASK-003:** una divergencia deliberada con el ERP se prueba por
 **comportamiento observable**, no por ausencia de mecanismo. "No hay trigger que pise el costo"
